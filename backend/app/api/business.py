@@ -205,6 +205,6 @@ def analytics_agents(month: str | None = None, db: Session = Depends(get_db, sco
 
 @router.get("/analytics/stats")
 def analytics_stats(month: str | None = None, db: Session = Depends(get_db, scope="function"),
-                    user: User = Depends(require_level("operator"))):
-    """«Статистика» (Stanislav 11-13): the old workbook's monthly blocks, staff only (like the funnel)."""
+                    user: User = Depends(require_level("superadmin"))):
+    """«Статистика» (Stanislav 11-13): the old workbook's monthly blocks, superadmins only (David)."""
     return analytics.month_stats(db, month)

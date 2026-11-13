@@ -1,6 +1,6 @@
 // «Статистика» (Stanislav 11-13, for David): the old workbook sheet «TBILISI ANALYSIS RENT AND SALE» rebuilt live from
 // the CRM — objects / clients / rent-outs / cash-in by month and by agent, client sources, prices by district × bedrooms.
-// Data: GET /api/analytics/stats?month=YYYY-MM (staff only). Block ↔ sheet mapping: docs/STATS-BLOCKS.md.
+// Data: GET /api/analytics/stats?month=YYYY-MM (superadmins only). Block ↔ sheet mapping: docs/STATS-BLOCKS.md.
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { http } from '../api/client';

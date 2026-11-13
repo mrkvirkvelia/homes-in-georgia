@@ -7,7 +7,7 @@ from tests.conftest import auth, make_client, make_user
 
 
 def test_month_stats_blocks(db, client):
-    a, b, op = make_user(db, "agent", "Ann"), make_user(db, "agent", "Bob"), make_user(db, "operator")
+    a, b, op, sa = make_user(db, "agent", "Ann"), make_user(db, "agent", "Bob"), make_user(db, "admin"), make_user(db, "superadmin")
     c = make_client(db)
     oct_, sep = datetime(2025, 10, 15, 12, tzinfo=TZ), datetime(2025, 9, 10, 12, tzinfo=TZ)
     for agent, price, area, at, dist, beds in ((a, 600, 50, oct_, "Vake", 1), (a, 1000, 100, oct_, "Vake", 2),
@@ -24,8 +24,9 @@ def test_month_stats_blocks(db, client):
                     price=comm * 2))
     db.commit()
 
-    assert client.get("/api/analytics/stats?month=2025-10", headers=auth(a)).status_code == 403
-    r = client.get("/api/analytics/stats?month=2025-10", headers=auth(op)).json()
+    for u in (a, op):  # superadmins only (Stanislav 11-13)
+        assert client.get("/api/analytics/stats?month=2025-10", headers=auth(u)).status_code == 403
+    r = client.get("/api/analytics/stats?month=2025-10", headers=auth(sa)).json()
     s = r["summary"]
     assert (s["objects"], s["clients"], s["rentouts"], s["commission"]) == (3, 4, 3, 1200)
     assert s["clients_avg_budget"] == 600 and s["budget_sum"] == 1200  # the $150000 sale price is not a rent budget

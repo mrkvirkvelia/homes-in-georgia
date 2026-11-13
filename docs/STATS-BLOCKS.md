@@ -1,7 +1,7 @@
 # «Статистика»: blocks of the old workbook → CRM (Stanislav 11-13, for David)
 
 Source: `Rent In Tbilisi Form - Statistic .xlsx` (Google Sheets export, read 2026-11-13 with openpyxl, values + formulas).
-Page: `/stats` (staff only), API: `GET /api/analytics/stats?month=YYYY-MM` (`backend/app/services/analytics.py: month_stats`).
+Page: `/stats` (superadmins only), API: `GET /api/analytics/stats?month=YYYY-MM` (`backend/app/services/analytics.py: month_stats`).
 
 ## The workbook
 

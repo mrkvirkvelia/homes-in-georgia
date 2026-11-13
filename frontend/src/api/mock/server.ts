@@ -564,6 +564,34 @@ on('GET', '/analytics/site', (_m, _b, q) => {
     perf: { loadMedian: 1840, loadP75: 3120, lcpMedian: 1520, lcpP75: 2610, n: n(600), byDevice: { mobile: { median: 2100, p75: 3400, n: n(420) }, desktop: { median: 1200, p75: 1900, n: n(180) } } },
   };
 });
+// «Статистика» (11-13): a plausible month of the old workbook's blocks
+on('GET', '/analytics/stats', (_m, _b, q) => {
+  const [y, mo] = (q.get('month') || '2025-10').split('-').map(Number);
+  const trend = Array.from({ length: 12 }, (_, i) => {
+    const k = y * 12 + mo - 1 - (11 - i); const r = 90 + ((i * 37) % 50);
+    return { month: `${Math.floor(k / 12)}-${String((k % 12) + 1).padStart(2, '0')}`, objects: 120 + ((i * 53) % 180), clients: 280 + ((i * 41) % 110),
+      budget_sum: 150000 + i * 4000, rentouts: r, commission: r * 410, platform: r * 60, agents: r * 350 };
+  });
+  const names = ['Давид', 'Ираклий', 'Виктория', 'Семён', 'Омари', 'Заза', 'Влад', 'Шафи'];
+  const agents = names.map((name, i) => {
+    const rentouts = 18 - i * 2, clients = 26 - i * 2, objects = 30 - i * 3, commission = rentouts * 480;
+    return { id: i + 1, name, objects, ppm: 10 + i * 0.4, clients, rentouts, commission, agent_amount: Math.round(commission * 0.7), platform: Math.round(commission * 0.3),
+      share: 70, obj_conv: Math.round((rentouts / objects) * 100), client_conv: Math.round((rentouts / clients) * 100), quality: Math.round(((rentouts / objects + rentouts / clients) / 2) * 100) };
+  });
+  const cell = (m: number, n: number) => ({ count: n, median: m, ppm: Math.round((m / 55) * 10) / 10 });
+  const row = (district: string, k: number) => ({ district, count: 4 * k + 6, cells: { 0: cell(400 + 20 * k, k), 1: cell(550 + 30 * k, 2 * k), 2: cell(800 + 40 * k, k + 3), 3: cell(1200 + 60 * k, 2), 4: cell(1900, 1) } });
+  const last = trend[11], before = trend[10];
+  const mom = (a: number, b: number) => Math.round(((a - b) / b) * 100);
+  return {
+    month: last.month, trend, agents,
+    summary: { objects: last.objects, objects_sale: 22, objects_avg_price: 740, objects_avg_ppm: 10.8, clients: last.clients, clients_avg_budget: 640, clients_with_budget: 272,
+      budget_sum: last.budget_sum, rentouts: last.rentouts, commission: last.commission, platform: last.platform, agents: last.agents,
+      by_type: { rent: { count: last.rentouts - 10, commission: last.commission - 8000, avg_price: 690 }, sale: { count: 10, commission: 8000, avg_price: 120000 } },
+      mom: { objects: mom(last.objects, before.objects), clients: mom(last.clients, before.clients), rentouts: mom(last.rentouts, before.rentouts), commission: mom(last.commission, before.commission) } },
+    sources: [{ source: 'Телеграмме', count: 296 }, { source: 'MyHome.ge | Ss.ge', count: 83 }, { source: 'Рекомендация', count: 4 }, { source: 'Instagram', count: 3 }],
+    prices: { objects: [row('Сабуртало', 9), row('Ваке', 6), row('Вере', 4), row('Чугурети', 3), row('Мтацминда', 2)], market: [] },
+  };
+});
 
 // ---------- content / admin ----------
 on('GET', '/ticker', () => page(F.ticker.filter((t) => t.status === 'active')));

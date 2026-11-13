@@ -201,3 +201,10 @@ def analytics_site(days: int = 7, fresh: bool = False, db: Session = Depends(get
 @router.get("/analytics/agents")
 def analytics_agents(month: str | None = None, db: Session = Depends(get_db, scope="function"), user: User = Depends(current_user)):
     return analytics.agents(db, month)
+
+
+@router.get("/analytics/stats")
+def analytics_stats(month: str | None = None, db: Session = Depends(get_db, scope="function"),
+                    user: User = Depends(require_level("operator"))):
+    """«Статистика» (Stanislav 11-13): the old workbook's monthly blocks, staff only (like the funnel)."""
+    return analytics.month_stats(db, month)

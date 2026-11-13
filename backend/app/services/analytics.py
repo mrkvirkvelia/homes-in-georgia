@@ -1,10 +1,10 @@
 """Dashboard metrics (apps-script getRentalStats / updateAnalyticsCache, now straight from Postgres)."""
 from datetime import date, datetime, timedelta, timezone
 
-from sqlalchemy import func, select
+from sqlalchemy import func, literal_column, select
 from sqlalchemy.orm import Session
 
-from app.models import (FIELD_SQL, STAFF, ChannelPost, Deal, Event, Lead, Listing, Property, PropertyListing, User,
+from app.models import (FIELD_SQL, STAFF, ChannelPost, Client, Deal, Event, Lead, Listing, Property, PropertyListing, User,
                         at_least)
 from app.services.common import TZ, now
 from app.services.reports import month_bounds
@@ -317,3 +317,124 @@ def agents(db: Session, month: str | None = None) -> list[dict]:
                     "properties": props.get(u.id, 0), "counters": counters.get(u.id),
                     "activity": _activity(act_new.get(u.id, 0), act_active.get(u.id, 0), act_deals.get(u.id, 0))})
     return out
+
+
+# ---------------------------------------------------------------- «Статистика» (Stanislav 11-13, for David)
+# The blocks of the old workbook sheet «TBILISI ANALYSIS RENT AND SALE» (docs/STATS-BLOCKS.md), live from the CRM:
+# objects = properties added that month, clients = leads created, rent-outs / cash-in = deals by Deal.month.
+STATS_MONTHS = 12
+BUDGET_MAX = 20000  # a lead's «$N» above this is a sale price, not a monthly rent budget (the sheet summed rent only)
+
+
+def _month_keys(y: int, m: int, n: int = STATS_MONTHS) -> list[tuple[int, int]]:
+    k = y * 12 + m - 1
+    return [((k - i) // 12, (k - i) % 12 + 1) for i in range(n - 1, -1, -1)]
+
+
+def _ym(col):  # literals, not binds: the same expression must match in GROUP BY
+    return func.to_char(func.timezone(literal_column(f"'{TZ}'"), col), literal_column("'YYYY-MM'"))
+
+
+def _pct(a, b):
+    return round(a / b * 100) if b else None
+
+
+def month_stats(db: Session, month: str | None = None) -> dict:
+    from sqlalchemy import Integer, case, cast
+    y, m = month_bounds(month)
+    keys = _month_keys(y, m)
+    iso = [f"{a}-{b:02d}" for a, b in keys]
+    cur, prev = iso[-1], iso[-2]
+    start = datetime(keys[0][0], keys[0][1], 1, tzinfo=TZ)
+    end = datetime(y + (m == 12), m % 12 + 1, 1, tzinfo=TZ)
+    mo_start = datetime(y, m, 1, tzinfo=TZ)
+    deal_mo = {f"{b}/{a}": f"{a}-{b:02d}" for a, b in keys}  # Deal.month «M/YYYY» → «YYYY-MM»
+
+    ppm = Property.price / func.nullif(Property.area, 0)
+    p_in = (Property.created_at >= start, Property.created_at < end)
+    budget = cast(func.substring(Lead.request, r"\$(\d{2,6})"), Integer)
+    budget = case((budget < BUDGET_MAX, budget))
+    l_in = (Lead.created_ts >= start, Lead.created_ts < end)
+    d_in = (Deal.status.in_(LIVE), Deal.month.in_(deal_mo))
+
+    # ---- by month (the sheet's month rows: Published / Client's / Rent Out / Cash In)
+    trend = {k: {"month": k, "objects": 0, "clients": 0, "budget_sum": 0, "rentouts": 0, "commission": 0, "platform": 0,
+                 "agents": 0} for k in iso}
+    for k, n in db.execute(select(_ym(Property.created_at), func.count()).where(*p_in).group_by(_ym(Property.created_at))).all():
+        trend[k]["objects"] = n
+    for k, n, b in db.execute(select(_ym(Lead.created_ts), func.count(), func.sum(budget)).where(*l_in).group_by(_ym(Lead.created_ts))).all():
+        trend[k].update(clients=n, budget_sum=round(_f(b)))
+    for mo, n, c, p, a in db.execute(select(Deal.month, func.count(), func.sum(Deal.commission_total),
+                                            func.sum(Deal.platform_amount), func.sum(Deal.agent_amount))
+                                     .where(*d_in).group_by(Deal.month)).all():
+        trend[deal_mo[mo]].update(rentouts=n, commission=round(_f(c)), platform=round(_f(p)), agents=round(_f(a)))
+    trend_l = list(trend.values())
+
+    # ---- the month: totals
+    pm = (Property.created_at >= mo_start, Property.created_at < end)
+    lm = (Lead.created_ts >= mo_start, Lead.created_ts < end)
+    dm = (Deal.status.in_(LIVE), Deal.month == f"{m}/{y}")
+    obj = db.execute(select(func.count(), func.avg(Property.price), func.avg(ppm),
+                            func.count().filter(Property.post_fields["deal"].astext == "Sale")).where(*pm)).one()
+    cl = db.execute(select(func.count(), func.avg(budget), func.count(budget)).where(*lm)).one()
+    by_type = {t: {"count": n, "commission": round(_f(c)), "avg_price": round(_f(p))} for t, n, c, p in db.execute(
+        select(Deal.deal_type, func.count(), func.sum(Deal.commission_total), func.avg(Deal.price)).where(*dm)
+        .group_by(Deal.deal_type)).all()}
+    c_, p_ = trend[cur], trend[prev]
+    summary = {
+        "objects": obj[0], "objects_sale": obj[3], "objects_avg_price": round(_f(obj[1])), "objects_avg_ppm": round(_f(obj[2]), 2),
+        "clients": cl[0], "clients_avg_budget": round(_f(cl[1])), "clients_with_budget": cl[2], "budget_sum": c_["budget_sum"],
+        "rentouts": c_["rentouts"], "commission": c_["commission"], "platform": c_["platform"], "agents": c_["agents"],
+        "by_type": by_type,
+        "mom": {k: _pct(c_[k] - p_[k], p_[k]) for k in ("objects", "clients", "rentouts", "commission")},
+    }
+
+    # ---- by agent (the sheet's agent columns + the «Quality» summary)
+    rows: dict = {}
+
+    def put(aid, **kw):
+        r = rows.setdefault(aid, {"id": aid, "objects": 0, "ppm": None, "clients": 0, "rentouts": 0, "commission": 0,
+                                  "agent_amount": 0, "platform": 0})
+        r.update(kw)
+    for aid, n, a in db.execute(select(Property.agent_id, func.count(), func.avg(ppm)).where(*pm).group_by(Property.agent_id)).all():
+        put(aid, objects=n, ppm=round(_f(a), 2) if a is not None else None)
+    for aid, n in db.execute(select(Lead.agent_id, func.count()).where(*lm).group_by(Lead.agent_id)).all():
+        put(aid, clients=n)
+    for aid, n, c, a, p in db.execute(select(Deal.agent_id, func.count(), func.sum(Deal.commission_total),
+                                             func.sum(Deal.agent_amount), func.sum(Deal.platform_amount))
+                                      .where(*dm).group_by(Deal.agent_id)).all():
+        put(aid, rentouts=n, commission=round(_f(c)), agent_amount=round(_f(a)), platform=round(_f(p)))
+    names = dict(db.execute(select(User.id, User.name).where(User.id.in_([k for k in rows if k]))).all())
+    agents_l = []
+    for aid, r in rows.items():
+        conv = [x for x in (_pct(r["rentouts"], r["objects"]), _pct(r["rentouts"], r["clients"])) if x is not None]
+        agents_l.append({**r, "name": names.get(aid) or "без агента", "share": _pct(r["agent_amount"], r["commission"]),
+                         "obj_conv": _pct(r["rentouts"], r["objects"]), "client_conv": _pct(r["rentouts"], r["clients"]),
+                         "quality": round(sum(conv) / len(conv)) if conv else None})
+    agents_l.sort(key=lambda r: (-r["commission"], -r["rentouts"], -r["clients"]))
+
+    # ---- where the clients came from (sheet: «Откуда пришел Клиент?»; old leads keep it in the note)
+    src = func.coalesce(func.substring(Lead.client_note, literal_column("E'Откуда: ([^\\n]+)'")), Client.channel)
+    sources = [{"source": s, "count": n} for s, n in db.execute(
+        select(src, func.count()).select_from(Lead).join(Client, Client.id == Lead.client_id).where(*lm).group_by(src)
+        .order_by(func.count().desc())).all()]
+
+    # ---- prices by district × bedrooms: our objects of the month and the scraped market feed
+    def grid(district, beds, price, area, *where):
+        b = func.least(beds, 4)
+        med = func.percentile_cont(0.5).within_group(price)
+        out = db.execute(select(district, b, func.count(), med, func.avg(price / func.nullif(area, 0)))
+                         .where(price > 0, district.isnot(None), *where).group_by(district, b)).all()
+        by: dict = {}
+        for d, bd, n, md, pp in out:
+            x = by.setdefault(d, {"district": d, "count": 0, "cells": {}})
+            x["count"] += n
+            x["cells"][str(bd) if bd is not None else "?"] = {"count": n, "median": round(_f(md)),
+                                                               "ppm": round(_f(pp), 1) if pp is not None else None}
+        return sorted(by.values(), key=lambda x: -x["count"])[:15]
+    utc = lambda d: d.astimezone(timezone.utc).isoformat(timespec="seconds")
+    prices = {"objects": grid(Property.district, Property.bedrooms, Property.price, Property.area, *pm,
+                              Property.post_fields["deal"].astext.is_distinct_from("Sale")),
+              "market": grid(Listing.district, Listing.bedrooms, Listing.price_usd, Listing.area,
+                             Listing.first_seen >= utc(mo_start), Listing.first_seen < utc(end))}
+    return {"month": cur, "summary": summary, "trend": trend_l, "agents": agents_l, "sources": sources, "prices": prices}

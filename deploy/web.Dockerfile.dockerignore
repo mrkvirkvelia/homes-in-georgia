@@ -1,0 +1,10 @@
+# build context is the repo root; only web/ is needed
+**/node_modules
+**/.next
+**/.git
+backend
+bot
+data
+docs
+frontend
+scripts

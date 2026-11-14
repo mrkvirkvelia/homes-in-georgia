@@ -494,7 +494,7 @@ def _apply(p: Property, data: dict):
         elif k == "shoot_at":
             v = aware(v)
         elif k == "post_fields":
-            v = clean_post_fields(v)
+            v = {**{x: y for x, y in (p.post_fields or {}).items() if x in SITE_KEYS}, **clean_post_fields(v)}
         elif k == "cadastral_code":  # only a changed code is checked: old objects keep their legacy codes
             v = p.cadastral_code if str(v or "").strip() == (p.cadastral_code or "").strip() else clean_cadastral(v)
         elif k in ("rent_from", "rent_to"):
@@ -1281,6 +1281,9 @@ POST_MANY = {
 # the old generator's sale block offers only these amenities, in this order (s-amenity); others stay out of a sale post
 SALE_AMENITIES = ("Balcony", "Terrace", "Courtyard", "ParkingPlace", "Conditioner", "Dishwasher", "Oven", "Stove", "Bath",
                   "Shower", "Elevator", "Fireplace")
+# facts of objects imported from the site (importers/site_catalog.py, read by services/site_feed.py): not in the agent's
+# generator, so a save of the generator's fields keeps them and never rejects them
+SITE_KEYS = ("service", "site_id", "site_source", "period", "approx", "months", "ppsqm_usd", "completion", "car", "site_extra")
 POST_NUM = ("tenants", "deposit", "sale_price")  # tenants max (1-N); deposit $ (default = price, 0 = none); sale price $
 
 
@@ -1301,6 +1304,8 @@ def clean_post_fields(v) -> dict:
         elif k in POST_NUM:
             n = _num(x)
             ok, x = n is not None and 0 <= n < 10 ** 9, int(n or 0)
+        elif k in SITE_KEYS:
+            ok = True
         elif k == "headline":
             ok, x = True, str(x).strip()[:120]
         elif k == "discount":  # «Скидка»: the post gets ❗️#Discount, as the agency marks a lowered price

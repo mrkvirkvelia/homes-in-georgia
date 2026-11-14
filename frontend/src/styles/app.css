@@ -872,7 +872,7 @@ html.tg .drawer { height: var(--tg-viewport-height, 100dvh); }
 .mp-grid button:hover:not(:disabled) { background: var(--brand-soft); }
 .mp-grid button.active { background: var(--brand); color: #fff; }
 .mp-grid button:disabled { color: var(--faint); background: none; cursor: default; }
-@media (max-width: 760px) { .mp-pop { right: auto; left: 0; } }
+@media (max-width: 760px) { .mp-pop { left: 0; right: 0; width: auto; } }
 .vbar > .ch-stack { display: flex; flex-direction: column; background: none; overflow: hidden; }
 .ch-stack > span, .ch-hstack > div > span { display: block; min-height: 0; min-width: 0; }
 .bar-track.ch-hstack > div { display: flex; background: none; }

@@ -169,9 +169,9 @@ userbot сохраняет его в заявку. Нужно:
 `curl -sI https://admin.hge.ge/api/public/site/photos/s45/0?p=1`. Выдача кэшируется 60 с, курсы НБГ — 12 ч.
 
 **Сайт в Caddy** (`/opt/caddy/Caddyfile`, контейнер `caddy` в сети хоста; после правки `docker restart caddy`). Пока
-DNS hge.ge не переключён, сайт открыт на тестовом адресе; при переключении тот же блок получает имя `hge.ge, www.hge.ge`:
+DNS hge.ge не переключён, сайт открыт на тестовом адресе; `hge.ge, www.hge.ge` уже в блоке — после смены A-записей у proservice.ge Caddy сам получит сертификат:
 
-    hge.91-99-162-108.sslip.io {
+    hge.ge, www.hge.ge, hge.91-99-162-108.sslip.io {
     	encode zstd gzip
     	handle /api/public/* {
     		reverse_proxy 127.0.0.1:8000

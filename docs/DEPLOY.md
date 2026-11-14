@@ -151,7 +151,7 @@ userbot сохраняет его в заявку. Нужно:
 **Миграция 0019** (`alembic upgrade head`, идёт с обычным деплоем): таблицы `sale_objects` и `cars`. Старых данных не
 трогает, откат — `alembic downgrade 0018` (таблицы удаляются вместе с объектами).
 
-**Разовый импорт** текущих объектов сайта (после миграции, один раз; `$C` как выше):
+**Разовый импорт** текущих объектов сайта — выполнен на проде 14.11.2026 (431 создано, 98 связано с объектами CRM, 3858 фото), скрипт удалён; при необходимости он есть в истории git (коммит 5cf93f9). Как запускался:
 
     $C exec api sh -c "cd backend && python oneoff_import_hge.py --dry-run"
     $C exec api sh -c "cd backend && python oneoff_import_hge.py"
@@ -167,3 +167,22 @@ userbot сохраняет его в заявку. Нужно:
 Проверка: `curl -s https://admin.hge.ge/api/public/site/listings | head -c 600` (counts по сервисам, items с `id`
 вида `o123` / `s45` / `c6` и `legacy_id` вида `rent-551776`), фото:
 `curl -sI https://admin.hge.ge/api/public/site/photos/s45/0?p=1`. Выдача кэшируется 60 с, курсы НБГ — 12 ч.
+
+**Сайт в Caddy** (`/opt/caddy/Caddyfile`, контейнер `caddy` в сети хоста; после правки `docker restart caddy`). Пока
+DNS hge.ge не переключён, сайт открыт на тестовом адресе; при переключении тот же блок получает имя `hge.ge, www.hge.ge`:
+
+    hge.91-99-162-108.sslip.io {
+    	encode zstd gzip
+    	handle /api/public/* {
+    		reverse_proxy 127.0.0.1:8000
+    	}
+    	handle {
+    		reverse_proxy 127.0.0.1:3000
+    	}
+    }
+
+**Аналитика сайта** (миграция 0020, таблица `site_events`). Сайт шлёт анонимные события (`web/src/lib/analytics.ts`)
+на `POST /api/public/site/events`, отчёт «Аналитика» в CRM (только суперадмины) считается из этой таблицы
+(`services/site_analytics.py`, та же формула, что в Apps Script `site-analytics.gs`). Ключ `SITE_ANALYTICS_KEY` и
+Apps Script больше не нужны. История из Google-таблицы «HGE Analytics» не переносится: она остаётся на старой
+странице hge.ge/stats/ до переключения DNS.

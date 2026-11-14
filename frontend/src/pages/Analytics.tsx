@@ -2,10 +2,12 @@
 // Data: GET /analytics/site → backend services/site_analytics.py (table site_events, filled by the site via /api/public/site/events).
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { useSearchParams } from 'react-router-dom';
 import { RefreshCw } from 'lucide-react';
 import { api } from '../api';
 import type { SiteListing, SiteReport } from '../api/types';
 import { Button, Card, ErrorBox, Loading, PageHead, Seg, Select } from '../components/ui';
+import { StatsPage } from './Stats';
 
 const SITE = 'https://hge.ge/';
 const PERIODS = [{ value: 1, label: 'Сегодня' }, { value: 7, label: '7 дней' }, { value: 30, label: '30 дней' }, { value: 90, label: '90 дней' }];
@@ -165,7 +167,22 @@ function Sec({ title, note, wide, children }: { title: string; note?: string; wi
 
 const listingCols = (extra: Col<SiteListing>[]): Col<SiteListing>[] => [{ t: 'Объект', v: (x) => <ListingLink id={x.id} /> }, ...extra];
 
+/** Two tabs (Stanislav 11-14): «Сайт» = the hge.ge counter, «Бизнес» = the old workbook's monthly blocks (Stats.tsx). */
 export function AnalyticsPage() {
+  const [params, setParams] = useSearchParams();
+  const tab = params.get('tab') === 'business' ? 'business' : 'site';
+  const tabs = (
+    <div className="subtabs" role="tablist">
+      {([['site', 'Сайт'], ['business', 'Бизнес']] as const).map(([k, t]) => (
+        <button key={k} type="button" role="tab" aria-selected={k === tab} className={k === tab ? 'active' : ''}
+          onClick={() => setParams(k === 'site' ? {} : { tab: k }, { replace: true })}>{t}</button>
+      ))}
+    </div>
+  );
+  return tab === 'business' ? <StatsPage tabs={tabs} /> : <SiteAnalytics tabs={tabs} />;
+}
+
+function SiteAnalytics({ tabs }: { tabs: ReactNode }) {
   const [days, setDays] = useState(7);
   const [fresh, setFresh] = useState(0);
   const q = useQuery({
@@ -184,6 +201,7 @@ export function AnalyticsPage() {
           <Seg value={days} onChange={setDays} options={PERIODS} />
           <Button variant="secondary" onClick={refresh} loading={q.isFetching} title="Обновить"><RefreshCw size={16} /><span className="hide-mobile">Обновить</span></Button>
         </>} />
+      {tabs}
 
       {q.isLoading ? <Loading /> : q.error ? (
         <div className="col"><ErrorBox error={q.error} /><div><Button variant="secondary" onClick={refresh}>Повторить</Button></div></div>

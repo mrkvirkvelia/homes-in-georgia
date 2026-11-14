@@ -40,7 +40,7 @@ function mergeLB(list: (LB[] | undefined)[]): LB[] {
   return [...m.values()].sort((a, b) => b.agent_amount - a.agent_amount);
 }
 
-function Bars({ rows, fmt = num }: { rows: { k: string; v: number; sub?: string }[]; fmt?: (v: number) => string }) {
+export function Bars({ rows, fmt = num }: { rows: { k: string; v: number; sub?: string }[]; fmt?: (v: number) => string }) {
   const max = Math.max(1, ...rows.map((r) => r.v));
   if (!rows.length) return <Empty text="Нет данных" />;
   return (
@@ -55,7 +55,7 @@ function Bars({ rows, fmt = num }: { rows: { k: string; v: number; sub?: string 
     </div>
   );
 }
-function VBars({ rows, fmt = num }: { rows: { k: string; v: number }[]; fmt?: (v: number) => string }) {
+export function VBars({ rows, fmt = num }: { rows: { k: string; v: number }[]; fmt?: (v: number) => string }) {
   const max = Math.max(1, ...rows.map((r) => r.v));
   if (!rows.length) return <Empty text="Нет данных" />;
   return (

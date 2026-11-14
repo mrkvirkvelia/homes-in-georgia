@@ -8,6 +8,7 @@ import type {
   Birthday, Invite, InviteInfo,
   AgentStat, AppConfig, AuthOut, Cabinet, Client, Contract, ContractCloseReason, ContractDraftIn, ContractIn, CounterRow, Dashboard, Deal, DealCalcIn, DealCalcOut,
   EventItem, Evaluation, Lead, LeadContract, LeadStatus, DealPrefill, Listing, NewsItem, Owner, Page, Property, RecommendedAgent, Report, ReportKind,
+  Offer, OfferKind, OfferStatus,
   Settings, SiteReport, Source, SourceSchedule, TickerMessage, UserbotStatus, User, ListingsStats, Elsewhere, PostDraft, ChangeRequest, DealPick, Demand, GeoHit,
 } from './types';
 
@@ -126,6 +127,22 @@ export const api = {
     fastTrack: (id: number) => http.post<Property & { sent: number }>(`/properties/${id}/fast-track`),
     checkDuplicate: (b: { phone?: string; address?: string; url?: string; cadastral?: string }) =>
       http.post<{ status?: string; matches?: unknown[]; [k: string]: unknown }>('/properties/check-duplicate', b),
+  },
+
+  /** sale objects / cars of the site hge.ge */
+  offers: {
+    list: (kind: OfferKind, q?: { status?: OfferStatus; q?: string }) => http.get<Page<Offer>>(`/offers/${kind}`, { ...q, limit: 500 }),
+    get: (kind: OfferKind, id: number) => http.get<Offer>(`/offers/${kind}/${id}`),
+    create: (kind: OfferKind, b: Record<string, unknown>) => http.post<Offer>(`/offers/${kind}`, b),
+    update: (kind: OfferKind, id: number, b: Record<string, unknown>) => http.patch<Offer>(`/offers/${kind}/${id}`, b),
+    setStatus: (kind: OfferKind, id: number, status: OfferStatus) => http.post<Offer>(`/offers/${kind}/${id}/status`, { status }),
+    upload: (kind: OfferKind, id: number, file: File, onProgress: (f: number) => void) => {
+      const fd = new FormData();
+      fd.append('files', file);
+      return uploadWithProgress<Offer & { uploaded_keys: string[] }>(`/offers/${kind}/${id}/media`, fd, onProgress);
+    },
+    order: (kind: OfferKind, id: number, keys: string[]) => http.put<Offer>(`/offers/${kind}/${id}/media/order`, { keys }),
+    deleteFile: (kind: OfferKind, id: number, key: string) => http.del<Offer>(`/offers/${kind}/${id}/media?key=${encodeURIComponent(key)}`),
   },
 
   changeRequests: {

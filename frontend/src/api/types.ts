@@ -746,3 +746,14 @@ export interface SiteReport {
   errors: SiteError[];
   perf: { loadMedian: number; loadP75: number; lcpMedian: number; lcpP75: number; n: number; byDevice: Record<string, { median: number; p75: number; n: number }> };
 }
+
+/** «Продажа» (sale_objects) and «Авто» (cars): the objects of the site hge.ge besides rent (backend api/offers.py). */
+export type OfferKind = 'sale' | 'car';
+export type OfferStatus = 'draft' | 'published' | 'archived';
+export interface Offer {
+  id: number; item_id: string; public: boolean; status: OfferStatus; title: string; description: string | null;
+  price: number | null; currency: string; lat: number | null; lng: number | null; is_exclusive: boolean;
+  photos: string[]; video: string | null; post_url: string | null; site_id: string | null; agent_id: number | null;
+  published_at: string | null; created_at: string; updated_at: string;
+  [field: string]: unknown;  // the kind's own columns (service, rooms, … / deal, year, …)
+}

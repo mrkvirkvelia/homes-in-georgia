@@ -1281,9 +1281,9 @@ POST_MANY = {
 # the old generator's sale block offers only these amenities, in this order (s-amenity); others stay out of a sale post
 SALE_AMENITIES = ("Balcony", "Terrace", "Courtyard", "ParkingPlace", "Conditioner", "Dishwasher", "Oven", "Stove", "Bath",
                   "Shower", "Elevator", "Fireplace")
-# facts of objects imported from the site (importers/site_catalog.py, read by services/site_feed.py): not in the agent's
+# facts of rent objects imported from the site (oneoff_import_hge.py, read by services/site_feed.py): not in the agent's
 # generator, so a save of the generator's fields keeps them and never rejects them
-SITE_KEYS = ("service", "site_id", "site_source", "period", "approx", "months", "ppsqm_usd", "completion", "car", "site_extra")
+SITE_KEYS = ("service", "site_id", "period", "approx", "months", "site_extra")
 POST_NUM = ("tenants", "deposit", "sale_price")  # tenants max (1-N); deposit $ (default = price, 0 = none); sale price $
 
 

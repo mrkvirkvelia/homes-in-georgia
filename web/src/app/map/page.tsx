@@ -1,8 +1,8 @@
 // Made with Claude (Anthropic) · © Homes in Georgia · Created by Irakli Kvirkvelia
 import type { Metadata } from 'next';
-import LegacyView from '@/components/LegacyView';
-import { loadRequest, applyRequest } from '@/lib/server';
-import { t } from '@/legacy/i18n.js';
+import MapApp from '@/components/MapApp';
+import ErrorView from '@/components/ErrorView';
+import { getRequest } from '@/lib/server';
 
 export const metadata: Metadata = {
   title: 'Map · Homes in Georgia',
@@ -11,10 +11,8 @@ export const metadata: Metadata = {
   openGraph: { title: 'Homes in Georgia — map of listings', description: 'Rentals, sales, commercial property and cars in Tbilisi on one map.' },
 };
 
-// The map is drawn in the browser (Leaflet). Until then: a placeholder, and no footer under it.
+// The map is drawn in the browser (Leaflet); the controls and the counts come with the page.
 export default async function MapPage() {
-  const r = await loadRequest();
-  applyRequest(r);
-  const html = `<style>.footer{display:none}</style><div class="container page-pad"><h1 class="sr-only">${t('map.title')}</h1><p class="loading-line" role="status">${t('loading')}</p></div>`;
-  return <LegacyView kind="map" html={html} />;
+  const { feed } = await getRequest();
+  return feed ? <MapApp items={feed.items} /> : <ErrorView />;
 }

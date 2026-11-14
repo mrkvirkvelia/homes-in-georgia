@@ -1,13 +1,13 @@
 import type { MetadataRoute } from 'next';
 import { fetchFeed } from '@/lib/api';
-import { SERVICES } from '@/legacy/config.js';
+import { SERVICE_IDS } from '@/lib/config';
 
 export const dynamic = 'force-dynamic';
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const base = 'https://hge.ge';
   const feed = await fetchFeed().catch(() => null);
-  const live = Object.keys(SERVICES).filter(s => (feed?.counts?.[s] || 0) > 0);
+  const live = SERVICE_IDS.filter(s => (feed?.counts?.[s] || 0) > 0);
   return [
     { url: base, changeFrequency: 'hourly', priority: 1 },
     { url: `${base}/all`, changeFrequency: 'hourly', priority: 0.8 },

@@ -1,24 +1,20 @@
 // Made with Claude (Anthropic) · © Homes in Georgia · Created by Irakli Kvirkvelia
-// Per-request setup of the shared render modules (language, currency, which services are live).
-// The render functions are synchronous and keep these in module variables, so always call
-// applyRequest() right before building markup, with no `await` in between.
+// Per-request setup for server components: the visitor's language and currency (cookies hig_lang / hig_cur, else
+// Accept-Language), the feed, and the formatter built from them. Cached, so every component of a request shares it.
+import { cache } from 'react';
 import { cookies, headers } from 'next/headers';
-import { setLang, langFromHeader } from '@/legacy/i18n.js';
-import { setCurrency } from '@/legacy/store.js';
-import { markLive } from '@/legacy/config.js';
-import { fetchFeed, type Feed } from './api';
+import { fetchFeed } from './api';
+import { createFmt, type Fmt } from './format';
+import { isLang, langFromHeader } from './i18n';
+import { SERVICE_IDS } from './config';
+import type { Cur, Feed, Lang, ServiceId } from './types';
 
-export interface Req { lang: string; cur: string; data: Feed | null }
+export interface Request { lang: Lang; cur: Cur; feed: Feed | null; fmt: Fmt; live: ServiceId[] }
 
-export async function loadRequest(): Promise<Req> {
-  const [ck, hd, data] = await Promise.all([cookies(), headers(), fetchFeed().catch(() => null)]);
-  const lang = ck.get('hig_lang')?.value ?? langFromHeader(hd.get('accept-language'));
-  const cur = ck.get('hig_cur')?.value === 'GEL' ? 'GEL' : 'USD';
-  return { lang, cur, data };
-}
-
-export function applyRequest(r: Req) {
-  setLang(r.lang, { persist: false });
-  setCurrency(r.cur, { persist: false });
-  if (r.data) markLive(r.data.counts);
-}
+export const getRequest = cache(async (): Promise<Request> => {
+  const [ck, hd, feed] = await Promise.all([cookies(), headers(), fetchFeed().catch(() => null)]);
+  const saved = ck.get('hig_lang')?.value;
+  const lang: Lang = isLang(saved) ? saved : langFromHeader(hd.get('accept-language'));
+  const cur: Cur = ck.get('hig_cur')?.value === 'GEL' ? 'GEL' : 'USD';
+  return { lang, cur, feed, fmt: createFmt(lang, cur, feed?.rates_usd), live: SERVICE_IDS.filter(s => (feed?.counts?.[s] || 0) > 0) };
+});

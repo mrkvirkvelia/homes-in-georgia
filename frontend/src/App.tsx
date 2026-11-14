@@ -4,6 +4,7 @@ import type { Role } from './api/types';
 import { ADMIN_ROLES, DAILY_RENT_ROLES, STAFF_ROLES, SUPER_ROLES } from './api/types';
 import { useAuth } from './auth/AuthContext';
 import { Empty, Loading } from './components/ui';
+import { OfferCardPage, OffersPage } from './features/offers/Offers';
 import { AppLayout } from './layout/AppLayout';
 import { AdminPage } from './pages/Admin';
 import { AnalyticsPage } from './pages/Analytics';
@@ -71,6 +72,7 @@ function NotFound() {
 }
 
 const STAFF = STAFF_ROLES;
+const AGENT_UP: Role[] = [...STAFF_ROLES, 'agent'];  // the site's own objects: recruits no (backend api/offers.py)
 
 export function App() {
   return (
@@ -85,6 +87,10 @@ export function App() {
         <Route index element={<DashboardPage />} />
         <Route path="objects" element={<ObjectsPage />} />
         <Route path="objects/:id" element={<PropertyPage />} />
+        <Route path="sale" element={<RequireAuth roles={AGENT_UP}><OffersPage kind="sale" /></RequireAuth>} />
+        <Route path="sale/:id" element={<RequireAuth roles={AGENT_UP}><OfferCardPage kind="sale" /></RequireAuth>} />
+        <Route path="cars" element={<RequireAuth roles={AGENT_UP}><OffersPage kind="car" /></RequireAuth>} />
+        <Route path="cars/:id" element={<RequireAuth roles={AGENT_UP}><OfferCardPage kind="car" /></RequireAuth>} />
         <Route path="leads" element={<LeadsPage />} />
         <Route path="leads/:id" element={<LeadPage />} />
         <Route path="deals" element={<DealsPage />} />

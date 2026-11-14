@@ -1,9 +1,13 @@
 // Made with Claude (Anthropic) · © Homes in Georgia · Created by Irakli Kvirkvelia
-import LegacyView from '@/components/LegacyView';
-import { loadRequest, applyRequest } from '@/lib/server';
-import { notFoundMarkup } from '@/legacy/pages/misc.js';
+import Link from 'next/link';
+import { Empty } from '@/components/Empty';
+import { getRequest } from '@/lib/server';
 
 export default async function NotFound() {
-  applyRequest(await loadRequest());
-  return <LegacyView kind="notfound" html={notFoundMarkup()} />;
+  const { fmt } = await getRequest();
+  return (
+    <section className="container page-pad">
+      <Empty title={fmt.t('nf.title')}><Link className="btn btn-primary" href="/">{fmt.t('nf.home')}</Link></Empty>
+    </section>
+  );
 }

@@ -3,13 +3,10 @@ import mimetypes
 
 from fastapi import APIRouter, Depends, Query, Response
 from fastapi.responses import FileResponse, RedirectResponse
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app import storage
 from app.db import get_db
-from app.models import PropertyMedia
-from app.services import properties as P
 from app.services import site_feed
 from app.services.errors import DomainError
 
@@ -45,23 +42,18 @@ def listing(ident: str, response: Response, db: Session = Depends(get_db, scope=
     return d
 
 
-@public.get("/photos/{pid}/{n}")
-def photo(pid: int, n: int, preview: bool = Query(False, alias="p"), db: Session = Depends(get_db, scope="function")):
-    if site_feed.public_property(db, f"o{pid}") is None:
-        raise DomainError("not_found", "photo not found")
-    keys = site_feed.photo_keys(db, pid)
+@public.get("/photos/{ident}/{n}")
+def photo(ident: str, n: int, preview: bool = Query(False, alias="p"), db: Session = Depends(get_db, scope="function")):
+    o = site_feed.find(db, ident)
+    keys = site_feed.keys(db, o) if o else []
     if not 0 <= n < len(keys):
         raise DomainError("not_found", "photo not found")
     return _file(keys[n], preview)
 
 
-@public.get("/video/{pid}")
-def video(pid: int, db: Session = Depends(get_db, scope="function")):
-    if site_feed.public_property(db, f"o{pid}") is None:
-        raise DomainError("not_found", "video not found")
-    key = db.scalar(select(PropertyMedia.path).where(PropertyMedia.property_id == pid, PropertyMedia.kind == "video",
-                                                     ~PropertyMedia.path.startswith(P.PRIVATE_PREFIX))
-                    .order_by(PropertyMedia.position, PropertyMedia.id).limit(1))
-    if not key:
+@public.get("/video/{ident}")
+def video(ident: str, db: Session = Depends(get_db, scope="function")):
+    o = site_feed.find(db, ident)
+    if not o or not (key := site_feed.video_key(db, o)):
         raise DomainError("not_found", "video not found")
     return _file(key)

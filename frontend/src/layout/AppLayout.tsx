@@ -2,8 +2,8 @@ import { useState } from 'react';
 import { Link, Navigate, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import {
-  BedDouble, Building2, CalendarDays, ChartLine, Handshake, CircleUser, ClipboardList, Eye, FileText, Home, Inbox, KeyRound, LogOut, Menu, Plus, Search,
-  Settings, Trophy, UsersRound,
+  BedDouble, Building2, CarFront, CalendarDays, ChartLine, Handshake, CircleUser, ClipboardList, Eye, FileText, Home, Inbox, KeyRound, LogOut, Menu, Plus, Search,
+  Settings, Tag, Trophy, UsersRound,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { ADMIN_ROLES, DAILY_RENT_ONLY, DAILY_RENT_ROLES, STAFF_ROLES, SUPER_ROLES, atLeast } from '../api/types';
@@ -24,6 +24,8 @@ export const NAV: NavItem[] = [
   { to: '/leads', label: 'Заявки', icon: Inbox },
   { to: '/contracts', label: 'Договоры', icon: FileText, roles: AGENT_UP },
   { to: '/calendar', label: 'Календарь', icon: CalendarDays },
+  { to: '/sale', label: 'Продажа', icon: Tag, roles: AGENT_UP },  // hge.ge: sale / new buildings / commercial for sale
+  { to: '/cars', label: 'Авто', icon: CarFront, roles: AGENT_UP },
   { to: '/clients', label: 'Клиенты', icon: UsersRound, roles: STAFF },
   { to: '/owners', label: 'Собственники', icon: KeyRound, roles: STAFF },
   { to: '/team', label: 'Команда', icon: Trophy },

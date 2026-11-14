@@ -1,4 +1,4 @@
-"""The one-off hge.ge import (oneoff_import_hge.py), the public feed (services/site_feed.py, api/site.py) and the CRM
+"""The public feed (services/site_feed.py, api/site.py) and the CRM
 screens' API for sale objects and cars (api/offers.py)."""
 import io
 import json
@@ -6,7 +6,7 @@ import json
 import pytest
 from PIL import Image
 
-import oneoff_import_hge as imp
+from tests import hge_import as imp
 from app.models import Car, Owner, Property, PropertyMedia, PropertyPublication, SaleObject
 from app.services import catalog, site_feed
 from tests.conftest import auth, make_user
@@ -69,52 +69,6 @@ def by_site(db, sid):
 
 def sale(db, sid):
     return db.query(SaleObject).filter_by(site_id=sid).one()
-
-
-def test_import_routes_items_to_their_tables(db):
-    r = run(db, [*ITEMS, CAR_SALE, NEW, COMM_SALE, COMM_RENT])
-    assert sum(r["created"].values()) == 7 and sum(r["skipped"].values()) == 0
-    assert r["photos"] == {"rent": 2, "sale": 1, "car-rent": 1, "car-sale": 1, "new": 1, "commercial": 2}
-    assert db.query(Property).count() == 2 and db.query(SaleObject).count() == 3 and db.query(Car).count() == 2
-    p = by_site(db, "rent-551776")
-    assert (p.address, p.bedrooms, p.floor, p.total_floors, p.status, p.owner_id, p.is_exclusive) == (
-        "5 Chavchavadze Ave", 2, 3, 9, "published", None, True)
-    assert p.post_message_id == "551776" and p.post_fields["service"] == "rent" and "deal" not in p.post_fields
-    assert p.post_fields["heating"] == "CentralHeating" and p.post_fields["site_extra"] == {"amenities": ["pool"]}
-    assert db.query(PropertyPublication).filter_by(property_id=p.id, url=RENT["post_url"]).count() == 1
-    assert by_site(db, "commercial-4").post_fields["service"] == "commercial"  # commercial for rent stays a Property
-    s = sale(db, "sale-77")
-    assert (s.service, s.title, s.condition, s.status, s.agent_id, len(s.photos)) == ("sale", "1 Sale St", "white_frame", "published", None, 1)
-    assert s.photos[0].startswith(f"offers/s{s.id}/") and s.published_at is not None
-    n = sale(db, "new-5")
-    assert (n.service, n.completion, n.amenities, n.building) == ("new", "Q4 2027", ["balcony", "pool"], "new")
-    c = db.query(Car).filter_by(site_id="car-rent-9").one()
-    assert (c.deal, c.period, c.pickup, c.year, c.seats) == ("rent", "day", "8 Arakishvili St", 2022, 5)
-    assert db.query(Car).filter_by(site_id="car-sale-18").one().mileage == 76538
-
-
-def test_import_skips_known_ids_and_dry_run_writes_nothing(db):
-    run(db, dry_run=True)
-    assert db.query(Property).count() == db.query(SaleObject).count() == db.query(Car).count() == 0
-    run(db)
-    r2 = run(db)
-    assert sum(r2["created"].values()) == 0 and sum(r2["skipped"].values()) == 3 and sum(r2["photos"].values()) == 0
-    assert db.query(Property).count() == 1 and db.query(PropertyMedia).count() == 2
-
-
-def test_dedupe_by_post_url_keeps_existing_fields(db):
-    agent = make_user(db, "agent", username="zaza", phone="+995 555 1")
-    old = Property(post_url=RENT["post_url"], status="published", address="My own address", price=900, agent_id=agent.id,
-                   post_fields={"heating": "GasHeating"})
-    db.add(old)
-    db.commit()
-    r = run(db, [RENT])
-    assert r["matched"] == {"rent": 1} and r["created"] == {}
-    db.expire_all()
-    p = db.get(Property, old.id)
-    assert (p.address, float(p.price), p.agent_id) == ("My own address", 900, agent.id)
-    assert p.post_fields == {"heating": "GasHeating", "service": "rent", "site_id": "rent-551776"}
-    assert db.query(Property).count() == 1 and db.query(PropertyMedia).count() == 2  # it had no photos
 
 
 def test_feed_only_public_three_sources(db, client):

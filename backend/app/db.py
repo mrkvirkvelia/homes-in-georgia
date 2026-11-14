@@ -8,7 +8,9 @@ class Base(DeclarativeBase):
     pass
 
 
-engine = create_engine(settings.DATABASE_URL, pool_pre_ping=True, future=True)
+# More connections than FastAPI's 40 worker threads: get_db's cleanup itself needs a free thread, so with a smaller pool a
+# burst of photo requests (site + CRM thumbnails) left every thread waiting for a connection nobody could return (deadlock).
+engine = create_engine(settings.DATABASE_URL, pool_pre_ping=True, future=True, pool_size=10, max_overflow=40, pool_timeout=10)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
 
 

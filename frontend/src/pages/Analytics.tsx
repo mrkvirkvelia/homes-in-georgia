@@ -179,12 +179,11 @@ export function AnalyticsPage() {
 
   return (
     <div className="col">
-      <PageHead label="Только для суперадминов" title="Аналитика"
+      <PageHead label="Сайт hge.ge" title="Аналитика"
         actions={<>
           <Seg value={days} onChange={setDays} options={PERIODS} />
           <Button variant="secondary" onClick={refresh} loading={q.isFetching} title="Обновить"><RefreshCw size={16} /><span className="hide-mobile">Обновить</span></Button>
         </>} />
-      <p className="muted" style={{ marginTop: -6 }}>Сайт hge.ge · свой счётчик, без Google и cookie. Данные обновляются раз в 2 минуты.</p>
 
       {q.isLoading ? <Loading /> : q.error ? (
         <div className="col"><ErrorBox error={q.error} /><div><Button variant="secondary" onClick={refresh}>Повторить</Button></div></div>
@@ -259,7 +258,7 @@ function Report({ r }: { r: SiteReport }) {
         <Sec title="Переходы в соцсети и каналы"><Bars data={r.socialBy} /></Sec>
         <Sec title="Устройства"><Bars data={r.devices} map={DEV} /></Sec>
         <Sec title="Язык сайта"><Bars data={r.langs} map={LANG} /></Sec>
-        <Sec title="Скорость сайта" note="Обычно: половина посетителей быстрее; у медленных: четверть медленнее">
+        <Sec title="Скорость сайта">
           <div className="sa-perf">
             <div><span>Загрузка (обычно)</span><b>{sec(perf.loadMedian)}</b></div>
             <div><span>Загрузка (у медленных)</span><b>{sec(perf.loadP75)}</b></div>
@@ -267,7 +266,7 @@ function Report({ r }: { r: SiteReport }) {
             {Object.entries(perf.byDevice || {}).map(([k, x]) => <div key={k}><span>{label(DEV, k)}</span><b>{sec(x.median)}</b></div>)}
           </div>
         </Sec>
-        <Sec wide title="Ошибки у посетителей" note="Если здесь что-то появилось, покажите это Claude">
+        <Sec wide title="Ошибки у посетителей">
           <Table rows={r.errors} cols={[
             { t: 'Ошибка', v: (x) => <code>{x.name}</code> },
             { t: 'Где', v: (x) => x.page },

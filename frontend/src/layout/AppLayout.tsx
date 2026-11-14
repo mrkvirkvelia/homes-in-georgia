@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Link, Navigate, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import {
-  BedDouble, Building2, CarFront, CalendarDays, ChartLine, Handshake, CircleUser, ClipboardList, Eye, FileText, Home, Inbox, KeyRound, LogOut, Menu, Plus, Search,
+  BedDouble, Building2, CalendarDays, ChartLine, Handshake, CircleUser, ClipboardList, Eye, FileText, Home, Inbox, LogOut, Menu, Plus, Search,
   Settings, Tag, Trophy, UsersRound,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
@@ -12,10 +12,10 @@ import { itemsOf, IS_MOCK } from '../api/client';
 import type { Role } from '../api/types';
 import { useAuth, useTgBackButton } from '../auth/AuthContext';
 import { useScrollMemory } from './back';
-import { Avatar, Badge, Drawer, Modal } from '../components/ui';
+import { Avatar, Badge, Drawer, Modal, Seg } from '../components/ui';
 import { ROLE_LABEL } from '../lib/format';
 
-interface NavItem { to: string; label: string; icon: LucideIcon; roles?: Role[] }
+interface NavItem { to: string; label: string; icon: LucideIcon; roles?: Role[]; also?: string[] }  // also: sibling pages of one item
 const STAFF = STAFF_ROLES;
 const AGENT_UP: Role[] = [...STAFF_ROLES, 'agent'];  // recruits: no contracts or deals (Irakli 11-12)
 export const NAV: NavItem[] = [
@@ -24,10 +24,9 @@ export const NAV: NavItem[] = [
   { to: '/leads', label: 'Заявки', icon: Inbox },
   { to: '/contracts', label: 'Договоры', icon: FileText, roles: AGENT_UP },
   { to: '/calendar', label: 'Календарь', icon: CalendarDays },
-  { to: '/sale', label: 'Продажа', icon: Tag, roles: AGENT_UP },  // hge.ge: sale / new buildings / commercial for sale
-  { to: '/cars', label: 'Авто', icon: CarFront, roles: AGENT_UP },
-  { to: '/clients', label: 'Клиенты', icon: UsersRound, roles: STAFF },
-  { to: '/owners', label: 'Собственники', icon: KeyRound, roles: STAFF },
+  // hge.ge: sale / new buildings / commercial for sale + cars, one item with a switch (SubNav) on the page
+  { to: '/sale', label: 'Продажа и авто', icon: Tag, roles: AGENT_UP, also: ['/cars'] },
+  { to: '/clients', label: 'Люди', icon: UsersRound, roles: STAFF, also: ['/owners'] },
   { to: '/team', label: 'Команда', icon: Trophy },
   { to: '/reports', label: 'Отчёты', icon: ClipboardList },
   { to: '/analytics', label: 'Аналитика', icon: ChartLine, roles: SUPER_ROLES },  // hge.ge counter, superadmins only
@@ -99,6 +98,7 @@ export function AppLayout() {
   const bottom = items.slice(0, 4);
   const rest = items.slice(4);
   const logout = () => { signOut(); navigate('/login'); };
+  const onSibling = (n: NavItem) => !!n.also?.some((p) => loc.pathname.startsWith(p));
 
   return (
     <div className="shell">
@@ -112,7 +112,7 @@ export function AppLayout() {
         </Link>
         <nav className="nav">
           {items.map((n) => (
-            <NavLink key={n.to} to={n.to} end={n.to === '/'} title={n.label}>
+            <NavLink key={n.to} to={n.to} end={n.to === '/'} title={n.label} className={({ isActive }) => (isActive || onSibling(n) ? 'active' : '')}>
               <n.icon size={19} /><span>{n.label}</span>
             </NavLink>
           ))}
@@ -143,7 +143,7 @@ export function AppLayout() {
       </div>
       <nav className="bottom-nav">
         {bottom.map((n) => (
-          <NavLink key={n.to} to={n.to} end={n.to === '/'}><n.icon size={20} />{n.label}</NavLink>
+          <NavLink key={n.to} to={n.to} end={n.to === '/'} className={({ isActive }) => (isActive || onSibling(n) ? 'active' : '')}><n.icon size={20} />{n.label}</NavLink>
         ))}
         <button onClick={() => setMore(true)}><Menu size={20} />Ещё</button>
       </nav>
@@ -160,4 +160,12 @@ export function AppLayout() {
       </Drawer>
     </div>
   );
+}
+
+/** The switch between the sibling pages of one menu item (Продажа | Авто, Клиенты | Собственники). */
+export function SubNav({ items }: { items: { to: string; label: string }[] }) {
+  const loc = useLocation();
+  const navigate = useNavigate();
+  const cur = items.find((i) => loc.pathname.startsWith(i.to))?.to ?? items[0].to;
+  return <Seg value={cur} options={items.map((i) => ({ value: i.to, label: i.label }))} onChange={(to) => navigate(to)} />;
 }

@@ -8,6 +8,7 @@ import { api } from '../../api';
 import { itemsOf, mediaUrl, thumbUrl } from '../../api/client';
 import type { Offer, OfferKind, OfferStatus } from '../../api/types';
 import { errText, useToast } from '../../components/toast';
+import { SubNav } from '../../layout/AppLayout';
 import { Badge, Button, Card, DistrictSelect, Empty, ErrorBox, Field, Input, Loading, PageHead, Select, Switch, Tabs, Textarea } from '../../components/ui';
 import { money } from '../../lib/format';
 import { pool, shrinkPhoto } from '../../lib/upload';
@@ -93,6 +94,7 @@ export function OffersPage({ kind }: { kind: OfferKind }) {
   const rows = itemsOf(list.data);
   return (
     <div className="col gap-lg">
+      <SubNav items={[{ to: '/sale', label: 'Продажа' }, { to: '/cars', label: 'Авто' }]} />
       <PageHead label={m.label} title={m.title} actions={<Button onClick={() => nav(`${m.path}/new`)}><Plus size={16} />{m.add}</Button>} />
       <Card>
         <div className="col gap">

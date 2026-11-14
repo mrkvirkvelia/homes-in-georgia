@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { BackLink } from '../layout/back';
+import { SubNav } from '../layout/AppLayout';
 import { Heart, Plus, Search, ThumbsDown } from 'lucide-react';
 import { api } from '../api';
 import { itemsOf } from '../api/client';
@@ -143,6 +144,7 @@ export function ClientsPage() {
   const items = itemsOf(data);
   return (
     <>
+      <SubNav items={[{ to: '/clients', label: 'Клиенты' }, { to: '/owners', label: 'Собственники' }]} />
       <PageHead title="Клиенты" />
       <SearchBox value={q} onChange={setQ} placeholder="Имя, @username, телефон" />
       {isLoading ? <Loading /> : error ? <ErrorBox error={error} /> : items.length === 0 ? <Empty text="Клиентов не найдено" /> : (
@@ -202,6 +204,7 @@ export function OwnersPage() {
   const cur = open && open !== 'new' ? open : null;
   return (
     <>
+      <SubNav items={[{ to: '/clients', label: 'Клиенты' }, { to: '/owners', label: 'Собственники' }]} />
       <PageHead title="Собственники" actions={<Button onClick={() => setOpen('new')}><Plus size={16} />Добавить</Button>} />
       <Seg value={scope} onChange={setScope} options={[{ value: 'base', label: 'В базе' }, { value: 'unlinked', label: 'Без привязки' }, { value: 'agents', label: 'Агенты' }]} />
       <div className="muted" style={{ fontSize: 12 }}>

@@ -1,13 +1,15 @@
-"""Public read-only API for the site hge.ge (no login; same origin behind Caddy). Logic: services/site_feed.py."""
+"""Public API for the site hge.ge (no login; same origin behind Caddy). Logic: services/site_feed.py."""
 import mimetypes
 
-from fastapi import APIRouter, Depends, Query, Response
+import json
+
+from fastapi import APIRouter, Depends, Query, Request, Response
 from fastapi.responses import FileResponse, RedirectResponse
 from sqlalchemy.orm import Session
 
 from app import storage
 from app.db import get_db
-from app.services import site_feed
+from app.services import site_analytics, site_feed
 from app.services.errors import DomainError
 
 public = APIRouter(prefix="/public/site", tags=["site"])
@@ -57,3 +59,14 @@ def video(ident: str, db: Session = Depends(get_db, scope="function")):
     if not o or not (key := site_feed.video_key(db, o)):
         raise DomainError("not_found", "video not found")
     return _file(key)
+
+
+@public.post("/events")
+async def events(request: Request, db: Session = Depends(get_db, scope="function")):
+    """The site's anonymous visitor counter (web/src/lib/analytics.ts; text/plain or sendBeacon, so no preflight)."""
+    body = await request.body()
+    try:
+        data = json.loads(body[:65536]) if len(body) <= 65536 else {}
+    except ValueError:
+        data = {}
+    return {"ok": True, "n": site_analytics.record(db, data.get("events") if isinstance(data, dict) else None)}

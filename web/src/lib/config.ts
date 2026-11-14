@@ -7,7 +7,7 @@ export const SITE_URL = 'https://hge.ge';
 export const CONTACT = { telegram: 'David_Tibelashvili', phone: '+995 599 20 67 16' };
 
 // Our own site analytics (apps-script/site-analytics.gs). Empty = switched off.
-export const ANALYTICS_URL = 'https://script.google.com/macros/s/AKfycbwPOZbRvKr2D1j61bn-fRwVeRjb-tNH6X31XNKoU5gKXQ_PcU6Ad6YFn1n7kxAKFw7voA/exec';
+export const ANALYTICS_URL = '/api/public/site/events'; // our own counter in the CRM DB (backend services/site_analytics.py)
 
 // Public Telegram channel of every direction.
 export const CHANNELS: Record<ServiceId, string> = {

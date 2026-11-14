@@ -1,86 +1,68 @@
-"""CRM «Аналитика»: the hge.ge counter report, proxied with the server-side key, for superadmins only."""
-import httpx
+"""hge.ge's own counter: the site posts events to /api/public/site/events, CRM «Аналитика» (superadmins only) reads the report."""
+import json
+
 import pytest
 
-from app.config import settings
+from app.models import SiteEvent
 from app.services import site_analytics
 from tests.conftest import auth, make_user
 
-REPORT = {"period": {"days": 7}, "totals": {"visitors": 12, "contacts": 3}, "prev": {"visitors": 10, "contacts": 1}, "daily": []}
 
-
-class Resp:
-    def __init__(self, data):
-        self.data = data
-
-    def json(self):
-        if isinstance(self.data, Exception):
-            raise self.data
-        return self.data
-
-
-@pytest.fixture
-def script(monkeypatch):
-    """Stand-in for the Apps Script web app; records what the CRM asked."""
-    calls = []
-    answer = {"data": {"ok": True, "report": REPORT}}
-
-    def get(url, params=None, **kw):
-        calls.append({"url": url, **(params or {})})
-        if isinstance(answer["data"], httpx.HTTPError):
-            raise answer["data"]
-        return Resp(answer["data"])
-
-    monkeypatch.setattr(site_analytics.httpx, "get", get)
-    monkeypatch.setattr(settings, "SITE_ANALYTICS_KEY", "k" * 24)
+@pytest.fixture(autouse=True)
+def _no_cache():
     site_analytics.clear_cache()
-    yield calls, answer
+    yield
     site_analytics.clear_cache()
 
 
-def test_only_superadmins_see_site_analytics(db, client, script):
-    calls, _ = script
-    for role in ("superadmin",):
-        r = client.get("/api/analytics/site", params={"days": 30}, headers=auth(make_user(db, role)))
-        assert r.status_code == 200, r.text
-        assert r.json()["totals"]["visitors"] == 12
-    for role in ("admin", "operator", "agent", "recruit"):  # every lower level, incl. admin
+def ev(t, v="v1", s="s1", **kw):
+    return {"t": t, "v": v, "s": s, "src": "instagram", "dev": "mobile", "lang": "ru", "th": "light", "p": "/", **kw}
+
+
+def post(client, events, raw=None):
+    # the site sends text/plain (no CORS preflight; sendBeacon does the same)
+    return client.post("/api/public/site/events", content=raw if raw is not None else json.dumps({"events": events}),
+                       headers={"Content-Type": "text/plain"})
+
+
+def test_events_in_report_out(db, client):
+    r = post(client, [
+        ev("pageview", nw=True),
+        ev("listing", l="o1", sv="rent", ag="Nino"),
+        ev("contact", l="o1", sv="rent", ag="Nino", x={"ch": "whatsapp"}),
+        ev("fav", l="o1", x={"on": True}),
+        ev("search", sv="rent", x={"q": "beds=2&district=Vake&sort=new", "n": 0}),
+        ev("perf", x={"load": 1200, "lcp": 900}),
+        ev("pageview", v="v2", s="s2", src="direct", dev="desktop"),
+        ev("bogus"),  # unknown type: dropped
+    ])
+    assert r.json() == {"ok": True, "n": 7}
+
+    h = auth(make_user(db, "superadmin"))
+    rep = client.get("/api/analytics/site", params={"days": 7}, headers=h).json()
+    t = rep["totals"]
+    assert (t["visitors"], t["newVisitors"], t["sessions"], t["listingViews"], t["contacts"], t["favs"]) == (2, 1, 2, 1, 1, 1)
+    assert t["conversion"] == 50.0
+    assert rep["contactsBy"] == {"whatsapp": 1}
+    assert rep["bestListings"][0]["id"] == "o1" and rep["agents"][0]["name"] == "Nino"
+    assert rep["zeroSearches"][0]["name"] == "rent · beds=2 · district=Vake"
+    assert {s["name"] for s in rep["sources"]} == {"instagram", "direct"}
+    assert rep["devices"] == {"mobile": 1, "desktop": 1} and rep["perf"]["loadMedian"] == 1200
+    assert rep["daily"] and sum(d["contacts"] for d in rep["daily"]) == 1
+
+
+def test_public_endpoint_is_strict(db, client):
+    assert post(client, None, raw="not json").json()["n"] == 0
+    assert post(client, None, raw="x" * 70000).json()["n"] == 0
+    assert post(client, [ev("pageview")] * 80).json()["n"] == 50  # one batch at most
+    post(client, [ev("pageview", v="x" * 500, p="/" + "a" * 900)])
+    row = db.query(SiteEvent).order_by(SiteEvent.id.desc()).first()
+    assert len(row.visitor) == 40 and len(row.path) == 200
+
+
+def test_only_superadmins_see_site_analytics(db, client):
+    for role in ("admin", "operator", "agent", "recruit"):
         assert client.get("/api/analytics/site", headers=auth(make_user(db, role))).status_code == 403
     assert client.get("/api/analytics/site").status_code == 401
-    # the key goes from the server to the script and never back to the browser
-    assert calls[0] == {"url": settings.SITE_ANALYTICS_URL, "action": "report", "key": "k" * 24, "days": 30}
-    assert "k" * 24 not in r.text
-
-
-def test_cache_period_and_fresh(db, client, script):
-    calls, _ = script
-    h = auth(make_user(db, "superadmin"))
-    client.get("/api/analytics/site", params={"days": 7}, headers=h)
-    client.get("/api/analytics/site", params={"days": 7}, headers=h)
-    assert len(calls) == 1  # second click served from memory
-    client.get("/api/analytics/site", params={"days": 7, "fresh": True}, headers=h)
-    assert len(calls) == 2
-    client.get("/api/analytics/site", params={"days": 5000}, headers=h)  # unknown period → 7 days (cached)
-    assert len(calls) == 2
-
-
-def test_errors_are_readable(db, client, script, monkeypatch):
-    _, answer = script
-    h = auth(make_user(db, "superadmin"))
-
-    answer["data"] = {"ok": False, "error": "bad_key"}
-    r = client.get("/api/analytics/site", headers=h)
-    assert (r.status_code, r.json()["code"]) == (502, "site_analytics_bad_key")
-
-    answer["data"] = {"ok": False, "error": "bad_session"}  # old script deployment, before REPORT_KEY
-    assert client.get("/api/analytics/site", headers=h).json()["code"] == "site_analytics_outdated"
-
-    answer["data"] = httpx.ConnectTimeout("slow")
-    assert client.get("/api/analytics/site", headers=h).json()["code"] == "site_analytics_unavailable"
-
-    answer["data"] = ValueError("html instead of json")
-    assert client.get("/api/analytics/site", headers=h).json()["code"] == "site_analytics_unavailable"
-
-    monkeypatch.setattr(settings, "SITE_ANALYTICS_KEY", "")
-    r = client.get("/api/analytics/site", headers=h)
-    assert (r.status_code, r.json()["code"]) == (503, "site_analytics_off")
+    r = client.get("/api/analytics/site", params={"days": 5000}, headers=auth(make_user(db, "superadmin")))
+    assert r.status_code == 200 and r.json()["period"]["days"] == 7  # unknown period → 7 days

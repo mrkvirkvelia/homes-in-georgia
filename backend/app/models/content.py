@@ -91,3 +91,25 @@ class Job(Base):
     attempts = Column(Integer, nullable=False, server_default=text("0"))
     last_error = Column(Text)
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class SiteEvent(Base):
+    """hge.ge's own visitor counter: one anonymous event (no names, phones or cookies). Read by services/site_analytics.py."""
+    __tablename__ = "site_events"
+    id = Column(BigInteger, primary_key=True)
+    at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), index=True)
+    visitor = Column(Text, nullable=False)
+    session = Column(Text, nullable=False)
+    type = Column(Text, nullable=False)  # pageview | listing | contact | share | fav | search | error | perf | social
+    path = Column(Text)
+    listing = Column(Text)
+    service = Column(Text)
+    agent = Column(Text)
+    source = Column(Text)
+    medium = Column(Text)
+    campaign = Column(Text)
+    lang = Column(Text)
+    theme = Column(Text)
+    device = Column(Text)
+    new = Column(Boolean, nullable=False, server_default=text("false"))
+    data = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))

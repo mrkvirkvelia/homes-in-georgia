@@ -6,7 +6,7 @@ from app.models.catalog import (LEAD_STATUSES, ChannelVideo, Client, ClientView,
 from app.models.objects import (ARCHIVE_REASONS, PROPERTY_STATUSES, PUBLICATION_CHANNELS, ChangeRequest, Event, ListingMatch,
                                 Owner, Property, PropertyListing, PropertyMedia, PropertyPublication)
 from app.models.deals import CONTRACT_CLOSE_REASONS, CONTRACT_STATUSES, Contract, ContractSigner, Deal, Evaluation
-from app.models.content import REPORT_KINDS, Address, ChannelPost, Job, News, Report, TickerMessage
+from app.models.content import REPORT_KINDS, Address, ChannelPost, Job, News, Report, SiteEvent, TickerMessage
 from app.models.nda import AgentNda
 from app.models.offers import CAR_DEALS, OFFER_STATUSES, SALE_KINDS, SALE_SERVICES, Car, SaleObject
 

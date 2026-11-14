@@ -192,9 +192,10 @@ def analytics_channel_posts(date_from: date = Query(alias="from"), date_to: date
 
 
 @router.get("/analytics/site")
-def analytics_site(days: int = 7, fresh: bool = False, user: User = Depends(require_level("superadmin"))):
+def analytics_site(days: int = 7, fresh: bool = False, db: Session = Depends(get_db, scope="function"),
+                   user: User = Depends(require_level("superadmin"))):
     """hge.ge visitors, contacts, sources, searches, errors: CRM «Аналитика», superadmins only."""
-    return site_analytics.report(days, fresh)
+    return site_analytics.report(db, days, fresh)
 
 
 @router.get("/analytics/agents")

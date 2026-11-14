@@ -1,5 +1,5 @@
 // «Аналитика» (superadmins only): hge.ge's own visitor counter, moved here from the hidden page hge.ge/stats/.
-// Data: GET /analytics/site → backend services/site_analytics.py → the Apps Script report (apps-script/site-analytics.gs).
+// Data: GET /analytics/site → backend services/site_analytics.py (table site_events, filled by the site via /api/public/site/events).
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { RefreshCw } from 'lucide-react';

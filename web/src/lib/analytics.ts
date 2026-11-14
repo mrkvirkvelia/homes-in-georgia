@@ -1,9 +1,8 @@
 // Made with Claude (Anthropic) · © Homes in Georgia · Created by Irakli Kvirkvelia
 'use client';
 // Our own site analytics: no Google, no cookies, no names or phone numbers.
-// Short anonymous events go to our Google Sheet (apps-script/site-analytics.gs) and are read only by admins inside
-// the CRM. If the endpoint is down, the site does not notice. Endpoint and payload are unchanged; the reported page
-// is now a real path + query.
+// Short anonymous events go to the CRM (POST /api/public/site/events → table site_events) and are read only by
+// superadmins in CRM «Аналитика». If the endpoint is down, the site does not notice.
 import { ANALYTICS_URL, CHANNELS } from './config';
 
 type Extra = Record<string, unknown>;
@@ -88,9 +87,9 @@ function flush(leaving = false) {
   if (!queue.length || !ANALYTICS_URL) return;
   const body = JSON.stringify({ events: queue.splice(0, 50) });
   try {
-    // text/plain needs no preflight; Apps Script reads the raw body.
+    // text/plain: no preflight, and sendBeacon sends the same body.
     if (leaving === true && navigator.sendBeacon && navigator.sendBeacon(ANALYTICS_URL, body)) return;
-    fetch(ANALYTICS_URL, { method: 'POST', body, mode: 'no-cors', keepalive: true, headers: { 'Content-Type': 'text/plain' } }).catch(() => {});
+    fetch(ANALYTICS_URL, { method: 'POST', body, keepalive: true, headers: { 'Content-Type': 'text/plain' } }).catch(() => {});
   } catch { /* analytics must never break the site */ }
 }
 

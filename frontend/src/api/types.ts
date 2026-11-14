@@ -714,7 +714,7 @@ export interface Invite {
 }
 export interface InviteInfo { status: InviteStatus; role: Role; invited_by: string | null; expires_at: string }
 
-/** GET /analytics/site: the hge.ge counter report (apps-script/site-analytics.gs aggregate_), superadmins only. */
+/** GET /analytics/site: the hge.ge counter report (backend services/site_analytics.py), superadmins only. */
 export interface SiteTotals {
   visitors: number; newVisitors: number; sessions: number; pageviews: number; listingViews: number;
   contacts: number; contactSessions: number; conversion: number; shares: number; favs: number;

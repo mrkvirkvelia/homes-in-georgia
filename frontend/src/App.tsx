@@ -107,6 +107,7 @@ export function App() {
         <Route path="calc" element={<CalcPage />} />
         <Route path="posts" element={<Navigate to="/objects?tab=review" replace />} />
         <Route path="reports" element={<ReportsPage />} />
+        <Route path="stats" element={<Navigate to="/analytics?tab=business" replace />} />{/* old link, 11-14 */}
         <Route path="analytics" element={<RequireAuth roles={SUPER_ROLES}><AnalyticsPage /></RequireAuth>} />
         <Route path="daily-rent" element={<RequireAuth roles={DAILY_RENT_ROLES}><DailyRentPage /></RequireAuth>} />
         <Route path="admin" element={<RequireAuth roles={ADMIN_ROLES}><AdminPage /></RequireAuth>} />

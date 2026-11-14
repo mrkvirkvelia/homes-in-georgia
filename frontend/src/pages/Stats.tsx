@@ -1,7 +1,7 @@
-// «Статистика» (Stanislav 11-13, for David): the old workbook sheet «TBILISI ANALYSIS RENT AND SALE» rebuilt live from
+// «Аналитика» → tab «Бизнес» (Stanislav 11-13, for David; tab since 11-14): the old workbook sheet «TBILISI ANALYSIS RENT AND SALE» rebuilt live from
 // the CRM — objects / clients / rent-outs / cash-in by month and by agent, client sources, prices by district × bedrooms.
 // Data: GET /api/analytics/stats?month=YYYY-MM (superadmins only). Block ↔ sheet mapping: docs/STATS-BLOCKS.md.
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { http } from '../api/client';
 import { Card, Empty, ErrorBox, Loading, PageHead, Seg, Stat } from '../components/ui';
@@ -34,7 +34,7 @@ type Metric = 'objects' | 'clients' | 'rentouts' | 'commission';
 const METRICS: { value: Metric; label: string }[] = [{ value: 'rentouts', label: 'Сдано' }, { value: 'commission', label: 'Комиссия' },
   { value: 'clients', label: 'Клиенты' }, { value: 'objects', label: 'Объекты' }];
 
-export function StatsPage() {
+export function StatsPage({ tabs }: { tabs?: ReactNode }) {
   const [month, setMonth] = useState(thisMonth());
   const [metric, setMetric] = useState<Metric>('rentouts');
   const [src, setSrc] = useState<'objects' | 'market'>('objects');
@@ -45,8 +45,9 @@ export function StatsPage() {
   const prices = d?.prices[src] || [];
   return (
     <div className="col gap-lg">
-      <PageHead label="Для руководителя" title="Статистика"
+      <PageHead label="Бизнес по месяцам" title="Аналитика"
         actions={<input className="input" type="month" aria-label="Месяц" value={month} max={thisMonth()} onChange={(e) => e.target.value && setMonth(e.target.value)} style={{ width: 170 }} />} />
+      {tabs}
       {q.isLoading ? <Loading /> : q.error ? <ErrorBox error={q.error} /> : !d || !s ? <Empty /> : (<>
         <div className="grid g4">
           <Stat blue label="Сдано квартир" value={num(s.rentouts)} sub={mom(s.mom.rentouts)} />

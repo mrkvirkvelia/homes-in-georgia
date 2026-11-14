@@ -1,4 +1,5 @@
 """Dashboard metrics (apps-script getRentalStats / updateAnalyticsCache, now straight from Postgres)."""
+import statistics
 from datetime import date, datetime, timedelta, timezone
 
 from sqlalchemy import func, literal_column, select
@@ -6,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.models import (FIELD_SQL, STAFF, ChannelPost, Client, Deal, Event, Lead, Listing, Property, PropertyListing, User,
                         at_least)
+from app import districts
 from app.services.common import TZ, now
 from app.services.reports import month_bounds
 
@@ -426,16 +428,18 @@ def month_stats(db: Session, month: str | None = None) -> dict:
 
     # ---- prices by district × bedrooms: our objects of the month and the scraped market feed
     def grid(district, beds, price, area, *where):
-        b = func.least(beds, 4)
-        med = func.percentile_cont(0.5).within_group(price)
-        out = db.execute(select(district, b, func.count(), med, func.avg(price / func.nullif(area, 0)))
-                         .where(price > 0, district.isnot(None), *where).group_by(district, b)).all()
+        # grouped in Python: the parser stores English names (Saburtalo), the CRM Russian ones (Сабуртало) -> one row
+        cells: dict = {}
+        for d, bd, pr, ar in db.execute(select(district, func.least(beds, 4), price, area)
+                                        .where(price > 0, district.isnot(None), *where)).all():
+            cells.setdefault((districts.label(d) or d, str(bd) if bd is not None else "?"), []).append((_f(pr), ar))
         by: dict = {}
-        for d, bd, n, md, pp in out:
+        for (d, bd), rows in cells.items():
             x = by.setdefault(d, {"district": d, "count": 0, "cells": {}})
-            x["count"] += n
-            x["cells"][str(bd) if bd is not None else "?"] = {"count": n, "median": round(_f(md)),
-                                                               "ppm": round(_f(pp), 1) if pp is not None else None}
+            x["count"] += len(rows)
+            ppm = [p / _f(ar) for p, ar in rows if ar and _f(ar) > 0]
+            x["cells"][bd] = {"count": len(rows), "median": round(statistics.median(p for p, _ in rows)),
+                              "ppm": round(sum(ppm) / len(ppm), 1) if ppm else None}
         return sorted(by.values(), key=lambda x: -x["count"])[:15]
     utc = lambda d: d.astimezone(timezone.utc).isoformat(timespec="seconds")
     prices = {"objects": grid(Property.district, Property.bedrooms, Property.price, Property.area, *pm,

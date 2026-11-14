@@ -40,6 +40,6 @@ def test_month_stats_blocks(db, client):
     assert ann["share"] == 81 and ann["obj_conv"] == 100 and ann["client_conv"] == 100 and ann["quality"] == 100
     assert next(x for x in r["agents"] if x["id"] is None)["clients"] == 1
     assert r["sources"][0] == {"source": "Instagram", "count": 2}
-    vake = next(x for x in r["prices"]["objects"] if x["district"] == "Vake")
+    vake = next(x for x in r["prices"]["objects"] if x["district"] == "Ваке")  # English and Russian names are one row
     assert vake["cells"]["1"] == {"count": 1, "median": 600, "ppm": 12.0} and vake["count"] == 2
     assert r["prices"]["market"] == []

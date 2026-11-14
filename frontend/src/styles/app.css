@@ -288,6 +288,8 @@ a.brand, a.brand:hover { color: inherit; text-decoration: none; }
 .input-icon .input { padding-left: 38px; }
 .seg { display: inline-flex; background: var(--brand-tint); border: 1px solid var(--line); border-radius: 12px; padding: 3px; gap: 2px; flex-wrap: wrap; }
 .seg button { border: 0; background: transparent; padding: 7px 12px; border-radius: 9px; font-weight: 700; font-size: 12px; cursor: pointer; color: var(--muted); }
+.card-head .seg { justify-content: center; }
+.card-head .seg button { flex: 1 1 auto; white-space: nowrap; text-align: center; }
 .seg button.active { background: var(--surface); color: var(--brand); box-shadow: var(--shadow-sm); }
 .check { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; font-weight: 600; }
 .check input { width: 18px; height: 18px; accent-color: var(--brand); }

@@ -5,10 +5,12 @@ import { useState, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { http } from '../api/client';
 import { Card, Empty, ErrorBox, Loading, PageHead, Seg, Stat } from '../components/ui';
-import { Bars, VBars } from '../features/deals/Analytics';
+import { Bars } from '../features/deals/Analytics';
+import { C, Columns, Donut, Fold, HStack, Legend, Lines, MonthPicker } from './StatsCharts';
 import { money, num } from '../lib/format';
 
-type Trend = { month: string; objects: number; clients: number; budget_sum: number; rentouts: number; commission: number; platform: number; agents: number };
+type Trend = { month: string; objects: number; clients: number; budget_sum: number; rentouts: number; commission: number; platform: number; agents: number;
+  obj_median: number; budget_median: number };
 type Agent = { id: number | null; name: string; objects: number; ppm: number | null; clients: number; rentouts: number; commission: number;
   agent_amount: number; platform: number; share: number | null; obj_conv: number | null; client_conv: number | null; quality: number | null };
 type Cell = { count: number; median: number; ppm: number | null };
@@ -30,6 +32,8 @@ const mom = (v: number | null | undefined) => (v == null ? 'нет прошло�
 const BEDS: [string, string][] = [['0', 'Студия'], ['1', '1'], ['2', '2'], ['3', '3'], ['4', '4+']];
 const R = { textAlign: 'right' } as const;
 
+const SPLIT = [{ label: 'Агентам', color: C.brand }, { label: 'Платформе', color: C.accent }];
+
 type Metric = 'objects' | 'clients' | 'rentouts' | 'commission';
 const METRICS: { value: Metric; label: string }[] = [{ value: 'rentouts', label: 'Сдано' }, { value: 'commission', label: 'Комиссия' },
   { value: 'clients', label: 'Клиенты' }, { value: 'objects', label: 'Объекты' }];
@@ -43,10 +47,11 @@ export function StatsPage({ tabs }: { tabs?: ReactNode }) {
   const s = d?.summary;
   const rent = s?.by_type.rent, sale = s?.by_type.sale;
   const prices = d?.prices[src] || [];
+  const cash = (d?.agents || []).filter((a) => a.commission > 0).map((a) => ({ k: a.name, v: [a.agent_amount, a.platform], sub: `${a.rentouts} сд.` }));
   return (
     <div className="col gap-lg">
       <PageHead label="Бизнес по месяцам" title="Аналитика"
-        actions={<input className="input" type="month" aria-label="Месяц" value={month} max={thisMonth()} onChange={(e) => e.target.value && setMonth(e.target.value)} style={{ width: 170 }} />} />
+        actions={<MonthPicker value={month} max={thisMonth()} onChange={setMonth} />} />
       {tabs}
       {q.isLoading ? <Loading /> : q.error ? <ErrorBox error={q.error} /> : !d || !s ? <Empty /> : (<>
         <div className="grid g4">
@@ -62,12 +67,9 @@ export function StatsPage({ tabs }: { tabs?: ReactNode }) {
         {rent && <div className="muted" style={{ fontSize: 12, marginTop: -8 }}>Аренда: {rent.count} сделок, средняя цена {money(rent.avg_price)}.</div>}
 
         <Card label="По месяцам" title="Динамика за 12 месяцев" actions={<Seg value={metric} onChange={setMetric} options={METRICS} />}>
-          <div className="table-wrap"><div style={{ minWidth: 560 }}>{/* 12 bars don't fit 375 px: scroll inside the card */}
-            <VBars rows={d.trend.map((t) => ({ k: short(t.month), v: t[metric] }))} fmt={metric === 'commission' ? k$ : num} />
-          </div></div>
-        </Card>
-        <Card label="По месяцам" title="Таблица по месяцам" pad={false}>
-          <div className="table-wrap">
+          <Columns rows={d.trend.map((t) => ({ k: short(t.month), v: [t[metric]] }))} series={[{ label: METRICS.find((x) => x.value === metric)!.label, color: C.brand }]}
+            fmt={metric === 'commission' ? k$ : num} />
+          <Fold title="Таблица по месяцам"><div className="table-wrap">
             <table className="table">
               <thead><tr><th>Месяц</th><th style={R}>Объекты</th><th style={R}>Клиенты</th><th style={R}>Бюджеты $</th><th style={R}>Сдано</th><th style={R}>Комиссия</th><th style={R}>Платформа</th><th style={R}>Агентам</th></tr></thead>
               <tbody>{[...d.trend].reverse().map((t) => (
@@ -76,8 +78,33 @@ export function StatsPage({ tabs }: { tabs?: ReactNode }) {
                   <td className="num" style={R}>{money(t.platform)}</td><td className="num" style={R}>{money(t.agents)}</td></tr>
               ))}</tbody>
             </table>
-          </div>
+          </div></Fold>
         </Card>
+        <Card label="По месяцам" title="Cash-in: агентам и платформе">
+          <Columns rows={d.trend.map((t) => ({ k: short(t.month), v: [t.agents, t.platform] }))} series={SPLIT} fmt={k$} />
+          <Legend series={SPLIT} />
+        </Card>
+        <Card label="По месяцам" title="Медианная цена: объекты собственников и бюджеты клиентов">
+          <Lines keys={d.trend.map((t) => short(t.month))} fmt={(v) => `$${num(v)}`} lines={[
+            { label: 'Объекты (аренда)', color: C.brand, v: d.trend.map((t) => t.obj_median) },
+            { label: 'Бюджет клиента', color: C.accent, v: d.trend.map((t) => t.budget_median) }]} />
+          <Legend series={[{ label: 'Объекты (аренда)', color: C.brand }, { label: 'Бюджет клиента', color: C.accent }]} />
+        </Card>
+
+        <div className="grid g2">
+          <Card label="За месяц" title="Cash-in по агентам">
+            {cash.length ? <><HStack rows={cash} series={SPLIT} fmt={money} /><Legend series={SPLIT} /></> : <Empty text="Нет сделок за месяц" />}
+          </Card>
+          <Card label="За месяц · как Quality в таблице" title="Качество агентов">
+            <Bars rows={d.agents.filter((a) => a.quality != null).map((a) => ({ k: a.name, v: a.quality!, sub: `${a.rentouts} сд.` }))} fmt={(v) => `${v}%`} />
+          </Card>
+          <Card label="За месяц" title="Средняя цена аренды за м² по агентам">
+            <Bars rows={d.agents.filter((a) => a.ppm != null).map((a) => ({ k: a.name, v: a.ppm!, sub: `${a.objects} об.` }))} fmt={(v) => `$${v}`} />
+          </Card>
+          <Card label="За месяц" title="Откуда пришли клиенты">
+            <Donut rows={d.sources.map((x) => ({ k: x.source, v: x.count }))} />
+          </Card>
+        </div>
 
         <Card label="За месяц" title="Агенты: объекты, клиенты, сдачи, cash-in" pad={false}>
           {d.agents.length === 0 ? <Empty text="Нет данных за месяц" /> : (
@@ -95,15 +122,6 @@ export function StatsPage({ tabs }: { tabs?: ReactNode }) {
             </div>
           )}
         </Card>
-
-        <div className="grid g2">
-          <Card label="За месяц" title="Откуда пришли клиенты">
-            <Bars rows={d.sources.map((x) => ({ k: x.source, v: x.count, sub: `${Math.round((x.count / Math.max(1, d.sources.reduce((t, y) => t + y.count, 0))) * 100)}%` }))} />
-          </Card>
-          <Card label="За месяц" title="Cash-in по агентам">
-            <Bars rows={d.agents.filter((a) => a.commission > 0).map((a) => ({ k: a.name, v: a.commission, sub: `${a.rentouts} сд.` }))} fmt={money} />
-          </Card>
-        </div>
 
         <Card label="За месяц" title="Цены аренды: район × спальни (медиана)" pad={false}
           actions={<Seg value={src} onChange={setSrc} options={[{ value: 'objects', label: 'Наши объекты' }, { value: 'market', label: 'Рынок (парсер)' }]} />}>

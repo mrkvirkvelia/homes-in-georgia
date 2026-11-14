@@ -34,6 +34,7 @@ def test_month_stats_blocks(db, client):
     assert s["mom"]["rentouts"] == 200 and s["mom"]["objects"] == 200  # 1 → 3
     assert [t["month"] for t in r["trend"]][-2:] == ["2025-09", "2025-10"] and len(r["trend"]) == 12
     assert r["trend"][-2]["rentouts"] == 1 and r["trend"][-2]["clients"] == 1
+    assert (r["trend"][-1]["obj_median"], r["trend"][-1]["budget_median"]) == (800, 600)  # the line charts (11-14)
     ann = next(x for x in r["agents"] if x["name"] == "Ann")
     assert (ann["objects"], ann["clients"], ann["rentouts"], ann["commission"], ann["agent_amount"]) == (2, 2, 2, 700, 570)
     assert ann["share"] == 81 and ann["obj_conv"] == 100 and ann["client_conv"] == 100 and ann["quality"] == 100

@@ -359,11 +359,16 @@ def month_stats(db: Session, month: str | None = None) -> dict:
 
     # ---- by month (the sheet's month rows: Published / Client's / Rent Out / Cash In)
     trend = {k: {"month": k, "objects": 0, "clients": 0, "budget_sum": 0, "rentouts": 0, "commission": 0, "platform": 0,
-                 "agents": 0} for k in iso}
-    for k, n in db.execute(select(_ym(Property.created_at), func.count()).where(*p_in).group_by(_ym(Property.created_at))).all():
-        trend[k]["objects"] = n
-    for k, n, b in db.execute(select(_ym(Lead.created_ts), func.count(), func.sum(budget)).where(*l_in).group_by(_ym(Lead.created_ts))).all():
-        trend[k].update(clients=n, budget_sum=round(_f(b)))
+                 "agents": 0, "obj_median": 0, "budget_median": 0} for k in iso}
+    # medians = the workbook's «Medium Price $$ Owner's / Client's» line charts (11-14); rent prices only (< $20k)
+    med = lambda c: func.percentile_cont(0.5).within_group(c)  # noqa: E731
+    rent_price = case((Property.price < BUDGET_MAX, Property.price))
+    for k, n, pm_ in db.execute(select(_ym(Property.created_at), func.count(), med(rent_price)).where(*p_in)
+                                .group_by(_ym(Property.created_at))).all():
+        trend[k].update(objects=n, obj_median=round(_f(pm_)))
+    for k, n, b, bm in db.execute(select(_ym(Lead.created_ts), func.count(), func.sum(budget), med(budget)).where(*l_in)
+                                  .group_by(_ym(Lead.created_ts))).all():
+        trend[k].update(clients=n, budget_sum=round(_f(b)), budget_median=round(_f(bm)))
     for mo, n, c, p, a in db.execute(select(Deal.month, func.count(), func.sum(Deal.commission_total),
                                             func.sum(Deal.platform_amount), func.sum(Deal.agent_amount))
                                      .where(*d_in).group_by(Deal.month)).all():

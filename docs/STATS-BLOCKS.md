@@ -82,3 +82,12 @@ day-rent sheets (separate businesses, no analytics in the workbook), the Rent Ag
 
 Follow-ups worth a look: link the 100 agent-less October 2025 deals (Reports_Deals rows) to agents; if David wants the
 sheet's object counts, count `ai_flags.old_sheet` rows by their own date instead of the object's `created_at`.
+
+## Charts (Stanislav 11-14)
+
+The xlsx export keeps 9 chart parts (`xl/charts/chart1..9.xml`), 4 distinct charts: «Quality» per agent (column, rows 296/304),
+«Average из Rental price per sq/m» per agent (3D column, pivot D513:X514), «Medium Price $$ Owner's» and «Medium Price $$ Client's»
+(lines over the owner / client rows). The rest of the sheet's charts were lost in the export. The «Бизнес» tab draws (plain SVG/CSS,
+`frontend/src/pages/StatsCharts.tsx`): rent-outs / commission / clients / objects by month (columns, table folded under it);
+cash-in by month split agents / platform (stacked columns); median rent price of owners' objects vs clients' budgets by month
+(lines, `trend.obj_median` / `budget_median`); per agent: cash-in split, Quality, $/m² (bars); client sources (donut).

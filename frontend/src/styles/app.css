@@ -856,3 +856,32 @@ html.tg .drawer { height: var(--tg-viewport-height, 100dvh); }
 .dr-frame { display: block; width: 100%; border: 1px solid var(--line, #e3e8f2); border-radius: 18px; background: #f3f5fa;
   height: calc(100dvh - 190px); min-height: 520px; }
 @media (max-width: 767px) { .dr-frame { height: calc(100dvh - 230px - env(safe-area-inset-bottom)); border-radius: 14px; } }
+
+/* «Аналитика» → «Бизнес» (Stanislav 11-14): Russian month picker + plain SVG/CSS charts (pages/StatsCharts.tsx) */
+.mp { position: relative; display: inline-flex; align-items: center; gap: 2px; background: var(--surface); border: 1px solid var(--line-2); border-radius: var(--pill); padding: 3px; }
+.mp-arrow { border: 0; background: none; width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; color: var(--brand); cursor: pointer; }
+.mp-arrow:hover:not(:disabled) { background: var(--brand-soft); }
+.mp-arrow:disabled { color: var(--line-2); cursor: default; }
+.mp-label { border: 0; background: none; font: inherit; font-weight: 700; color: var(--ink); padding: 0 8px; min-width: 128px; height: 34px; border-radius: var(--pill); cursor: pointer; }
+.mp-label:hover { background: var(--brand-tint); }
+.mp-backdrop { position: fixed; inset: 0; z-index: 40; }
+.mp-pop { position: absolute; top: calc(100% + 6px); right: 0; z-index: 41; width: 264px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); box-shadow: var(--shadow-lg); padding: 10px; }
+.mp-year { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+.mp-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.mp-grid button { border: 0; background: var(--brand-tint); border-radius: var(--r-sm); padding: 10px 0; font: inherit; font-weight: 600; color: var(--ink); cursor: pointer; }
+.mp-grid button:hover:not(:disabled) { background: var(--brand-soft); }
+.mp-grid button.active { background: var(--brand); color: #fff; }
+.mp-grid button:disabled { color: var(--faint); background: none; cursor: default; }
+@media (max-width: 760px) { .mp-pop { right: auto; left: 0; } }
+.vbar > .ch-stack { display: flex; flex-direction: column; background: none; overflow: hidden; }
+.ch-stack > span, .ch-hstack > div > span { display: block; min-height: 0; min-width: 0; }
+.bar-track.ch-hstack > div { display: flex; background: none; }
+.ch-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 12px; color: var(--muted); font-weight: 600; margin-top: 10px; }
+.ch-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.ch-legend i, .ch-donut-list i { width: 10px; height: 10px; border-radius: 3px; display: inline-block; flex: none; }
+.ch-donut { display: flex; align-items: center; gap: 20px; flex-wrap: wrap; }
+.ch-donut-list { flex: 1; min-width: 180px; display: grid; gap: 8px; font-size: 13px; }
+.ch-donut-list > div { display: grid; grid-template-columns: 10px 1fr auto 40px; align-items: center; gap: 8px; }
+.ch-donut-list > div > span:last-child { text-align: right; }
+.ch-fold { margin-top: 12px; border-top: 1px solid var(--line); }
+.ch-fold > summary { cursor: pointer; padding: 10px 0 4px; font-size: 13px; font-weight: 700; color: var(--brand); }

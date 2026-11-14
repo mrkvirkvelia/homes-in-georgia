@@ -570,7 +570,7 @@ on('GET', '/analytics/stats', (_m, _b, q) => {
   const trend = Array.from({ length: 12 }, (_, i) => {
     const k = y * 12 + mo - 1 - (11 - i); const r = 90 + ((i * 37) % 50);
     return { month: `${Math.floor(k / 12)}-${String((k % 12) + 1).padStart(2, '0')}`, objects: 120 + ((i * 53) % 180), clients: 280 + ((i * 41) % 110),
-      budget_sum: 150000 + i * 4000, rentouts: r, commission: r * 410, platform: r * 60, agents: r * 350 };
+      budget_sum: 150000 + i * 4000, rentouts: r, commission: r * 410, platform: r * 60, agents: r * 350, obj_median: 700 + ((i * 29) % 120), budget_median: 560 + ((i * 17) % 90) };
   });
   const names = ['Давид', 'Ираклий', 'Виктория', 'Семён', 'Омари', 'Заза', 'Влад', 'Шафи'];
   const agents = names.map((name, i) => {

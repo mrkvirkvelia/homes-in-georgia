@@ -5,7 +5,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { cadastralError, cadastralHint, cadastralInput } from '../lib/cadastral';
 import { useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Building2, Copy, Download, ExternalLink, FileText, Home, KeyRound, Plus, Printer, RotateCcw, Save, Send, UserCheck } from 'lucide-react';
+import { Building2, Copy, Download, ExternalLink, FileText, Home, KeyRound, Plus, Printer, RotateCcw, Save, Search, Send, UserCheck } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { api } from '../api';
 import { itemsOf } from '../api/client';
@@ -15,6 +15,7 @@ import { insideTelegram, tgWebApp, useAuth } from '../auth/AuthContext';
 import { errText, useToast } from '../components/toast';
 import { Badge, Button, Card, Field, Input, Modal, PageHead, Select, Switch, Tabs } from '../components/ui';
 import { useSettledId } from '../components/RegistryApps';
+import { useDebounced } from '../features/deals/DealForm';
 import { OwnerLookup, parseRegistryText, useKnownObjects, type ExtractFields, type KnownObject } from '../features/contracts/OwnerLookup';
 import { CONTRACT_STAGES, LEAD_STATUS, todayStr } from '../lib/format';
 import {
@@ -164,6 +165,7 @@ export function ContractWizard({ compact }: { compact?: boolean }) {
   const qc = useQueryClient();
   const dealId = Number(params.get('deal_id')) || 0;
   const leadId = Number(params.get('lead_id')) || 0;
+  const propId = Number(params.get('property_id')) || 0;  // the object card's «Оформить договор аренды» / the picker (11-15)
   const editId = Number(params.get('edit')) || 0;  // the stored contract (a draft being filled or a generated one)
 
   const [step, setStep] = useState(1);
@@ -187,9 +189,9 @@ export function ContractWizard({ compact }: { compact?: boolean }) {
   const chain = useRef<Promise<unknown>>(Promise.resolve());  // autosaves one after another: one draft, no races
   const [autoState, setAutoState] = useState<{ at?: string; err?: string }>({});
   // the deal's open draft: «Оформить договор» again continues it instead of starting over
-  const dealDraft = useQuery({ queryKey: ['contracts', 'draft-of', leadId, dealId],
-    queryFn: () => api.contracts.list({ status: 'draft', ...(leadId ? { lead_id: leadId } : { deal_id: dealId }) }),
-    enabled: !editId && !!(leadId || dealId) });
+  const dealDraft = useQuery({ queryKey: ['contracts', 'draft-of', leadId, dealId, propId],
+    queryFn: () => api.contracts.list({ status: 'draft', ...(leadId ? { lead_id: leadId } : dealId ? { deal_id: dealId } : { property_id: propId }) }),
+    enabled: !editId && !!(leadId || dealId || propId) });
   const existing = itemsOf(dealDraft.data)[0];
   useEffect(() => {
     if (existing && !editId) setParams((sp) => { sp.set('edit', String(existing.id)); return sp; }, { replace: true });
@@ -221,6 +223,7 @@ export function ContractWizard({ compact }: { compact?: boolean }) {
   const locked = !!current && current.status !== 'draft';  // signed / closed: not edited
   const linkLead = leadId || contract?.lead_id || 0;
   const linkDeal = dealId || contract?.deal_id || 0;
+  const linkProp = propId || contract?.property_id || 0;
 
   // ---- prefill from /contracts?deal_id=
   const deal = useQuery({ queryKey: ['deal', dealId], queryFn: () => api.deals.get(dealId), enabled: !!dealId && fresh });
@@ -243,7 +246,7 @@ export function ContractWizard({ compact }: { compact?: boolean }) {
     setEndTouched(false);
     setPrefilled({ key, text });
     setStep((s) => (s < 2 ? 2 : s));
-    toast(`Данные подставлены из ${key.startsWith('lead') ? 'заявки' : 'сделки'} #${key.split(':')[1]}`);
+    toast(`Данные подставлены из ${key.startsWith('lead') ? 'заявки' : key.startsWith('object') ? 'объекта' : 'сделки'} #${key.split(':')[1]}`);
   }
   function applyDeal(x: Deal, p?: Parameters<typeof fromDeal>[1]) {
     const r = fromDeal(x, p);
@@ -267,6 +270,22 @@ export function ContractWizard({ compact }: { compact?: boolean }) {
       `Данные подставлены из заявки #${x.lead_id}${x.data.street_house ? ` · ${x.data.street_house}` : ''}${x.district ? `, ${x.district}` : ''}.`
       + who('Клиент', x.client) + who('Собственник', x.owner));
   }
+  // ---- prefill from /contracts?property_id= (the object card, or the object picker below)
+  const propC = useQuery({ queryKey: ['property-contract', propId], queryFn: () => api.properties.contract(propId), enabled: !!propId && !leadId && !dealId && fresh, retry: false });
+  useEffect(() => {
+    const x = propC.data;
+    if (!x || prefilled?.key === `object:${x.property_id}`) return;
+    apply(x.type, x.data as Partial<CxData>, `object:${x.property_id}`, `Данные подставлены из объекта #${x.property_id}${x.data.street_house ? ` · ${x.data.street_house}` : ''}.`
+      + (x.owner.name || x.owner.phone ? ` Собственник: ${[x.owner.name, x.owner.phone].filter(Boolean).join(' · ')}.` : ''));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [propC.data]);
+  const [objQ, setObjQ] = useState('');
+  const objDq = useDebounced(objQ.trim());
+  const objFound = useQuery({ queryKey: ['deal-search', objDq], queryFn: () => api.properties.dealSearch({ q: objDq }), enabled: !!objDq });
+  function pickObject(id: number) {
+    cidRef.current = 0; restored.current = 0; touched.current = false; setContract(null); setObjQ('');
+    setParams({ property_id: String(id) }, { replace: true });
+  }
   const pickable = useQuery({ queryKey: ['leads', 'list', 'contract'], queryFn: () => api.leads.list({ status: CONTRACT_STAGES.join(',') }) });
   function pickLead(id: number) {
     cidRef.current = 0; restored.current = 0; touched.current = false; setContract(null);
@@ -278,7 +297,7 @@ export function ContractWizard({ compact }: { compact?: boolean }) {
   useEffect(() => {
     if (!touched.current || locked) return;  // a standalone contract (no lead / deal) autosaves too (11-13)
     const t = setTimeout(() => {
-      const body = { id: cidRef.current || null, kind: type, lang, lead_id: linkLead || null, deal_id: linkDeal || null, data: payloadData() };
+      const body = { id: cidRef.current || null, kind: type, lang, lead_id: linkLead || null, deal_id: linkDeal || null, property_id: linkProp || null, data: payloadData() };
       chain.current = chain.current.then(() => api.contracts.autosave(body).then((c) => {
         const first = !cidRef.current;
         cidRef.current = c.id; restored.current = c.id;
@@ -432,7 +451,7 @@ export function ContractWizard({ compact }: { compact?: boolean }) {
     mutationFn: async () => {
       const b = { kind: type as CxType, lang: lang as CxLang, html: pdfHtml(doc!), title: doc!.title, cadastral: d.cadastral_code,
         address: d.street_house, client_name: d.client_full_name, owner_name: d.owner_full_name,
-        lead_id: linkLead || leadC.data?.lead_id || null, deal_id: linkDeal || leadC.data?.deal_id || null,
+        lead_id: linkLead || leadC.data?.lead_id || null, deal_id: linkDeal || leadC.data?.deal_id || null, property_id: linkProp || null,
         data: payloadData() };  // the wizard's CxData: the deal page prefills from the signed contract (contracts.data)
       await chain.current;  // a pending autosave lands first
       return cidRef.current ? api.contracts.update(cidRef.current, b) : api.contracts.create(b);
@@ -504,15 +523,29 @@ export function ContractWizard({ compact }: { compact?: boolean }) {
         {prefilled && <div className="alert alert-info mt">{prefilled.text} Проверьте и дополните поля (личные номера сторон вводятся вручную).</div>}
         {deal.error && <div className="alert alert-warn mt">Не удалось загрузить сделку #{dealId}: {errText(deal.error)}</div>}
         {leadC.error && <div className="alert alert-warn mt">Не удалось загрузить заявку #{leadId}: {errText(leadC.error)}</div>}
-        {prefilled && step < 4 && !prefilled.key.startsWith('contract') && <Button size="sm" variant="ghost" className="no-print" onClick={() => setPrefilled(null)}>Подставить из другой заявки</Button>}
+        {propC.error && <div className="alert alert-warn mt">Не удалось загрузить объект #{propId}: {errText(propC.error)}</div>}
+        {prefilled && step < 4 && !prefilled.key.startsWith('contract') && <Button size="sm" variant="ghost" className="no-print" onClick={() => setPrefilled(null)}>Подставить из другой заявки или квартиры</Button>}
         {step < 4 && !prefilled && (
-          <Card label="Сделка · необязательно" title="Заявка договора" className="mt">
+          <Card label="Сделка · необязательно" title="Заявка или квартира договора" className="mt">
             {itemsOf(pickable.data).length === 0 ? (
               <div className="muted" style={{ fontSize: 13 }}>{pickable.isLoading ? 'Загрузка…' : 'Нет заявок после просмотра: договор можно оформить и без заявки, привязать позже из карточки договора.'}</div>
             ) : (
               <Select aria-label="Заявка" value={leadId || ''} onChange={(e) => e.target.value && pickLead(Number(e.target.value))} placeholder="Без заявки (можно привязать позже) — или выберите заявку"
                 options={itemsOf(pickable.data).map((l) => ({ value: l.id, label: `#${l.id} · ${l.listing?.address || l.listing?.title || 'объект'} · ${l.client?.name || 'клиент'} · ${LEAD_STATUS[l.status]}${l.agent?.name ? ` · ${l.agent.name}` : ''}` }))} />
             )}
+            {/* «Новый договор → выбрать квартиру» (Irakli 11-15): the deal form's object search, the same prefill as the card */}
+            <div className="input-icon mt">
+              <Search size={16} />
+              <input className="input" aria-label="Квартира" placeholder="Или квартира: адрес, номер объекта, телефон собственника, кадастр" value={objQ} onChange={(e) => setObjQ(e.target.value)} />
+            </div>
+            {!!objDq && objFound.data && (objFound.data.items.length === 0 ? <div className="muted" style={{ fontSize: 13 }}>В базе не найдено</div> : objFound.data.items.map((o) => (
+              <button key={o.id} type="button" className="list-row" disabled={!!o.blocked} style={{ textAlign: 'left', width: '100%', background: 'none', cursor: o.blocked ? 'not-allowed' : 'pointer' }} onClick={() => pickObject(o.id)}>
+                <div className="grow">
+                  <div style={{ fontWeight: 700 }}>#{o.id} · {o.address || 'Без адреса'}</div>
+                  <div className="muted" style={{ fontSize: 12 }}>{[o.district, o.agent_tag, o.blocked].filter(Boolean).join(' · ')}</div>
+                </div>
+              </button>
+            )))}
           </Card>
         )}
       </div>
@@ -718,7 +751,7 @@ function Contracts({ compact }: { compact?: boolean }) {
   const base = compact ? '/m/contracts' : '/contracts';
   const id = Number(params.get('id')) || 0;
   if (id) return <ContractView key={id} id={id} base={base} />;
-  if (params.has('new') || params.has('lead_id') || params.has('deal_id') || params.has('edit')) return <ContractWizard compact={compact} />;
+  if (params.has('new') || params.has('lead_id') || params.has('deal_id') || params.has('property_id') || params.has('edit')) return <ContractWizard compact={compact} />;
   return (
     <div className="col gap-lg">
       {!compact && <PageHead label="Генератор договоров" title="Договоры" />}

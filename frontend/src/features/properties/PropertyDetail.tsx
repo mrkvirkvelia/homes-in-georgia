@@ -8,7 +8,7 @@ import { Archive, ArrowRightLeft, Camera, CheckCircle2, Copy, FileText, ChevronD
 import { api } from '../../api';
 import { itemsOf, mediaUrl, thumbUrl } from '../../api/client';
 import type { Media, PostFields, Property } from '../../api/types';
-import { FIELD_FILTER } from '../../api/types';
+import { FIELD_FILTER, atLeast } from '../../api/types';
 import { useAuth } from '../../auth/AuthContext';
 import { AiFlagBadges, CopyPhone, DupCheck, ExclusiveConflictBadge, PropertyStatusBadge, Timeline } from '../../components/domain';
 import { errText, useToast } from '../../components/toast';
@@ -1328,6 +1328,10 @@ export function PropertyDetail({ id, compact }: { id: number; compact?: boolean 
         </div>
         <div className="divider" />
         <Stepper current={step} />
+        {/* Irakli 11-15: the same wizard as «Новый договор», the object chosen and prefilled; the object turns «Сдано» on its deal's confirm */}
+        {canWork && atLeast(user, 'agent') && p.status !== 'archived' && (
+          <div className="row mt"><Link className="btn btn-secondary" to={`${compact ? '/m' : ''}/contracts?property_id=${p.id}`}><FileText size={16} />Оформить договор аренды</Link></div>
+        )}
       </div>
 
       <div className={compact ? 'col gap-lg' : 'split'}>

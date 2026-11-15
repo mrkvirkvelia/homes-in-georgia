@@ -22,7 +22,7 @@ from sqlalchemy.orm import Session
 
 from app import storage
 from app.config import REPO_ROOT, settings as env
-from app.models import CONTRACT_CLOSE_REASONS, Client, Contract, Deal, Event, Lead, User, at_least
+from app.models import CONTRACT_CLOSE_REASONS, Client, Contract, Deal, Event, Lead, Property, User, at_least
 from app.services import jobs
 from app.services.common import get_or_404, log_event, now
 from app.services.errors import DomainError
@@ -215,7 +215,7 @@ def for_lead(db: Session, lead_id: int) -> Contract | None:
 
 
 def query(db: Session, user: User, status: str | None = None, lead_id: int | None = None, q: str | None = None,
-          deal_id: int | None = None, agent_id: int | None = None):
+          deal_id: int | None = None, agent_id: int | None = None, property_id: int | None = None):
     """status: active (draft + signed, the default lists) | draft | signed | deal | closed_no_deal | all.
     agent_id (staff): that agent's contracts, as the agent sees them in his cabinet."""
     stmt = select(Contract)
@@ -232,6 +232,8 @@ def query(db: Session, user: User, status: str | None = None, lead_id: int | Non
         stmt = stmt.where(Contract.status.in_(st.split(",")))
     if lead_id:
         stmt = stmt.where(Contract.lead_id == lead_id)
+    if property_id:
+        stmt = stmt.where(Contract.property_id == property_id)
     if q:
         like = f"%{q.strip()}%"
         stmt = stmt.where(Contract.cadastral.ilike(like) | Contract.address.ilike(like) | Contract.client_name.ilike(like)
@@ -270,7 +272,31 @@ def _link(db: Session, body: dict, user: User) -> dict:
         if not at_least(user, "operator") and deal.agent_id != user.id:
             raise DomainError("not_found", "deal not found")
         lead_id, prop_id = lead_id or deal.lead_id, prop_id or deal.property_id
+    if prop_id and not lead_id and not deal_id:  # «Оформить договор аренды» in the object card (Irakli 11-15)
+        _own_object(db, int(prop_id), user)
     return {"lead_id": lead_id, "deal_id": deal_id, "property_id": prop_id}
+
+
+def _own_object(db: Session, pid: int, user: User) -> Property:
+    """Another agent's object: his agent draws up its contract, as its deal (properties.deal_block)."""
+    from app.services import properties
+    p = get_or_404(db, Property, pid, "property")
+    if blocked := properties.deal_block(db, p, user):
+        raise DomainError("forbidden", f"{blocked}: договор по нему оформляет его агент", 403)
+    return p
+
+
+def property_prefill(db: Session, pid: int, user: User) -> dict:
+    """The object card → the wizard (CxData keys); the owner only for those who see him (properties.deal_fields)."""
+    from app.services import properties
+    p = _own_object(db, pid, user)
+    f = properties.deal_fields(db, p, user)
+    num = lambda v: f"{float(v):g}" if v else ""  # noqa: E731
+    data = {"street_house": p.address or "", "cadastral_code": p.cadastral_code or "", "floor": str(p.floor or ""),
+            "apartment_area": num(p.area), "price_usd": num(f.get("price")), "deposit_usd": num(f.get("price")),
+            "owner_full_name": f.get("owner_name") or ""}
+    return {"property_id": p.id, "type": "rent", "data": data, "district": p.district,
+            "owner": {"name": f.get("owner_name"), "phone": f.get("owner_phone")}}
 
 
 def _data(data) -> dict | None:
@@ -308,10 +334,15 @@ def _store_pdf(c: Contract, data: bytes, signed: bool = False) -> str:
 def _draft_for(db: Session, link: dict, user: User) -> Contract | None:
     """The deal's draft being filled (no PDF yet): one per lead / deal, so a reopened form continues it. A standalone
     contract has none to continue: the wizard keeps its id after the first autosave (11-13)."""
-    if not link["lead_id"] and not link["deal_id"]:
+    if link["lead_id"] or link["deal_id"]:
+        col, v = (Contract.lead_id, link["lead_id"]) if link["lead_id"] else (Contract.deal_id, link["deal_id"])
+        cond = col == v
+    elif link["property_id"]:  # from the object card: the agent's own draft on the object (11-15)
+        cond = (Contract.property_id == link["property_id"]) & Contract.lead_id.is_(None) & Contract.deal_id.is_(None) \
+            & (Contract.created_by == user.id)
+    else:
         return None
-    col, v = (Contract.lead_id, link["lead_id"]) if link["lead_id"] else (Contract.deal_id, link["deal_id"])
-    return db.scalar(select(Contract).where(col == v, Contract.status == "draft", Contract.pdf_path.is_(None))
+    return db.scalar(select(Contract).where(cond, Contract.status == "draft", Contract.pdf_path.is_(None))
                      .order_by(Contract.id.desc()).with_for_update())
 
 
@@ -450,10 +481,15 @@ def close(db: Session, cid: int, user: User, reason: str, comment: str | None = 
 
 
 def mark_deal(db: Session, deal: Deal, actor: User | None = None) -> None:
-    """The deal is confirmed (services/deals.confirm): the lead's active contracts → deal. Does not commit."""
-    if not deal.lead_id:
+    """The deal is confirmed (services/deals.confirm): the lead's active contracts → deal, and so do the contracts made
+    from the object card without a lead (11-15: the object turns «Сдано» by the same confirm). Does not commit."""
+    mine = Contract.lead_id == deal.lead_id if deal.lead_id else None
+    if deal.property_id:
+        own = (Contract.property_id == deal.property_id) & Contract.lead_id.is_(None) & Contract.deal_id.is_(None)
+        mine = own if mine is None else mine | own
+    if mine is None:
         return
-    for c in db.scalars(select(Contract).where(Contract.lead_id == deal.lead_id, Contract.status.in_(ACTIVE),
+    for c in db.scalars(select(Contract).where(mine, Contract.status.in_(ACTIVE),
                                                Contract.pdf_path.isnot(None))):  # a draft still being filled stays one
         c.status, c.deal_id, c.updated_at = "deal", deal.id, now()
         log_event(db, "contract", c.id, "deal", actor, deal_id=deal.id)

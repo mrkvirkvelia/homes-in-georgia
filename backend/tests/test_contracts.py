@@ -5,7 +5,7 @@ from datetime import timedelta
 
 import pytest
 
-from app.models import Contract, Job, Lead
+from app.models import Contract, Job, Lead, Property
 from app.services import contracts as C, deals
 from app.services.common import now, now_text
 from app.services.errors import DomainError
@@ -256,3 +256,34 @@ def test_standalone_contract_visibility_and_link_later(db, client):
     assert client.post(f"/api/contracts/{d['id']}/link", json={"lead_id": lead.id}, headers=h).status_code == 409
     assert client.put(f"/api/contracts/{d['id']}", json={"kind": "rent", "lang": "RU", "html": PAGE}, headers=h).json()["lead_id"] == lead.id
     assert client.get(f"/api/leads/{lead.id}/contract", headers=h).json()["contract"]["id"] == d["id"]
+
+
+def test_contract_from_object_card(db, client):
+    """11-15 (Irakli): «Оформить договор аренды» in the object card — the wizard prefilled from the object, its draft
+    continued by the object; the object stays as it is until the deal on it is confirmed, then «Сдано» and the
+    contract «Сделка», as with a lead's contract. Another agent's object: refused, as in the deal form."""
+    ag, other, op = make_user(db, "agent"), make_user(db, "agent"), make_user(db, "operator")
+    p = Property(agent_id=ag.id, status="published", address="Paliashvili 10", cadastral_code="01.14.12.003.045", floor=4,
+                 area=72.5, price=1200, verified_at=now())
+    db.add(p)
+    db.commit()
+    h = auth(ag)
+    pre = client.get(f"/api/properties/{p.id}/contract", headers=h).json()
+    assert pre["type"] == "rent" and pre["data"] == {**pre["data"], "street_house": "Paliashvili 10", "cadastral_code": "01.14.12.003.045",
+                                                    "floor": "4", "apartment_area": "72.5", "price_usd": "1200"}
+    assert client.get(f"/api/properties/{p.id}/contract", headers=auth(other)).status_code == 403
+    assert client.post("/api/contracts/draft", json={"property_id": p.id, "data": {"x": "1"}}, headers=auth(other)).status_code == 403
+    d = client.post("/api/contracts/draft", json={"kind": "rent", "property_id": p.id, "data": {"x": "1"}}, headers=h).json()
+    assert d["property_id"] == p.id and d["lead_id"] is None
+    # reopened from the card: the same draft; listed by the object
+    assert client.post("/api/contracts/draft", json={"kind": "rent", "property_id": p.id, "data": {"x": "2"}}, headers=h).json()["id"] == d["id"]
+    assert [c["id"] for c in client.get(f"/api/contracts?status=draft&property_id={p.id}", headers=h).json()["items"]] == [d["id"]]
+    client.put(f"/api/contracts/{d['id']}", json={"kind": "rent", "lang": "RU", "html": PAGE}, headers=h)
+    client.post(f"/api/contracts/{d['id']}/sign", headers=h)
+    db.refresh(p)
+    assert p.status == "published"  # the contract alone doesn't rent the object
+    deal = deals.create(db, {"property_id": p.id, "agent_id": ag.id, "price": 1200, "rent_from": "2026-12-01", "rent_to": "2027-12-01"}, op)
+    deals.confirm(db, deal.id, op)
+    db.refresh(p)
+    got = client.get(f"/api/contracts/{d['id']}", headers=h).json()
+    assert p.status == "rented" and got["status"] == "deal" and got["deal_id"] == deal.id

@@ -16,7 +16,7 @@ import { levelFor, money, phoneInput, todayStr } from '../../lib/format';
 import { AXES, AXIS_NOTE, PARTICIPATE, PEOPLE_HINT, defaultScenario, peopleRule, type Axis, type DistRow, type Scenario } from '../../lib/scenarios';
 import { cadastralError, cadastralHint, cadastralInput, cadastralNorm } from '../../lib/cadastral';
 
-function useDebounced<T>(v: T, ms = 300): T {
+export function useDebounced<T>(v: T, ms = 300): T {
   const [d, setD] = useState(v);
   useEffect(() => { const t = setTimeout(() => setD(v), ms); return () => clearTimeout(t); }, [v, ms]);
   return d;

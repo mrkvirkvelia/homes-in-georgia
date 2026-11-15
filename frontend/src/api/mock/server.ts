@@ -270,6 +270,17 @@ on('POST', '/properties', (_m, b) => {
   propEvent(p.id, 'taken', 'Беру в работу', u);
   return propOut(p, u);
 });
+// the contract wizard from the object card + its object picker (Irakli 11-15)
+on('GET', '/properties/:id/contract', (m) => {
+  const p = getProp(Number(m[1])), n = (v: unknown) => (v ? String(v) : '');
+  return { property_id: p.id, type: 'rent', district: p.district, owner: { name: p.owner?.name, phone: p.owner?.phone },
+    data: { street_house: n(p.address), cadastral_code: n(p.cadastral_code), floor: n(p.floor), apartment_area: n(p.area), price_usd: n(p.price), deposit_usd: n(p.price), owner_full_name: n(p.owner?.name) } };
+});
+on('GET', '/properties/deal-search', (_m, _b, q) => {
+  const t = String(q.get('q') || '').toLowerCase().replace(/^#/, '');
+  return { items: t ? F.properties.filter((p) => String(p.id) === t || (p.address || '').toLowerCase().includes(t)).slice(0, 20)
+    .map((p) => ({ id: p.id, address: p.address, district: p.district, status: p.status, blocked: null })) : [] };
+});
 on('GET', '/properties/:id/history', (m) => page([...(F.propertyEvents[Number(m[1])] || [])].reverse()));
 on('GET', '/properties/:id', (m) => propOut(getProp(Number(m[1])), currentUser()));
 on('PATCH', '/properties/:id', (m, b) => { const p = getProp(Number(m[1])); Object.assign(p, b); return propOut(p, currentUser()); });
@@ -634,10 +645,11 @@ const contracts: Record<string, unknown>[] = [{ id: 9001, kind: 'rent', lang: 'E
   generated_at: new Date().toISOString(), data: { extract_file: 'private/registry-extracts/mock.pdf' } }];
 const cxOut = (c: Record<string, unknown>) => ({ status: 'draft', status_label: 'Черновик', has_pdf: false, versions: [], versions_count: 0, ...c });
 on('GET', '/contracts', (_m, _b, q) => page(contracts.filter((c) => (!q.get('lead_id') || c.lead_id === Number(q.get('lead_id')))
-  && (!q.get('deal_id') || c.deal_id === Number(q.get('deal_id')))).map(cxOut)));
+  && (!q.get('deal_id') || c.deal_id === Number(q.get('deal_id'))) && (!q.get('property_id') || c.property_id === Number(q.get('property_id')))
+  && (!q.get('status') || q.get('status') === 'all' || String(q.get('status')).split(',').includes(String(c.status || 'draft')))).map(cxOut)));
 on('POST', '/contracts/draft', (_m, b) => {
   let c = contracts.find((x) => x.id === b.id);
-  if (!c) { c = { id: nextId(), lead_id: b.lead_id || null, deal_id: b.deal_id || null, created_at: new Date().toISOString() }; contracts.push(c); }
+  if (!c) { c = { id: nextId(), lead_id: b.lead_id || null, deal_id: b.deal_id || null, property_id: b.property_id || null, created_at: new Date().toISOString() }; contracts.push(c); }
   Object.assign(c, { kind: b.kind || null, lang: b.lang || null, data: b.data, updated_at: new Date().toISOString() });
   return cxOut(c);
 });

@@ -123,6 +123,8 @@ export const api = {
     rentedSelf: (id: number, comment?: string) => http.post<Property>(`/properties/${id}/rented-self`, { comment }),
     history: (id: number) => then(http.get<L<EventItem>>(`/properties/${id}/history`), (d) => normPage(d, normEvent)),
     dealSearch: (q: { q?: string; pid?: number; deal_type?: string; lead_id?: number }) => http.get<{ items: DealPick[] }>('/properties/deal-search', q),
+    /** the contract wizard's prefill from the object card («Оформить договор аренды», 11-15) */
+    contract: (id: number) => http.get<Omit<LeadContract, 'lead_id' | 'client' | 'contract'> & { property_id: number }>(`/properties/${id}/contract`),
     verify: (id: number) => then(http.post<Property>(`/properties/${id}/verify`), normProperty),
     demand: (id: number) => http.get<Demand>(`/properties/${id}/demand`),
     fastTrack: (id: number) => http.post<Property & { sent: number }>(`/properties/${id}/fast-track`),
@@ -188,7 +190,7 @@ export const api = {
   contracts: {
     send: (filename: string, html: string) => http.post<{ ok: boolean }>('/contracts/send', { filename, html }),
     /** status: active (draft + signed, default) | draft | signed | deal | closed_no_deal | all */
-    list: (q?: { status?: string; lead_id?: number; deal_id?: number; agent_id?: number; q?: string }) => http.get<L<Contract>>('/contracts', { ...q, limit: LIMIT }),
+    list: (q?: { status?: string; lead_id?: number; deal_id?: number; property_id?: number; agent_id?: number; q?: string }) => http.get<L<Contract>>('/contracts', { ...q, limit: LIMIT }),
     /** the wizard's debounced autosave: the deal's draft (no PDF), or `id`'s data */
     autosave: (b: ContractDraftIn) => http.post<Contract>('/contracts/draft', b),
     get: (id: number) => http.get<Contract>(`/contracts/${id}`),

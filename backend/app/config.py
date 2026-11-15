@@ -19,6 +19,9 @@ class Settings(BaseSettings):
     DAILY_RENT_ICAL_HOSTS: str = ""
     JWT_TTL_HOURS: int = 72
     PUBLIC_URL: str = "http://localhost:8000"
+    # our site (web/): «APARTMENTS ON MAP» / «On the map» in the posts open its map on the object. The sslip host until
+    # hge.ge's DNS moves off Irakli's GitHub Pages build (it doesn't know CRM objects); then SITE_URL=https://hge.ge
+    SITE_URL: str = "https://hge.91-99-162-108.sslip.io"
     BOT_TOKEN: str = ""
     BOT_USERNAME: str = "HomesinGeorgia_bot"
     MAPTILER_KEY: str = ""  # browser map tiles (lock to our domains in MapTiler); empty = free OSM tiles

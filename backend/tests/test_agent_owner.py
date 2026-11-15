@@ -125,8 +125,9 @@ def test_post_fields_validated_and_full_rent_post(db, client):
     assert lines.index("👬Tenants: 1-3") < lines.index("💰 500$ + Deposit 500$")  # the generator's order
     html = post_html(text)
     assert '<a href="https://maps.google.com/?q=41.72,44.75">📍3 Ferdinand Tavadze St</a>' in html
-    assert '📍<b><a href="https://hge.ge/map/">APARTMENTS ON MAP</a></b>📍' in html  # the whole map until the DNS switch
-    assert 'href="https://hge.ge/map/"' in post_html("📍APARTMENTS ON MAP📍")  # no address: the whole map
+    from app.config import settings as cfg
+    assert f'📍<b><a href="{cfg.SITE_URL}/map?q=o7">APARTMENTS ON MAP</a></b>📍' in post_html(text, 7)  # this object on our site
+    assert f'href="{cfg.SITE_URL}/map"' in post_html("📍APARTMENTS ON MAP📍")  # no object: the whole map
 
 
 def test_sale_post(db):
@@ -153,6 +154,7 @@ def test_sale_post(db):
 
 def test_post_video_keeps_its_shape_and_sale_footer_links(tmp_path):
     """David 11-15: a video went square (no width/height to the Bot API); «SALE IN TBILISI» had no channel link."""
+    import os
     import shutil
     import subprocess
     import pytest
@@ -163,3 +165,11 @@ def test_post_video_keeps_its_shape_and_sale_footer_links(tmp_path):
     subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "color=c=red:s=320x568:d=2", "-c:v", "libx264", v], check=True)
     assert video_meta(v) == {"width": 320, "height": 568, "duration": 2, "supports_streaming": True}
     assert video_meta(str(tmp_path / "nope.mp4")) == {}
+    # a portrait phone video (landscape frames + rotation tag) lies on its side in Telegram: re-encoded upright
+    from app.telegram.notify import _bot_media
+    r = str(tmp_path / "r.mp4")
+    subprocess.run(["ffmpeg", "-v", "error", "-display_rotation", "90", "-i", v, "-c", "copy", r], check=False)
+    if not os.path.exists(r):  # older ffmpeg: the metadata tag
+        subprocess.run(["ffmpeg", "-v", "error", "-i", v, "-c", "copy", "-metadata:s:v", "rotate=90", r], check=True)
+    out = _bot_media([("video", r)], str(tmp_path))[0][1]
+    assert out != r and video_meta(out)["width"] == 568 and video_meta(out)["height"] == 320

@@ -216,10 +216,10 @@ def test_rich_post_has_slideshow_params_tags_map_and_buttons(db):
     # «Contact» is back (Stanislav 11-11): its own full-width row, a link to our bot -> /start p<id> (a lead)
     assert h.endswith(f'<tg-button-row><tg-button type="url" url="https://t.me/{env.BOT_USERNAME.lstrip("@")}?start=p{p.id}">'
                       '💬 Contact</tg-button></tg-button-row>')
-    # «On the map»: Irakli's hge.ge map filtered to this address; «I like it»: a plain bot button (callback), no link arrow
-    assert '<tg-button type="url" url="https://hge.ge/map/">' in h
-    p.address = None
-    assert '/map?pin=41.700000%2C44.760000&amp;' in properties.post_rich(db, p, [])  # no address: our pin map
+    # «On the map»: our site's map on this object (its site ID); «I like it»: a plain bot button (callback), no link arrow
+    assert f'<tg-button type="url" url="{env.SITE_URL}/map?q=o{p.id}">' in h
+    p.site_hidden = True
+    assert '/map?pin=41.700000%2C44.760000&amp;' in properties.post_rich(db, p, [])  # not on the site: our pin map
     assert f'<tg-button type="callback_data" style="primary" data="plike:{p.id}">❤️ I like it</tg-button></tg-button-row>' in h
 
 

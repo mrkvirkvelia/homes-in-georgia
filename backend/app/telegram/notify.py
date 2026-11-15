@@ -924,18 +924,16 @@ FOOTER_LINKS = (
 )
 
 
-def post_html(text):
+def post_html(text, pid=None):
+    """The post text as Telegram HTML: the address and footer lines become links; «APARTMENTS ON MAP» opens our site's
+    map on the object pid (properties.hge_map_url), without it the whole map."""
     out = html.escape(text or "", quote=False)
     # the address line `📍[address](maps link)` (services.properties.post_text) → a link, as the old generator did
     out = re.sub(r"📍\[([^\]\n]+)\]\((https?://[^)\s]+)\)", lambda m: f'<a href="{m[2].replace(chr(34), "%22")}">📍{m[1]}</a>', out)
     for plain, linked in FOOTER_LINKS:
         out = out.replace(plain, linked)
-    # hge.ge/map/ (Irakli's site map, built from the channel posts) searches its titles = these addresses: ?q=<address>
-    # opens the map on this object, without it the whole map (Irakli 11-11)
     from app.services.properties import hge_map_url
-    addr = re.search(r"📍\[([^\]\n]+)\]\(", text or "")
-    url = hge_map_url(addr and addr[1])
-    return out.replace("📍APARTMENTS ON MAP📍", f'📍<b><a href="{html.escape(url)}">APARTMENTS ON MAP</a></b>📍')
+    return out.replace("📍APARTMENTS ON MAP📍", f'📍<b><a href="{html.escape(hge_map_url(pid))}">APARTMENTS ON MAP</a></b>📍')
 
 
 PHOTO_PX = 2560  # Telegram: a photo's width + height at most 10000 and 10 MB (a 48 MP iPhone original is 8064x6048)
@@ -978,7 +976,7 @@ def _bot_media(media, tmp):
     for i in videos:
         share = budget // len(videos)
         path = out[i][1]
-        if os.path.getsize(path) > share:
+        if os.path.getsize(path) > share or _rotation(path):  # ffmpeg writes the frames upright
             path = _squeeze_video(path, tmp, share)
         out[i] = ("video", path) if path else None
     return [x for x in out if x]
@@ -990,7 +988,7 @@ def _squeeze_video(path, tmp, max_bytes):
     try:
         dur = float(subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", path],
                                    capture_output=True, text=True, timeout=60).stdout.strip() or 0)
-        kbps = int(max_bytes * 8 / 1000 / max(dur, 1) * 0.9) - 64
+        kbps = min(int(max_bytes * 8 / 1000 / max(dur, 1) * 0.9) - 64, 6000)  # a short clip: no 100 Mbit/s
         if dur <= 0 or kbps < 300:  # too long for the budget: a mush is worse than no video
             raise ValueError(f"{dur:.0f} s does not fit {max_bytes // 2**20} MB")
         out = os.path.join(tmp, "v_" + os.path.basename(path) + ".mp4")
@@ -1013,24 +1011,36 @@ def post_link(m, chat):
     return f"https://t.me/c/{cid[4:]}/{m['message_id']}" if cid.startswith("-100") else None
 
 
-def video_meta(path):
-    """width/height/duration of a video for the Bot API (without them Telegram shows it as a square, David 11-15);
-    a phone's rotation tag swaps width and height. {} when ffprobe can't read it."""
+def _probe(path):
     import json
     import subprocess
+    info = json.loads(subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
+                                      "stream=width,height:stream_side_data=rotation:stream_tags=rotate:format=duration",
+                                      "-of", "json", path], capture_output=True, text=True, timeout=60).stdout)
+    st = info["streams"][0]
+    rot = int(float((st.get("tags") or {}).get("rotate") or next((d.get("rotation") for d in st.get("side_data_list") or []
+                                                                      if "rotation" in d), 0) or 0))
+    return int(st["width"]), int(st["height"]), rot, float(info["format"]["duration"])
+
+
+def _rotation(path):
+    """A phone video's rotation tag (90, -90, 180) or 0; Telegram plays the stored frames, so such a video lies on its side."""
     try:
-        info = json.loads(subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
-                                          "stream=width,height:stream_side_data=rotation:stream_tags=rotate:format=duration",
-                                          "-of", "json", path], capture_output=True, text=True, timeout=60).stdout)
-        st = info["streams"][0]
-        w, h = int(st["width"]), int(st["height"])
-        rot = int(float((st.get("tags") or {}).get("rotate") or next((d.get("rotation") for d in st.get("side_data_list") or []
-                                                                          if "rotation" in d), 0) or 0))
-        if rot % 180:
-            w, h = h, w
-        return {"width": w, "height": h, "duration": round(float(info["format"]["duration"])), "supports_streaming": True}
+        return _probe(path)[2] % 360
+    except Exception:  # noqa: BLE001
+        return 0
+
+
+def video_meta(path):
+    """width/height/duration of a video for the Bot API (without them Telegram shows it as a square, David 11-15);
+    a rotation tag swaps width and height. {} when ffprobe can't read it."""
+    try:
+        w, h, rot, dur = _probe(path)
     except Exception:  # noqa: BLE001
         return {}
+    if rot % 180:
+        w, h = h, w
+    return {"width": w, "height": h, "duration": round(dur), "supports_streaming": True}
 
 
 def _meta(kind, path):
@@ -1073,9 +1083,11 @@ def publish_post(prop):
     _, album_topic = chat_and_topic("PUBLISH_CHAT_ID", "PUBLISH_TOPIC_ALBUM")
     _, originals_topic = chat_and_topic("PUBLISH_CHAT_ID", "PUBLISH_TOPIC_ORIGINALS")
     _, owner_topic = chat_and_topic("PUBLISH_CHAT_ID", "PUBLISH_TOPIC_OWNER")
-    caption = post_html(g(prop, "post_text") or g(prop, "description") or prop_title(prop))
-    with tempfile.TemporaryDirectory() as tmp:
-        keys = g(prop, "post_media_keys")  # [(photo|video, storage key)]: sale objects and cars keep keys in the row
+    keys = g(prop, "post_media_keys")  # [(photo|video, storage key)]: sale objects and cars keep keys in the row
+    # a property (no keys) is on the site as o<id>; cars have no «APARTMENTS ON MAP»
+    caption = post_html(g(prop, "post_text") or g(prop, "description") or prop_title(prop),
+                        g(prop, "id") if keys is None else None)
+    with tempfile.TemporaryDirectory() as tmp:  # [(photo|video, storage key)]: sale objects and cars keep keys in the row
         media = ([(k, p) for k, key in keys[:10] if (p := storage.fetch(key, tmp))] if keys is not None
                  else media_paths(g(prop, "id"), tmp, g(prop, "post_media_ids")))
         if media and originals_topic:

@@ -1601,7 +1601,7 @@ def post_rich(db: Session, p: Property, media: list[str]) -> str:
         pin = f"{env.PUBLIC_URL.rstrip('/')}/map?" + urlencode({"pin": f"{at[0]:.6f},{at[1]:.6f}", "prec": prec,
                                                                 "title": head, "lang": "en"})
     like = f'<tg-button type="callback_data" style="primary" data="plike:{p.id}">❤️ I like it</tg-button>'
-    where = hge_map_url(p.address) if p.address else pin or url  # Irakli's map on this object, else our pin map
+    where = hge_map_url(p.id) if not p.site_hidden else pin or url  # the site's map on this object, else our pin map
     out.append("<tg-button-row>" + (btn("📍 On the map", where) if where else "") + like + "</tg-button-row>")
     # «Contact» (back by Stanislav 11-11, own full-width row): /start p<id> -> journey.on_post_start, a lead as before
     out.append("<tg-button-row>" + btn("💬 Contact", f"https://t.me/{env.BOT_USERNAME.lstrip('@')}?start=p{p.id}")
@@ -1609,12 +1609,10 @@ def post_rich(db: Session, p: Property, media: list[str]) -> str:
     return "".join(out)
 
 
-def hge_map_url(address: str | None) -> str:
-    """Irakli's site map (hge.ge/map/, built from the channel posts, whose titles are these addresses) filtered to one
-    object: ?q=<address> shows it alone and zooms in; without an address, the whole map (Irakli / Stanislav 11-11)."""
-    # ponytail: the whole map for now — hge.ge is still Irakli's GitHub Pages build, which doesn't know CRM-only objects,
-    # so ?q=<address> showed «Найдено: 0» (David 11-15); bring the filter back after the DNS switch to our site
-    return "https://hge.ge/map/"
+def hge_map_url(pid: int | None = None) -> str:
+    """Our site's map (SITE_URL) on one object: ?q=o<id> is its listing ID on the site (site_feed: f"o{p.id}"), the
+    site's search finds exactly it and zooms in; without an id, the whole map (Stanislav 11-15)."""
+    return f"{env.SITE_URL.rstrip('/')}/map" + (f"?q=o{pid}" if pid else "")
 
 
 def record_publication(db: Session, p: Property, channel: str, url: str | None, message_id: str | None) -> PropertyPublication:

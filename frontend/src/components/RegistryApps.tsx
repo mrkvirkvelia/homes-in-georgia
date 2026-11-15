@@ -8,9 +8,10 @@ import { http } from '../api/client';
 import { errText } from './toast';
 import { insideTelegram, tgWebApp } from '../auth/AuthContext';
 import { Button, Loading } from './ui';
+import { LOCALE, t, t as tr } from '../lib/i18n';  // tr: RegistryApps' own prop is named t
 
 export interface RegTexts { listTitle: string; listHint: string; open: string; picked: string; more: string; none: string; down: string }
-export const REG_RU: RegTexts = { listTitle: 'Заявки собственника в Публичном реестре', listHint: 'Откройте заявку по этому объекту (адрес в карточке): на сайте реестра отметьте «Я не робот» — там кадастровый код и выписка.', open: 'Открыть', picked: 'Открыта', more: 'Показать ещё', none: 'По этому личному номеру заявок не найдено.', down: 'Реестр сейчас не отвечает.' };
+export const REG_RU: RegTexts = { listTitle: t('Заявки собственника в Публичном реестре'), listHint: t('Откройте заявку по этому объекту (адрес в карточке): на сайте реестра отметьте «Я не робот» — там кадастровый код и выписка.'), open: t('Открыть'), picked: t('Открыта'), more: t('Показать ещё'), none: t('По этому личному номеру заявок не найдено.'), down: t('Реестр сейчас не отвечает.') };
 
 /** value: a personal ID; the list waits until it's 9/11 digits and settled for a moment. */
 export function useSettledId(value: string): string {
@@ -23,7 +24,7 @@ export function useSettledId(value: string): string {
   return v;
 }
 
-export const day = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString('ru-RU', { timeZone: 'Asia/Tbilisi' }) : '');
+export const day = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString(LOCALE, { timeZone: 'Asia/Tbilisi' }) : '');
 export interface RegApp { app_id: string; reg_number: string; date: string | null; type: string; address: string; status: string; done: boolean; applicants: string[]; url: string }
 interface RegPage { total: number; page: number; lastpage: number; items: RegApp[] }
 
@@ -52,16 +53,16 @@ function useClipboardCode(onCode?: (code: string) => void, onLink?: (url: string
       const link = onLink && findExtractLink(text);
       if (link && (byTap || link !== lastLink.current)) {
         lastLink.current = link;
-        setNote('Загружаю выписку…');
+        setNote(t('Загружаю выписку…'));
         setNote(await onLink(link).catch((e) => errText(e)));
         return;
       }
       if (link) return;
       const code = findCadastral(text);
       if (code) { onCode?.(code); setArmed(false); setNote(''); return; }
-      if (byTap) setNote(onLink ? 'В буфере нет ссылки на выписку: на сайте реестра скопируйте ссылку кнопки скачивания выписки.' : 'В буфере нет кадастрового кода: скопируйте его на странице реестра.');
+      if (byTap) setNote(onLink ? t('В буфере нет ссылки на выписку: на сайте реестра скопируйте ссылку кнопки скачивания выписки.') : t('В буфере нет кадастрового кода: скопируйте его на странице реестра.'));
     } catch {
-      if (byTap) setNote(onLink ? 'Браузер не дал прочитать буфер: вставьте ссылку в поле «Ссылка на выписку».' : 'Браузер не дал прочитать буфер: вставьте код в поле вручную.');
+      if (byTap) setNote(onLink ? t('Браузер не дал прочитать буфер: вставьте ссылку в поле «Ссылка на выписку».') : t('Браузер не дал прочитать буфер: вставьте код в поле вручную.'));
     } finally {
       busy.current = false;
     }
@@ -73,7 +74,7 @@ function useClipboardCode(onCode?: (code: string) => void, onLink?: (url: string
     window.addEventListener('focus', back);
     return () => { document.removeEventListener('visibilitychange', back); window.removeEventListener('focus', back); };
   }, [armed, onCode]);  // eslint-disable-line react-hooks/exhaustive-deps
-  return { armed: armed && !!onCode, busy: note === 'Загружаю выписку…', arm: () => { setArmed(true); setNote(''); }, read, note };
+  return { armed: armed && !!onCode, busy: note === t('Загружаю выписку…'), arm: () => { setArmed(true); setNote(''); }, read, note };
 }
 
 export function RegistryApps({ base, personalId, picked, onPick, onCode, onLink, t }: { base: string; personalId: string; picked?: RegApp | null; onPick?: (a: RegApp) => void; onCode?: (code: string) => void; onLink?: (url: string) => Promise<string>; t: RegTexts }) {
@@ -93,8 +94,8 @@ export function RegistryApps({ base, personalId, picked, onPick, onCode, onLink,
       <span className="faint" style={{ fontSize: 12 }}>{t.listHint}</span>
       {clip.armed && (
         <div className="col gap-sm">
-          <Button loading={clip.busy} onClick={() => void clip.read(true)}>{onLink ? 'Вставить ссылку на выписку' : 'Вставить кадастровый код из реестра'}</Button>
-          <span className="faint" style={{ fontSize: 12 }}>{clip.note || (onLink ? 'Скопируйте на сайте реестра ссылку на выписку и вернитесь сюда — выписка загрузится и заполнит поля сама.' : 'Скопируйте код на странице реестра и вернитесь сюда — он подставится сам.')}</span>
+          <Button loading={clip.busy} onClick={() => void clip.read(true)}>{onLink ? tr('Вставить ссылку на выписку') : tr('Вставить кадастровый код из реестра')}</Button>
+          <span className="faint" style={{ fontSize: 12 }}>{clip.note || (onLink ? tr('Скопируйте на сайте реестра ссылку на выписку и вернитесь сюда — выписка загрузится и заполнит поля сама.') : tr('Скопируйте код на странице реестра и вернитесь сюда — он подставится сам.'))}</span>
         </div>
       )}
       {items.map((a) => {

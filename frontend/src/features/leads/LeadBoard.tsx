@@ -11,6 +11,7 @@ import { AssignModal } from './LeadDetail';
 import { LeadStatusBadge, SlaChip } from '../../components/domain';
 import { Button, Empty, ErrorBox, Loading, Modal, Seg } from '../../components/ui';
 import { LEAD_BOARD, LEAD_STATUS, OPERATOR_STAGES, REFUSAL_LABEL, ago, fmtSlot } from '../../lib/format';
+import { t } from '../../lib/i18n';
 
 export function LeadCard({ lead, to, showStatus, onMove }: { lead: Lead; to: string; showStatus?: boolean; onMove?: () => void }) {
   return (
@@ -21,16 +22,16 @@ export function LeadCard({ lead, to, showStatus, onMove }: { lead: Lead; to: str
       </div>
       <div className="kcard-title mt" style={{ marginTop: 6 }}>{lead.listing?.title || lead.listing_id}</div>
       <div className="kcard-meta">
-        {lead.client?.name || 'Клиент'}
-        {lead.client?.profile?.budget_max ? ` · до $${lead.client.profile.budget_max}` : ''}
+        {lead.client?.name || t('Клиент')}
+        {lead.client?.profile?.budget_max ? ` · ${t('до ${n}', { n: lead.client.profile.budget_max })}` : ''}
       </div>
       <div className="row row-between" style={{ marginTop: 8, fontSize: 11 }}>
-        <span className="faint" style={{ fontWeight: 600 }}>{lead.agent ? `Агент: ${lead.agent.name}` : lead.operator ? `Оператор: ${lead.operator.name}` : 'Ждёт оператора'}</span>
+        <span className="faint" style={{ fontWeight: 600 }}>{lead.agent ? t('Агент: {name}', { name: lead.agent.name }) : lead.operator ? t('Оператор: {name}', { name: lead.operator.name }) : t('Ждёт оператора')}</span>
         {lead.viewing_at && <span className="badge"><CalendarClock size={11} />{fmtSlot(lead.viewing_at)}</span>}
       </div>
       {onMove && (
         <button type="button" className="btn btn-secondary btn-sm mt" style={{ marginTop: 8 }}
-          onClick={(e) => { e.preventDefault(); e.stopPropagation(); onMove(); }}><ArrowRightLeft size={14} />Перенести</button>
+          onClick={(e) => { e.preventDefault(); e.stopPropagation(); onMove(); }}><ArrowRightLeft size={14} />{t('Перенести')}</button>
       )}
       {showStatus && lead.sla_due_at && <div style={{ marginTop: 6 }}><LeadStatusBadge status={lead.status} /></div>}
     </Link>
@@ -92,7 +93,7 @@ export function StatusBar<S extends string>({ board, stages, labels, count }: { 
   };
   return (
     <div className="status-bar">
-      <div className="status-bar-head"><span>Статусы</span><span>Всего {stages.reduce((a, s) => a + count(s), 0)}</span></div>
+      <div className="status-bar-head"><span>{t('Статусы')}</span><span>{t('Всего {n}', { n: stages.reduce((a, s) => a + count(s), 0) })}</span></div>
       <div className="status-bar-grid" style={{ '--n': stages.length } as CSSProperties}>
         {stages.map((s) => (
           <button type="button" key={s} className={`status-tile ${s === active ? 'active' : ''}`} onClick={() => jump(s)}>
@@ -126,7 +127,7 @@ export function LeadBoard({ base = '', statusBar }: { base?: string; statusBar?:
         : to === 'refused' ? (BEFORE_VIEWING.includes(lead.status) ? api.leads.cancel(lead.id, reason) : api.leads.outcome(lead.id, 'refused', reason))
           : api.leads.outcome(lead.id, to),
     onSuccess: (l) => {
-      qc.invalidateQueries({ queryKey: ['leads'] }); toast('Заявка перенесена'); setRefuse(null);
+      qc.invalidateQueries({ queryKey: ['leads'] }); toast(t('Заявка перенесена')); setRefuse(null);
       if (l.status === 'contract') navigate(`${base}/contracts?lead_id=${l.id}`);
     },
     onError: (e) => toast(errText(e), true),
@@ -138,15 +139,15 @@ export function LeadBoard({ base = '', statusBar }: { base?: string; statusBar?:
     setOver(null);
     const lead = all.find((l) => l.id === id);
     if (!lead || lead.status === to) return;
-    if (!stages.includes(to)) { toast(`«${LEAD_STATUS[to]}» — этап оператора`, true); return; }
-    if (!isStaff && to === 'refused' && BEFORE_VIEWING.includes(lead.status)) { toast('До просмотра заявку отменяет оператор', true); return; }
-    if (!isStaff && to === 'agent_assigned') { toast('Агента назначает оператор; перенос просмотра — в карточке заявки'); navigate(`${base}/leads/${lead.id}`); return; }
+    if (!stages.includes(to)) { toast(t('«{s}» — этап оператора', { s: LEAD_STATUS[to] }), true); return; }
+    if (!isStaff && to === 'refused' && BEFORE_VIEWING.includes(lead.status)) { toast(t('До просмотра заявку отменяет оператор'), true); return; }
+    if (!isStaff && to === 'agent_assigned') { toast(t('Агента назначает оператор; перенос просмотра — в карточке заявки')); navigate(`${base}/leads/${lead.id}`); return; }
     if (to === 'operator_taken' || to === 'thinking' || to === 'contract') act.mutate({ lead, to });
     else if (to === 'agent_assigned') setAssign(lead);
     else if (to === 'refused') setRefuse(lead);
     else if (to === 'deal_pending') navigate(`${base}/deals/new?lead_id=${lead.id}`);
-    else if (to === 'rented') { toast('«Сдано» — когда оператор подтвердит сделку'); navigate(`${base}/leads/${lead.id}`); }
-    else { toast(`«${LEAD_STATUS[to]}»: этот шаг делается в карточке заявки`); navigate(`${base}/leads/${lead.id}`); }
+    else if (to === 'rented') { toast(t('«Сдано» — когда оператор подтвердит сделку')); navigate(`${base}/leads/${lead.id}`); }
+    else { toast(t('«{s}»: этот шаг делается в карточке заявки', { s: LEAD_STATUS[to] })); navigate(`${base}/leads/${lead.id}`); }
   };
   return (
     <>
@@ -164,14 +165,14 @@ export function LeadBoard({ base = '', statusBar }: { base?: string; statusBar?:
                 <span className="row gap-sm">{overdue > 0 && <span className="badge badge-red">{overdue}</span>}<span className="tab-count">{items.length}</span></span>
               </div>
               <div className="kanban-col-body">
-                {items.length === 0 ? <div className="faint" style={{ fontSize: 12, padding: 6 }}>Пусто</div> : items.map((l) => <LeadCard key={l.id} lead={l} to={`${base}/leads/${l.id}`} onMove={() => setMoving(l)} />)}
+                {items.length === 0 ? <div className="faint" style={{ fontSize: 12, padding: 6 }}>{t('Пусто')}</div> : items.map((l) => <LeadCard key={l.id} lead={l} to={`${base}/leads/${l.id}`} onMove={() => setMoving(l)} />)}
               </div>
             </div>
           );
         })}
       </div>
       {statusBar && <StatusBar board={boardRef} stages={stages} labels={LEAD_STATUS} count={(s) => data?.[s]?.length ?? 0} />}
-      <Modal open={!!moving} onClose={() => setMoving(null)} title={`Перенести заявку #${moving?.id}`}>
+      <Modal open={!!moving} onClose={() => setMoving(null)} title={t('Перенести заявку #{id}', { id: moving?.id ?? '' })}>
         <div className="col">
           {stages.filter((st) => st !== moving?.status).map((st) => (
             <Button key={st} variant="secondary" block onClick={() => { const l = moving!; setMoving(null); drop(st, l.id); }}>{LEAD_STATUS[st]}</Button>
@@ -179,10 +180,10 @@ export function LeadBoard({ base = '', statusBar }: { base?: string; statusBar?:
         </div>
       </Modal>
       {assign && <AssignModal lead={assign} open onClose={() => { setAssign(null); qc.invalidateQueries({ queryKey: ['leads'] }); }} />}
-      <Modal open={!!refuse} onClose={() => setRefuse(null)} title={`Отказ по заявке #${refuse?.id}`}>
+      <Modal open={!!refuse} onClose={() => setRefuse(null)} title={t('Отказ по заявке #{id}', { id: refuse?.id ?? '' })}>
         <div className="col">
           <Seg value={reason} onChange={setReason} options={Object.entries(REFUSAL_LABEL).map(([value, label]) => ({ value, label }))} />
-          <Button variant="danger" loading={act.isPending} onClick={() => refuse && act.mutate({ lead: refuse, to: 'refused' })}>Сохранить отказ</Button>
+          <Button variant="danger" loading={act.isPending} onClick={() => refuse && act.mutate({ lead: refuse, to: 'refused' })}>{t('Сохранить отказ')}</Button>
         </div>
       </Modal>
     </>
@@ -203,7 +204,7 @@ export function LeadStages({ base = '', list }: { base?: string; list?: boolean 
     <div className="col">
       {/* the board has the «СТАТУСЫ» panel instead of the chips (Stanislav 11-13) */}
       {list && <Seg value={stage} onChange={(s) => setStage(s === stage ? '' : s)}
-        options={[{ value: '' as const, label: label('Все', total) }, ...stages.map((s) => ({ value: s, label: label(LEAD_STATUS[s], c[s] || 0) }))]} />}
+        options={[{ value: '' as const, label: label(t('Все'), total) }, ...stages.map((s) => ({ value: s, label: label(LEAD_STATUS[s], c[s] || 0) }))]} />}
       {stage ? <StageLeads key={stage} stage={stage} base={base} /> : list ? <div style={{ maxWidth: 640 }}><MyLeadsList base={base} /></div> : <LeadBoard base={base} statusBar />}
     </div>
   );
@@ -216,7 +217,7 @@ function StageLeads({ stage, base }: { stage: LeadStatus; base: string }) {
   const items = itemsOf(data);
   return (
     <div className="col" style={{ maxWidth: 640 }}>
-      {items.length === 0 ? <Empty text={`«${LEAD_STATUS[stage]}»: заявок нет`} /> : items.map((l) => <LeadCard key={l.id} lead={l} to={`${base}/leads/${l.id}`} />)}
+      {items.length === 0 ? <Empty text={t('«{s}»: заявок нет', { s: LEAD_STATUS[stage] })} /> : items.map((l) => <LeadCard key={l.id} lead={l} to={`${base}/leads/${l.id}`} />)}
     </div>
   );
 }
@@ -232,8 +233,8 @@ export function MyLeadsList({ base = '', agentId }: { base?: string; agentId?: n
   const closed = items.filter((l) => !order.includes(l.status));
   return (
     <div className="col">
-      {active.length === 0 ? <Empty text="Активных заявок нет" /> : active.map((l) => <LeadCard key={l.id} lead={l} to={`${base}/leads/${l.id}`} showStatus />)}
-      {closed.length > 0 && <div className="label mt">Остальные</div>}
+      {active.length === 0 ? <Empty text={t('Активных заявок нет')} /> : active.map((l) => <LeadCard key={l.id} lead={l} to={`${base}/leads/${l.id}`} showStatus />)}
+      {closed.length > 0 && <div className="label mt">{t('Остальные')}</div>}
       {closed.map((l) => <LeadCard key={l.id} lead={l} to={`${base}/leads/${l.id}`} showStatus />)}
     </div>
   );
@@ -251,10 +252,10 @@ export function ArchivedLeads({ base = '' }: { base?: string }) {
   return (
     <div className="col" style={{ maxWidth: 640 }}>
       <div className="row row-wrap">
-        <input className="input" style={{ flex: 1, minWidth: 200 }} placeholder="Клиент, адрес, район или #номер" value={q} onChange={(e) => setQ(e.target.value)} />
-        <Seg value={status} onChange={setStatus} options={[{ value: '', label: 'Все' }, { value: 'rented', label: 'Сдано' }, { value: 'refused', label: 'Отказ' }, { value: 'thinking', label: 'Думает' }]} />
+        <input className="input" style={{ flex: 1, minWidth: 200 }} placeholder={t('Клиент, адрес, район или #номер')} value={q} onChange={(e) => setQ(e.target.value)} />
+        <Seg value={status} onChange={setStatus} options={[{ value: '', label: t('Все') }, { value: 'rented', label: t('Сдано') }, { value: 'refused', label: t('Отказ') }, { value: 'thinking', label: t('Думает') }]} />
       </div>
-      {isLoading ? <Loading /> : error ? <ErrorBox error={error} /> : items.length === 0 ? <Empty text="В архиве ничего не нашлось" />
+      {isLoading ? <Loading /> : error ? <ErrorBox error={error} /> : items.length === 0 ? <Empty text={t('В архиве ничего не нашлось')} />
         : items.map((l) => <LeadCard key={l.id} lead={l} to={`${base}/leads/${l.id}`} showStatus />)}
     </div>
   );

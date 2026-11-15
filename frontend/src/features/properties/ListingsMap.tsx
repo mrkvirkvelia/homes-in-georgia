@@ -11,6 +11,7 @@ import 'leaflet.markercluster/dist/MarkerCluster.css';
 import { addBaseLayer } from '../../lib/mapTiles';
 import { LocateFixed } from 'lucide-react';
 import { Button, Modal } from '../../components/ui';
+import { t } from '../../lib/i18n';
 
 const TBILISI: L.LatLngTuple = [41.7151, 44.8271];
 /** an ad or an object (the base tabs' map, Stanislav 11-13) */
@@ -102,8 +103,8 @@ export function ListingsMap<T extends Pin>({ items, card, onPick }: { items: T[]
   }, [sel, items]);
 
   const locate = () => {
-    if (!navigator.geolocation) return setMe('Геолокация недоступна');
-    setMe('Ищу вас…');
+    if (!navigator.geolocation) return setMe(t('Геолокация недоступна'));
+    setMe(t('Ищу вас…'));
     navigator.geolocation.getCurrentPosition((p) => {
       const at: L.LatLngTuple = [p.coords.latitude, p.coords.longitude];
       moved.current = true;
@@ -111,18 +112,18 @@ export function ListingsMap<T extends Pin>({ items, card, onPick }: { items: T[]
       meDot.current?.remove();
       if (map.current) meDot.current = L.circleMarker(at, { radius: 8, color: '#fff', weight: 3, fillColor: '#2f6bff', fillOpacity: 1 }).addTo(map.current);
       setMe('');
-    }, () => setMe('Нет доступа к геолокации'), { enableHighAccuracy: true, timeout: 10000 });
+    }, () => setMe(t('Нет доступа к геолокации')), { enableHighAccuracy: true, timeout: 10000 });
   };
 
   return (
     <div className="col gap-sm">
       <div className="row row-between">
-        <span className="faint" style={{ fontSize: 12 }}>На карте {pinned.length} из {items.length}{items.length > pinned.length ? ' (у остальных нет точки)' : ''}</span>
-        <Button size="sm" variant="secondary" onClick={locate}><LocateFixed size={14} />Рядом со мной</Button>
+        <span className="faint" style={{ fontSize: 12 }}>{t('На карте {n} из {total}', { n: pinned.length, total: items.length })}{items.length > pinned.length ? t(' (у остальных нет точки)') : ''}</span>
+        <Button size="sm" variant="secondary" onClick={locate}><LocateFixed size={14} />{t('Рядом со мной')}</Button>
       </div>
       {me && <div className="muted" style={{ fontSize: 12 }}>{me}</div>}
       <div ref={box} style={{ height: '60vh', minHeight: 320, borderRadius: 12, overflow: 'hidden', zIndex: 0 }} />
-      <Modal open={!!sel && !onPick} onClose={() => setSel(null)} title={sel ? `${price(sel)} · ${sel.district || sel.address || 'Объявление'}` : ''}>
+      <Modal open={!!sel && !onPick} onClose={() => setSel(null)} title={sel ? `${price(sel)} · ${sel.district || sel.address || t('Объявление')}` : ''}>
         {sel && card(sel)}
       </Modal>
     </div>

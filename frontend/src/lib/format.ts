@@ -1,23 +1,24 @@
 import type { LeadStatus, PropertyStatus, Role } from '../api/types';
+import { LOCALE, lx, t, tmap } from './i18n';
 
-export const ROLE_LABEL: Record<Role, string> = {
+export const ROLE_LABEL: Record<Role, string> = tmap({
   superadmin: 'Суперадмин', admin: 'Админ', operator: 'Оператор', agent: 'Агент', recruit: 'Рекрут',
   daily_rent_manager: 'Менеджер посуточной аренды',
-};
+});
 
-export const PROPERTY_STATUS: Record<PropertyStatus, string> = {
+export const PROPERTY_STATUS: Record<PropertyStatus, string> = tmap({
   new: 'Новый', taken: 'Взят', call_failed: 'Не дозвонился', owner_confirmed: 'Собственник', agent_marked: 'Агент',
   shoot_scheduled: 'Съёмка', media_uploaded: 'Фото загружены', review: 'На проверке', returned: 'Возвращён',
   published: 'Опубликован', rented: 'Сдан', archived: 'Архив',
-};
+});
 export const PROPERTY_BOARD: PropertyStatus[] = [
   'taken', 'call_failed', 'owner_confirmed', 'shoot_scheduled', 'media_uploaded', 'review', 'returned', 'published', 'agent_marked', 'rented',
 ];
 
-export const LEAD_STATUS: Record<LeadStatus, string> = {
+export const LEAD_STATUS: Record<LeadStatus, string> = tmap({
   new: 'Новая', operator_taken: 'У оператора', agent_assigned: 'Агент назначен', slots_sent: 'Время отправлено',
   time_chosen: 'Время выбрано', viewing_done: 'Просмотр', contract: 'Договор', deal_pending: 'Сделка', rented: 'Сдано', refused: 'Отказ', thinking: 'Думает',
-};
+});
 export const LEAD_BOARD: LeadStatus[] = [
   'new', 'operator_taken', 'agent_assigned', 'slots_sent', 'time_chosen', 'viewing_done', 'thinking', 'contract', 'deal_pending', 'rented', 'refused',
 ];
@@ -28,26 +29,26 @@ export const CONTRACT_STAGES: LeadStatus[] = ['time_chosen', 'viewing_done', 'th
 /** «Составить договор» moves the lead to «Договор» from these (backend leads.CONTRACT_FROM) */
 export const CONTRACT_FROM: LeadStatus[] = ['time_chosen', 'viewing_done', 'thinking'];
 
-export const OUTCOME_LABEL: Record<string, string> = {
+export const OUTCOME_LABEL: Record<string, string> = tmap({
   rented: 'Снимает', refused: 'Не подошло', thinking: 'Думает', reschedule: 'Перенос',
-};
-export const REFUSAL_LABEL: Record<string, string> = { price: 'Цена', location: 'Расположение', condition: 'Состояние', other: 'Другое' };
+});
+export const REFUSAL_LABEL: Record<string, string> = tmap({ price: 'Цена', location: 'Расположение', condition: 'Состояние', other: 'Другое' });
 /** why an object is in the archive (backend models.ARCHIVE_REASONS) */
-export const ARCHIVE_REASON: Record<string, string> = {
+export const ARCHIVE_REASON: Record<string, string> = tmap({
   owner_refused: 'Собственник отказался', rented_by_us: 'Сдали мы', rented_by_owner: 'Сдал сам', not_actual: 'Неактуально', duplicate: 'Дубль', other: 'Другое', paused: 'На паузе',
-};
+});
 /** «Запрос оператору» (stage 6): kinds and field names (backend services/change_requests.py, properties.LOCKED_AFTER_VERIFY) */
-export const CR_KIND: Record<string, string> = { edit: 'Изменение полей', archive: 'В архив', transfer_owner: 'Передать собственника', delete: 'Удаление → архив' };
-export const CR_FIELD: Record<string, string> = {
+export const CR_KIND: Record<string, string> = tmap({ edit: 'Изменение полей', archive: 'В архив', transfer_owner: 'Передать собственника', delete: 'Удаление → архив' });
+export const CR_FIELD: Record<string, string> = tmap({
   owner_name: 'Собственник', owner_phone: 'Телефон собственника', address: 'Адрес', cadastral_code: 'Кадастр', source_url: 'Ссылка на объявление',
   is_exclusive: 'Эксклюзив', price: 'Цена', currency: 'Валюта', deposit: 'Залог', sale_price: 'Цена продажи',
   archive_reason: 'Причина архива', archive_comment: 'Комментарий', duplicate_of: 'Дубль объекта', owner_agent: 'Агент собственника',
-};
+});
 
-export const SOURCE_LABEL: Record<string, string> = {
+export const SOURCE_LABEL: Record<string, string> = tmap({
   ss: 'ss.ge', myhome: 'myhome.ge', livo: 'livo.ge', korter: 'korter.ge', facebook: 'Facebook', instagram: 'Instagram', threads: 'Threads', telegram: 'Telegram', agency_channel: 'Канал', direct: 'Напрямую',
   referral: 'Рекомендация', import: 'Импорт', deal: 'Из сделки', other: 'Другое',
-};
+});
 
 // The channel's district filter tags (backend app/districts.py is the source; tests/test_districts.py keeps them equal).
 // objects store the Russian label; the post caption takes the tag.
@@ -98,15 +99,17 @@ const DISTRICT_OLD: Record<string, string> = { 'Вере': 'Вера', 'Ваке
 const BY_TAG = Object.fromEntries(DISTRICT_LIST.map(([t, ru]) => [t.toLowerCase(), ru]));
 /** A stored district (ru label, old value or an English tag like «Saburtalo» from the old base) -> the label to show. */
 /** An object with no agent (agent_id NULL, e.g. legacy imports) belongs to the platform (Stanislav 11-13) */
-export const PLATFORM = 'Платформа';
+export const PLATFORM = t('Платформа');
 export function agentLabel(a?: { name: string; agent_tag?: string | null } | null): string {
   return a ? `${a.name}${a.agent_tag ? ` · #${a.agent_tag}` : ''}` : PLATFORM;
 }
 
-export function districtLabel(v?: string | null): string {
+/** The stored Russian label of a district (the DistrictSelect value). */
+export function districtValue(v?: string | null): string {
   const s = (v || '').trim();
   return DISTRICT_OLD[s] || BY_TAG[s.replace(/^#/, '').toLowerCase()] || s;
 }
+export function districtLabel(v?: string | null): string { return t(districtValue(v)); }
 
 export function money(v?: number | null, cur = 'USD'): string {
   if (v === null || v === undefined || Number.isNaN(Number(v))) return '—';
@@ -117,7 +120,7 @@ export function money(v?: number | null, cur = 'USD'): string {
 }
 export function num(v?: number | null): string {
   if (v === null || v === undefined) return '—';
-  return Number(v).toLocaleString('ru-RU');
+  return Number(v).toLocaleString(LOCALE);
 }
 
 const pad = (n: number) => String(n).padStart(2, '0');
@@ -133,26 +136,28 @@ export function fmtDateTime(s?: string | null): string {
   if (Number.isNaN(d.getTime())) return s;
   return `${pad(d.getDate())}.${pad(d.getMonth() + 1)} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
-const WD = ['вс', 'пн', 'вт', 'ср', 'чт', 'пт', 'сб'];
+const WD = lx(['вс', 'пн', 'вт', 'ср', 'чт', 'пт', 'сб'], ['კვ', 'ორ', 'სა', 'ოთ', 'ხუ', 'პა', 'შა'], ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']);
 export function fmtSlot(s: string): string {
   const d = new Date(s);
   const today = new Date();
   const tomorrow = new Date(Date.now() + 86400_000);
   const same = (a: Date, b: Date) => a.toDateString() === b.toDateString();
-  const day = same(d, today) ? 'Сегодня' : same(d, tomorrow) ? 'Завтра' : `${WD[d.getDay()]} ${pad(d.getDate())}.${pad(d.getMonth() + 1)}`;
+  const day = same(d, today) ? t('Сегодня') : same(d, tomorrow) ? t('Завтра') : `${WD[d.getDay()]} ${pad(d.getDate())}.${pad(d.getMonth() + 1)}`;
   return `${day} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 export function ago(s?: string | null): string {
   if (!s) return '—';
   const diff = (Date.now() - new Date(s).getTime()) / 1000;
-  if (diff < 60) return 'только что';
-  if (diff < 3600) return `${Math.floor(diff / 60)} мин назад`;
-  if (diff < 86400) return `${Math.floor(diff / 3600)} ч назад`;
-  if (diff < 86400 * 7) return `${Math.floor(diff / 86400)} дн назад`;
+  if (diff < 60) return t('только что');
+  if (diff < 3600) return t('{n} мин назад', { n: Math.floor(diff / 60) });
+  if (diff < 86400) return t('{n} ч назад', { n: Math.floor(diff / 3600) });
+  if (diff < 86400 * 7) return t('{n} дн назад', { n: Math.floor(diff / 86400) });
   return fmtDate(s);
 }
 export function monthKey(d = new Date()): string { return `${d.getMonth() + 1}/${d.getFullYear()}`; }
-const MONTHS = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'];
+const MONTHS = lx(['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'],
+  ['იანვარი', 'თებერვალი', 'მარტი', 'აპრილი', 'მაისი', 'ივნისი', 'ივლისი', 'აგვისტო', 'სექტემბერი', 'ოქტომბერი', 'ნოემბერი', 'დეკემბერი'],
+  ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']);
 export function monthLabel(key: string): string {
   const [m, y] = key.split('/').map(Number);
   return `${MONTHS[m - 1] || m} ${y}`;
@@ -165,8 +170,8 @@ export function lastMonths(n = 12): string[] {
 }
 export function bedroomsLabel(n?: number | null): string {
   if (n === null || n === undefined) return '';
-  if (n === 0) return 'студия';
-  return `${n} ${n === 1 ? 'спальня' : n < 5 ? 'спальни' : 'спален'}`;
+  if (n === 0) return t('студия');
+  return lx(`${n} ${n === 1 ? 'спальня' : n < 5 ? 'спальни' : 'спален'}`, `${n} საძინებელი`, `${n} ${n === 1 ? 'bedroom' : 'bedrooms'}`);
 }
 export function initials(name?: string | null): string {
   if (!name) return '?';
@@ -186,7 +191,8 @@ export function nextLevelAt(n: number) { return n < 11 ? 11 : n < 101 ? 101 : nu
 /** «Под этот объект подходят 4 активных клиента» (stage 10) */
 export function demandLabel(n: number): string {
   const f = pluralForm(n);
-  return `Под этот объект ${f === 0 ? 'подходит' : 'подходят'} ${n} ${['активный клиент', 'активных клиента', 'активных клиентов'][f]}`;
+  return lx(`Под этот объект ${f === 0 ? 'подходит' : 'подходят'} ${n} ${['активный клиент', 'активных клиента', 'активных клиентов'][f]}`,
+    `ამ ობიექტს ერგება ${n} აქტიური კლიენტი`, `${n} active ${n === 1 ? 'client matches' : 'clients match'} this property`);
 }
 
 /** 0: 1/21/31…, 1: 2-4/22-24…, 2: the rest */
@@ -259,4 +265,4 @@ export function phoneBlur(e: { currentTarget: HTMLInputElement }) {
   if (/^\+(995)?\s*$/.test(e.currentTarget.value)) setValue(e.currentTarget, '');
 }
 /** 640 → «640 м», 2315 → «2,3 км» (the metro distance from the map point). */
-export function distLabel(m: number): string { return m > 1000 ? `${(m / 1000).toFixed(1).replace('.', ',')} км` : `${Math.round(m)} м`; }
+export function distLabel(m: number): string { return m > 1000 ? `${(m / 1000).toFixed(1).replace('.', ',')} ${t('км')}` : `${Math.round(m)} ${t('м')}`; }

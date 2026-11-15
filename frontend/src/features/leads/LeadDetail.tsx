@@ -13,21 +13,22 @@ import { errText, useToast } from '../../components/toast';
 import { Avatar, Badge, Button, Card, ErrorBox, Field, Input, KV, Loading, Modal, Seg, Textarea } from '../../components/ui';
 import { DealView } from '../../pages/Deals';
 import { CONTRACT_FROM, CONTRACT_STAGES, OUTCOME_LABEL, REFUSAL_LABEL, bedroomsLabel, fmtDate, fmtDateTime, fmtSlot, formatPhone, localToIso, money } from '../../lib/format';
+import { t } from '../../lib/i18n';
 
-const PETS: Record<string, string> = { none: 'нет', cat: 'кошка', dog: 'собака', other: 'другое' };
+const PETS: Record<string, string> = { none: t('нет'), cat: t('кошка'), dog: t('собака'), other: t('другое') };
 
 export function ProfileView({ profile }: { profile: ClientProfile }) {
-  const budget = profile.budget_max ? `${profile.budget_min ? `${money(profile.budget_min)}–` : 'до '}${money(profile.budget_max)}` : '—';
+  const budget = profile.budget_max ? `${profile.budget_min ? `${money(profile.budget_min)}–` : t('до ')}${money(profile.budget_max)}` : '—';
   return (
     <KV items={[
-      ['Жильцов', profile.residents || '—'],
-      ['Животные', (profile.pets || []).map((p) => PETS[p] || p).join(', ') || '—'],
-      ['Срок, мес', (profile.terms || []).join(', ') || '—'],
-      ['Бюджет', budget],
-      ['Спальни', (profile.bedrooms || []).map((b) => (b === 0 ? 'студия' : b)).join(', ') || '—'],
-      ['Районы', (profile.districts || []).map((d) => (d === 'any' ? 'любой' : d)).join(', ') || '—'],
-      ['Точка', profile.pin ? <a href={`https://www.openstreetmap.org/?mlat=${profile.pin.lat}&mlon=${profile.pin.lng}#map=15/${profile.pin.lat}/${profile.pin.lng}`} target="_blank" rel="noreferrer">на карте{profile.radius_km ? ` · ${profile.radius_km} км` : ''}</a> : '—'],
-      ['Заезд', profile.move_in ? fmtDate(profile.move_in) : '—'],
+      [t('Жильцов'), profile.residents || '—'],
+      [t('Животные'), (profile.pets || []).map((p) => PETS[p] || p).join(', ') || '—'],
+      [t('Срок, мес'), (profile.terms || []).join(', ') || '—'],
+      [t('Бюджет'), budget],
+      [t('Спальни'), (profile.bedrooms || []).map((b) => (b === 0 ? t('студия') : b)).join(', ') || '—'],
+      [t('Районы'), (profile.districts || []).map((d) => (d === 'any' ? t('любой') : d)).join(', ') || '—'],
+      [t('Точка'), profile.pin ? <a href={`https://www.openstreetmap.org/?mlat=${profile.pin.lat}&mlon=${profile.pin.lng}#map=15/${profile.pin.lat}/${profile.pin.lng}`} target="_blank" rel="noreferrer">{t('на карте')}{profile.radius_km ? ` · ${t('{n} км', { n: profile.radius_km })}` : ''}</a> : '—'],
+      [t('Заезд'), profile.move_in ? fmtDate(profile.move_in) : '—'],
     ]} />
   );
 }
@@ -35,7 +36,7 @@ export function ProfileView({ profile }: { profile: ClientProfile }) {
 const ARCHIVABLE = ['rented', 'refused', 'thinking'];
 
 /** After the viewing (Stanislav 11-11): Просмотр → Договор → Договор подписан → Сделка → Сдано. */
-const STEPS = ['Просмотр', 'Договор', 'Договор подписан', 'Сделка', 'Сдано'];
+const STEPS = [t('Просмотр'), t('Договор'), t('Договор подписан'), t('Сделка'), t('Сдано')];
 function stepOf(lead: Lead): number {
   if (lead.status === 'rented') return 5;
   if (lead.status === 'deal_pending' || lead.deal_id) return 3;
@@ -45,7 +46,7 @@ function stepOf(lead: Lead): number {
 function LeadSteps({ lead }: { lead: Lead }) {
   const at = stepOf(lead);
   return (
-    <div className="row row-wrap gap-sm" aria-label="Этапы после просмотра">
+    <div className="row row-wrap gap-sm" aria-label={t('Этапы после просмотра')}>
       {STEPS.map((s, i) => (
         <span key={s} className={`badge ${i < at ? 'badge-ok' : i === at ? 'badge-blue' : 'badge-grey'}`} aria-current={i === at ? 'step' : undefined}>
           {i < at && <CheckCircle2 size={12} />}{i + 1}. {s}
@@ -63,16 +64,16 @@ function ContractStep({ lead, base }: { lead: Lead; base: string }) {
     <div className="col">
       {signed ? (
         <>
-          <div className="alert alert-ok"><CheckCircle2 size={16} />Договор #{c.id} подписан{c.signed_at ? ` ${fmtDateTime(c.signed_at)}` : ''}. Все его данные перейдут в сделку.</div>
-          <Link className="btn btn-ok btn-lg" to={`${base}/deals/new?lead_id=${lead.id}`}><FileText size={18} />Оформить сделку</Link>
+          <div className="alert alert-ok"><CheckCircle2 size={16} />{t('Договор #{id} подписан{at}. Все его данные перейдут в сделку.', { id: c.id, at: c.signed_at ? ` ${fmtDateTime(c.signed_at)}` : '' })}</div>
+          <Link className="btn btn-ok btn-lg" to={`${base}/deals/new?lead_id=${lead.id}`}><FileText size={18} />{t('Оформить сделку')}</Link>
         </>
       ) : (
         <>
           <div className="muted" style={{ fontSize: 13 }}>
-            {c ? `Договор #${c.id} — черновик. Когда стороны подпишут, отметьте «Договор подписан» в договоре: после этого появится «Оформить сделку».`
-              : 'Договор ещё не составлен: данные заявки и объекта подставятся в мастер договора.'}
+            {c ? t('Договор #{id} — черновик. Когда стороны подпишут, отметьте «Договор подписан» в договоре: после этого появится «Оформить сделку».', { id: c.id })
+              : t('Договор ещё не составлен: данные заявки и объекта подставятся в мастер договора.')}
           </div>
-          <Link className="btn btn-primary" to={`${base}/contracts?${c ? `id=${c.id}` : `lead_id=${lead.id}`}`}><FileText size={16} />{c ? 'Открыть договор' : 'Составить договор'}</Link>
+          <Link className="btn btn-primary" to={`${base}/contracts?${c ? `id=${c.id}` : `lead_id=${lead.id}`}`}><FileText size={16} />{c ? t('Открыть договор') : t('Составить договор')}</Link>
         </>
       )}
     </div>
@@ -96,22 +97,22 @@ export function AssignModal({ lead, open, onClose }: { lead: Lead; open: boolean
   const { data, isLoading, error } = useQuery({ queryKey: ['recommend', lead.id], queryFn: () => api.leads.recommend(lead.id), enabled: open });
   const assign = useMutation({
     mutationFn: (agentId: number) => api.leads.assign(lead.id, agentId),
-    onSuccess: (l) => { done(l, 'Заявка отправлена агенту'); onClose(); },
+    onSuccess: (l) => { done(l, t('Заявка отправлена агенту')); onClose(); },
     onError: (e) => toast(errText(e), true),
   });
   const items = itemsOf(data);
   return (
-    <Modal open={open} onClose={onClose} title="Назначить агента">
+    <Modal open={open} onClose={onClose} title={t('Назначить агента')}>
       {isLoading ? <Loading /> : error ? <ErrorBox error={error} /> : (
         <div>
           {items.map((r, i) => (
             <div key={r.agent.id} className="list-row" style={{ alignItems: 'flex-start' }}>
               <Avatar name={r.agent.name} src={r.agent.photo_url} />
               <div className="grow">
-                <div className="row gap-sm row-wrap"><b>{r.agent.name}</b>{(r.recommended ?? i === 0) && <Badge tone="red">рекомендуем</Badge>}{r.agent.level ? <Badge>{r.agent.level}%</Badge> : null}</div>
+                <div className="row gap-sm row-wrap"><b>{r.agent.name}</b>{(r.recommended ?? i === 0) && <Badge tone="red">{t('рекомендуем')}</Badge>}{r.agent.level ? <Badge>{r.agent.level}%</Badge> : null}</div>
                 <div className="row row-wrap gap-sm mt" style={{ marginTop: 6 }}>{r.reasons.map((x) => <Badge key={x} tone="grey">{x}</Badge>)}</div>
               </div>
-              <Button size="sm" variant={i === 0 ? 'primary' : 'secondary'} loading={assign.isPending && assign.variables === r.agent.id} onClick={() => assign.mutate(r.agent.id)}>Назначить</Button>
+              <Button size="sm" variant={i === 0 ? 'primary' : 'secondary'} loading={assign.isPending && assign.variables === r.agent.id} onClick={() => assign.mutate(r.agent.id)}>{t('Назначить')}</Button>
             </div>
           ))}
         </div>
@@ -133,13 +134,13 @@ export function SlotsEntry({ lead }: { lead: Lead }) {
   const add = (v: string) => { if (v && !slots.includes(v)) setSlots((s) => [...s, v].sort()); };
   const send = useMutation({
     mutationFn: () => api.leads.slots(lead.id, slots.map(localToIso)),
-    onSuccess: (l) => { done(l, 'Варианты отправлены клиенту с аккаунта оператора'); setSlots([]); },
+    onSuccess: (l) => { done(l, t('Варианты отправлены клиенту с аккаунта оператора')); setSlots([]); },
     onError: (e) => toast(errText(e), true),
   });
   return (
     <div className="col">
-      <div className="muted" style={{ fontSize: 13 }}>Узнайте у собственника свободное время и добавьте несколько окон. Клиенту придёт сообщение с кнопками от аккаунта оператора.</div>
-      <Seg value={day} onChange={setDay} options={[0, 1, 2, 3].map((o) => ({ value: dayStr(o), label: o === 0 ? 'Сегодня' : o === 1 ? 'Завтра' : fmtDate(dayStr(o)).slice(0, 5) }))} />
+      <div className="muted" style={{ fontSize: 13 }}>{t('Узнайте у собственника свободное время и добавьте несколько окон. Клиенту придёт сообщение с кнопками от аккаунта оператора.')}</div>
+      <Seg value={day} onChange={setDay} options={[0, 1, 2, 3].map((o) => ({ value: dayStr(o), label: o === 0 ? t('Сегодня') : o === 1 ? t('Завтра') : fmtDate(dayStr(o)).slice(0, 5) }))} />
       <div className="row row-wrap gap-sm">
         {QUICK_TIMES.map((t) => {
           const v = `${day}T${t}`;
@@ -148,17 +149,17 @@ export function SlotsEntry({ lead }: { lead: Lead }) {
         })}
       </div>
       <div className="row" style={{ alignItems: 'flex-end' }}>
-        <Field label="Своё время" className="grow"><Input type="datetime-local" value={custom} onChange={(e) => setCustom(e.target.value)} /></Field>
-        <Button variant="secondary" disabled={!custom} onClick={() => { add(custom); setCustom(''); }}><Plus size={16} />Добавить</Button>
+        <Field label={t('Своё время')} className="grow"><Input type="datetime-local" value={custom} onChange={(e) => setCustom(e.target.value)} /></Field>
+        <Button variant="secondary" disabled={!custom} onClick={() => { add(custom); setCustom(''); }}><Plus size={16} />{t('Добавить')}</Button>
       </div>
       {slots.length > 0 && (
         <div className="row row-wrap gap-sm">
           {slots.map((s) => (
-            <span key={s} className="slot-pill">{fmtSlot(s)}<button className="btn-ghost" style={{ border: 0, background: 'none', cursor: 'pointer', padding: 0, display: 'flex' }} onClick={() => setSlots(slots.filter((x) => x !== s))} aria-label="Убрать"><Trash2 size={13} /></button></span>
+            <span key={s} className="slot-pill">{fmtSlot(s)}<button className="btn-ghost" style={{ border: 0, background: 'none', cursor: 'pointer', padding: 0, display: 'flex' }} onClick={() => setSlots(slots.filter((x) => x !== s))} aria-label={t('Убрать')}><Trash2 size={13} /></button></span>
           ))}
         </div>
       )}
-      <Button size="lg" disabled={!slots.length} loading={send.isPending} onClick={() => send.mutate()}><Send size={16} />Отправить клиенту · {slots.length}</Button>
+      <Button size="lg" disabled={!slots.length} loading={send.isPending} onClick={() => send.mutate()}><Send size={16} />{t('Отправить клиенту')} · {slots.length}</Button>
     </div>
   );
 }
@@ -169,21 +170,21 @@ function AgentOutcome({ lead }: { lead: Lead }) {
   const [pick, setPick] = useState<string | null>(null);
   const m = useMutation({
     mutationFn: (o: string) => api.leads.outcome(lead.id, o, o === 'refused' ? reason : undefined),
-    onSuccess: (l) => done(l, 'Итог сохранён'),
+    onSuccess: (l) => done(l, t('Итог сохранён')),
     onError: (e) => toast(errText(e), true),
   });
   return (
     <div className="col">
       <div className="row row-wrap">
-        <Button variant="ok" onClick={() => m.mutate('rented')} loading={m.isPending && m.variables === 'rented'}>Снимает → договор</Button>
-        <Button variant="secondary" onClick={() => setPick('refused')}>Не подошло</Button>
-        <Button variant="secondary" onClick={() => m.mutate('thinking')} loading={m.isPending && m.variables === 'thinking'}>Думает</Button>
-        <Button variant="ghost" onClick={() => m.mutate('reschedule')} loading={m.isPending && m.variables === 'reschedule'}><RotateCcw size={15} />Перенос</Button>
+        <Button variant="ok" onClick={() => m.mutate('rented')} loading={m.isPending && m.variables === 'rented'}>{t('Снимает → договор')}</Button>
+        <Button variant="secondary" onClick={() => setPick('refused')}>{t('Не подошло')}</Button>
+        <Button variant="secondary" onClick={() => m.mutate('thinking')} loading={m.isPending && m.variables === 'thinking'}>{t('Думает')}</Button>
+        <Button variant="ghost" onClick={() => m.mutate('reschedule')} loading={m.isPending && m.variables === 'reschedule'}><RotateCcw size={15} />{t('Перенос')}</Button>
       </div>
       {pick === 'refused' && (
         <div className="row row-wrap">
           <Seg value={reason} onChange={setReason} options={Object.entries(REFUSAL_LABEL).map(([value, label]) => ({ value, label }))} />
-          <Button variant="danger" onClick={() => m.mutate('refused')} loading={m.isPending}>Сохранить отказ</Button>
+          <Button variant="danger" onClick={() => m.mutate('refused')} loading={m.isPending}>{t('Сохранить отказ')}</Button>
         </div>
       )}
     </div>
@@ -195,14 +196,14 @@ function OutcomeCompare({ lead }: { lead: Lead }) {
   const box = (who: string, v?: string | null) => (
     <div className="outcome-card">
       <div className="label">{who}</div>
-      <div style={{ fontSize: 18, fontWeight: 800, marginTop: 4 }}>{v ? OUTCOME_LABEL[v] || v : <span className="faint">нет ответа</span>}</div>
+      <div style={{ fontSize: 18, fontWeight: 800, marginTop: 4 }}>{v ? OUTCOME_LABEL[v] || v : <span className="faint">{t('нет ответа')}</span>}</div>
     </div>
   );
   return (
     <div className="col">
-      <div className="side-by-side">{box('Агент', lead.agent_outcome)}{box('Клиент', lead.client_outcome)}</div>
-      {lead.refusal_reason && <div className="muted">Причина отказа: <b>{REFUSAL_LABEL[lead.refusal_reason] || lead.refusal_reason}</b></div>}
-      {lead.client_outcome && lead.agent_outcome && !match && <div className="alert alert-warn">Ответы расходятся · уточните у агента и клиента</div>}
+      <div className="side-by-side">{box(t('Агент'), lead.agent_outcome)}{box(t('Клиент'), lead.client_outcome)}</div>
+      {lead.refusal_reason && <div className="muted">{t('Причина отказа:')} <b>{REFUSAL_LABEL[lead.refusal_reason] || lead.refusal_reason}</b></div>}
+      {lead.client_outcome && lead.agent_outcome && !match && <div className="alert alert-warn">{t('Ответы расходятся · уточните у агента и клиента')}</div>}
     </div>
   );
 }
@@ -217,11 +218,11 @@ export function LeadDetail({ id, compact }: { id: number; compact?: boolean }) {
   const [listingOpen, setListingOpen] = useState(false);
   const [cancelOpen, setCancelOpen] = useState(false);
   const [reason, setReason] = useState('');
-  const take = useMutation({ mutationFn: () => api.leads.take(id), onSuccess: (l) => done(l, 'Заявка ваша'), onError: (e) => toast(errText(e), true) });
-  const resched = useMutation({ mutationFn: () => api.leads.reschedule(id), onSuccess: (l) => done(l, 'Агент снова введёт время') , onError: (e) => toast(errText(e), true) });
-  const archive = useMutation({ mutationFn: (on: boolean) => api.leads.archive(id, on), onSuccess: (l) => done(l, l.archived_at ? 'Заявка в архиве' : 'Заявка вернулась на доску'), onError: (e) => toast(errText(e), true) });
+  const take = useMutation({ mutationFn: () => api.leads.take(id), onSuccess: (l) => done(l, t('Заявка ваша')), onError: (e) => toast(errText(e), true) });
+  const resched = useMutation({ mutationFn: () => api.leads.reschedule(id), onSuccess: (l) => done(l, t('Агент снова введёт время')) , onError: (e) => toast(errText(e), true) });
+  const archive = useMutation({ mutationFn: (on: boolean) => api.leads.archive(id, on), onSuccess: (l) => done(l, l.archived_at ? t('Заявка в архиве') : t('Заявка вернулась на доску')), onError: (e) => toast(errText(e), true) });
   const toContract = useMutation({ mutationFn: () => api.leads.startContract(id), onSuccess: (l) => { done(l); navigate(`${base}/contracts?lead_id=${l.id}`); }, onError: (e) => toast(errText(e), true) });
-  const cancel = useMutation({ mutationFn: () => api.leads.cancel(id, reason), onSuccess: (l) => { done(l, 'Заявка отменена'); setCancelOpen(false); }, onError: (e) => toast(errText(e), true) });
+  const cancel = useMutation({ mutationFn: () => api.leads.cancel(id, reason), onSuccess: (l) => { done(l, t('Заявка отменена')); setCancelOpen(false); }, onError: (e) => toast(errText(e), true) });
 
   if (isLoading) return <Loading />;
   if (error || !lead) return <ErrorBox error={error} />;
@@ -240,14 +241,14 @@ export function LeadDetail({ id, compact }: { id: number; compact?: boolean }) {
       <div className="card card-pad">
         <div className="row row-between row-wrap">
           <div>
-            <div className="label">Заявка #{lead.id} · {fmtDateTime(lead.created_at)}</div>
+            <div className="label">{t('Заявка #{id}', { id: lead.id })} · {fmtDateTime(lead.created_at)}</div>
             <h1 style={{ fontSize: compact ? 20 : 24 }}>
-              {objectHref ? <Link to={objectHref}>{l?.title || `Объект #${lead.property_id}`}</Link>
-                : l ? <button type="button" className="btn-ghost" style={{ border: 0, background: 'none', padding: 0, font: 'inherit', cursor: 'pointer', textAlign: 'left' }} onClick={() => setListingOpen(true)}>{l.title || `Объект ${lead.listing_id || ''}`}</button>
-                : `Объект ${lead.listing_id || ''}`}
+              {objectHref ? <Link to={objectHref}>{l?.title || t('Объект #{id}', { id: lead.property_id ?? '' })}</Link>
+                : l ? <button type="button" className="btn-ghost" style={{ border: 0, background: 'none', padding: 0, font: 'inherit', cursor: 'pointer', textAlign: 'left' }} onClick={() => setListingOpen(true)}>{l.title || t('Объект {id}', { id: lead.listing_id || '' })}</button>
+                : t('Объект {id}', { id: lead.listing_id || '' })}
             </h1>
             <div className="row row-wrap gap-sm mt"><LeadStatusBadge status={lead.status} /><SlaChip lead={lead} />
-              {lead.viewing_at && <Badge tone="solid"><CalendarClock size={12} />просмотр {fmtSlot(lead.viewing_at)}</Badge>}
+              {lead.viewing_at && <Badge tone="solid"><CalendarClock size={12} />{t('просмотр')} {fmtSlot(lead.viewing_at)}</Badge>}
             </div>
           </div>
           <div className="row row-wrap" style={{ minWidth: 0, maxWidth: '100%' }}>
@@ -255,27 +256,27 @@ export function LeadDetail({ id, compact }: { id: number; compact?: boolean }) {
               <div className="row row-wrap gap-sm" style={{ minWidth: 0, maxWidth: '100%' }}>
                 <a className="btn btn-lg" href={`tel:${ownerPhone.replace(/[^+\d]/g, '')}`} style={{ minWidth: 0, maxWidth: '100%' }}>
                   <Phone size={18} style={{ flex: 'none' }} />
-                  <span className="ellipsis">{lead.owner?.is_agent ? 'Позвонить агенту' : 'Позвонить собственнику'}{lead.owner?.name ? ` · ${lead.owner.name}` : ''}</span>
+                  <span className="ellipsis">{lead.owner?.is_agent ? t('Позвонить агенту') : t('Позвонить собственнику')}{lead.owner?.name ? ` · ${lead.owner.name}` : ''}</span>
                 </a>
                 <b className="num" style={{ fontSize: 16, userSelect: 'all' }}>{formatPhone(ownerPhone)}</b>
                 <CopyPhone phone={ownerPhone} />
               </div>
             )}
             {canDeal && CONTRACT_FROM.includes(lead.status) && !liveContract && (
-              <Button size="lg" loading={toContract.isPending} onClick={() => toContract.mutate()}><FileText size={18} />Составить договор</Button>
+              <Button size="lg" loading={toContract.isPending} onClick={() => toContract.mutate()}><FileText size={18} />{t('Составить договор')}</Button>
             )}
             {canDeal && liveContract && (
-              <Link className="btn btn-secondary btn-lg" to={`${base}/contracts?id=${liveContract.id}`}><FileText size={18} />Договор: {liveContract.status_label}</Link>
+              <Link className="btn btn-secondary btn-lg" to={`${base}/contracts?id=${liveContract.id}`}><FileText size={18} />{t('Договор:')} {liveContract.status_label}</Link>
             )}
-            {isStaff && lead.status === 'new' && <Button size="lg" loading={take.isPending} onClick={() => take.mutate()}><Hand size={18} />Взять</Button>}
-            {isStaff && !closed && <Button size={lead.status === 'operator_taken' ? 'lg' : undefined} variant={lead.status === 'operator_taken' ? 'primary' : 'secondary'} onClick={() => setAssignOpen(true)}><UserPlus size={16} />{lead.agent ? 'Сменить агента' : 'Назначить агента'}</Button>}
+            {isStaff && lead.status === 'new' && <Button size="lg" loading={take.isPending} onClick={() => take.mutate()}><Hand size={18} />{t('Взять')}</Button>}
+            {isStaff && !closed && <Button size={lead.status === 'operator_taken' ? 'lg' : undefined} variant={lead.status === 'operator_taken' ? 'primary' : 'secondary'} onClick={() => setAssignOpen(true)}><UserPlus size={16} />{lead.agent ? t('Сменить агента') : t('Назначить агента')}</Button>}
           </div>
         </div>
         {(CONTRACT_STAGES.includes(lead.status) || lead.deal_id) && <><div className="divider" /><LeadSteps lead={lead} /></>}
         <div className="divider" />
         <div className="row row-wrap gap-lg" style={{ fontSize: 13 }}>
-          <span><span className="label">Оператор </span><b>{lead.operator?.name || '—'}</b></span>
-          <span><span className="label">Агент </span><b>{lead.agent?.name || '—'}</b></span>
+          <span><span className="label">{t('Оператор')} </span><b>{lead.operator?.name || '—'}</b></span>
+          <span><span className="label">{t('Агент')} </span><b>{lead.agent?.name || '—'}</b></span>
           {lead.client_note && <span className="muted">{lead.client_note}</span>}
         </div>
       </div>
@@ -283,83 +284,83 @@ export function LeadDetail({ id, compact }: { id: number; compact?: boolean }) {
       <div className={compact ? 'col gap-lg' : 'split'}>
         <div className="col gap-lg">
           {(isAgent || isStaff) && (lead.status === 'agent_assigned' || (lead.status === 'slots_sent' && isAgent)) && (
-            <Card label={lead.status === 'slots_sent' ? 'Добавить ещё окна' : 'Шаг C7'} title="Свободное время для просмотра"><SlotsEntry lead={lead} /></Card>
+            <Card label={lead.status === 'slots_sent' ? t('Добавить ещё окна') : t('Шаг C7')} title={t('Свободное время для просмотра')}><SlotsEntry lead={lead} /></Card>
           )}
           {lead.slots && lead.slots.length > 0 && (
-            <Card label="Окна" title="Время, отправленное клиенту">
+            <Card label={t('Окна')} title={t('Время, отправленное клиенту')}>
               <div className="row row-wrap gap-sm">
                 {lead.slots.map((s) => <span key={s.id} className={`slot-pill ${s.chosen ? 'chosen' : ''}`}>{s.chosen && <CheckCircle2 size={13} />}{fmtSlot(s.starts_at)}</span>)}
               </div>
             </Card>
           )}
           {isAgent && ['time_chosen', 'viewing_done', 'thinking'].includes(lead.status) && !lead.agent_outcome && (
-            <Card label="Шаг C9a" title="Итог просмотра"><AgentOutcome lead={lead} /></Card>
+            <Card label={t('Шаг C9a')} title={t('Итог просмотра')}><AgentOutcome lead={lead} /></Card>
           )}
-          {showOutcome && <Card label="Шаг B6" title="Итог: агент и клиент"><OutcomeCompare lead={lead} /></Card>}
-          {canDeal && lead.status === 'contract' && <Card label="Этап" title="Договор"><ContractStep lead={lead} base={base} /></Card>}
+          {showOutcome && <Card label={t('Шаг B6')} title={t('Итог: агент и клиент')}><OutcomeCompare lead={lead} /></Card>}
+          {canDeal && lead.status === 'contract' && <Card label={t('Этап')} title={t('Договор')}><ContractStep lead={lead} base={base} /></Card>}
           {lead.deal_id ? (
-            <Card label="Сделка" title={`Сделка #${lead.deal_id}`}><DealView id={lead.deal_id} onClose={() => qc.invalidateQueries({ queryKey: ['lead', lead.id] })} /></Card>
+            <Card label={t('Сделка')} title={t('Сделка #{id}', { id: lead.deal_id })}><DealView id={lead.deal_id} onClose={() => qc.invalidateQueries({ queryKey: ['lead', lead.id] })} /></Card>
           ) : lead.status === 'deal_pending' && canDeal && (
-            <Link className="btn btn-ok btn-lg" to={`${base}/deals/new?lead_id=${lead.id}`}><FileText size={18} />Оформить сделку</Link>
+            <Link className="btn btn-ok btn-lg" to={`${base}/deals/new?lead_id=${lead.id}`}><FileText size={18} />{t('Оформить сделку')}</Link>
           )}
           {(isAgent || isStaff) && (lead.archived_at || ARCHIVABLE.includes(lead.status)) && (
             <div className="row row-wrap">
-              {lead.archived_at && <span className="muted">В архиве с {fmtDateTime(lead.archived_at)}</span>}
+              {lead.archived_at && <span className="muted">{t('В архиве с {d}', { d: fmtDateTime(lead.archived_at) })}</span>}
               <Button variant="secondary" loading={archive.isPending} onClick={() => archive.mutate(!lead.archived_at)}>
-                {lead.archived_at ? <><ArchiveRestore size={16} />Вернуть из архива</> : <><Archive size={16} />В архив</>}
+                {lead.archived_at ? <><ArchiveRestore size={16} />{t('Вернуть из архива')}</> : <><Archive size={16} />{t('В архив')}</>}
               </Button>
             </div>
           )}
           {isStaff && !closed && (
             <div className="row row-wrap">
-              {['slots_sent', 'time_chosen'].includes(lead.status) && <Button variant="secondary" loading={resched.isPending} onClick={() => resched.mutate()}><RotateCcw size={16} />Перенести</Button>}
-              <Button variant="danger" onClick={() => setCancelOpen(true)}><XCircle size={16} />Отменить</Button>
+              {['slots_sent', 'time_chosen'].includes(lead.status) && <Button variant="secondary" loading={resched.isPending} onClick={() => resched.mutate()}><RotateCcw size={16} />{t('Перенести')}</Button>}
+              <Button variant="danger" onClick={() => setCancelOpen(true)}><XCircle size={16} />{t('Отменить')}</Button>
             </div>
           )}
-          {!compact && <Card label="Заявка" title="История"><Timeline events={lead.history || []} /></Card>}
+          {!compact && <Card label={t('Заявка')} title={t('История')}><Timeline events={lead.history || []} /></Card>}
         </div>
         <div className="col gap-lg">
           {l && (
             <div className="card lcard">
               {l.photos?.[0] && (objectHref
-                ? <Link to={objectHref} className="lcard-photo" aria-label="Открыть объект" style={{ display: 'block' }}><img src={thumbUrl(l.photos[0])} alt="" /></Link>
-                : <button type="button" className="lcard-photo" onClick={() => setListingOpen(true)} aria-label="Открыть объявление и контакты" style={{ border: 0, padding: 0, width: '100%', cursor: 'pointer' }}><img src={thumbUrl(l.photos[0])} alt="" /></button>)}
+                ? <Link to={objectHref} className="lcard-photo" aria-label={t('Открыть объект')} style={{ display: 'block' }}><img src={thumbUrl(l.photos[0])} alt="" /></Link>
+                : <button type="button" className="lcard-photo" onClick={() => setListingOpen(true)} aria-label={t('Открыть объявление и контакты')} style={{ border: 0, padding: 0, width: '100%', cursor: 'pointer' }}><img src={thumbUrl(l.photos[0])} alt="" /></button>)}
               <div className="lcard-body">
-                <div className="label">Объект{lead.property_id ? ` #${lead.property_id}` : ''}</div>
-                <div className="price">{money(l.price, l.currency || 'USD')}<span className="muted" style={{ fontSize: 12 }}>/мес</span></div>
-                <div className="muted">{[l.district, bedroomsLabel(l.bedrooms), l.area ? `${l.area} м²` : null].filter(Boolean).join(' · ')}</div>
+                <div className="label">{t('Объект')}{lead.property_id ? ` #${lead.property_id}` : ''}</div>
+                <div className="price">{money(l.price, l.currency || 'USD')}<span className="muted" style={{ fontSize: 12 }}>{t('/мес')}</span></div>
+                <div className="muted">{[l.district, bedroomsLabel(l.bedrooms), l.area ? t('{n} м²', { n: l.area }) : null].filter(Boolean).join(' · ')}</div>
                 <Place address={l.address} />
-                <Button variant="secondary" onClick={() => setListingOpen(true)}>Объявление и контакты</Button>
-                {objectHref && <Link to={objectHref} className="btn btn-secondary">Открыть объект #{lead.property_id}</Link>}
+                <Button variant="secondary" onClick={() => setListingOpen(true)}>{t('Объявление и контакты')}</Button>
+                {objectHref && <Link to={objectHref} className="btn btn-secondary">{t('Открыть объект #{id}', { id: lead.property_id ?? '' })}</Link>}
               </div>
             </div>
           )}
-          <Card label="Клиент" title={isStaff && !compact && c?.id ? <Link to={`/clients/${c.id}`}>{c.name || 'Клиент'}</Link> : c?.name || 'Клиент'} actions={c?.lang ? <Badge tone="grey">{c.lang.toUpperCase()}</Badge> : undefined}>
+          <Card label={t('Клиент')} title={isStaff && !compact && c?.id ? <Link to={`/clients/${c.id}`}>{c.name || t('Клиент')}</Link> : c?.name || t('Клиент')} actions={c?.lang ? <Badge tone="grey">{c.lang.toUpperCase()}</Badge> : undefined}>
             {lead.contacts_visible ?? (!!lead.contacts_shared_at || isStaff) ? (
               <div className="col gap-sm" style={{ marginBottom: 12 }}>
                 {c?.phone && <a href={`tel:${c.phone.replace(/[^+\d]/g, '')}`} style={{ fontWeight: 700 }}>{formatPhone(c.phone)}</a>}
                 {c?.username && <a href={`https://t.me/${c.username}`} target="_blank" rel="noreferrer" style={{ fontWeight: 700 }}>@{c.username}</a>}
                 {(c?.username || c?.tg_id) && (
                   <a className="btn btn-secondary" href={c.username ? `https://t.me/${c.username}` : `tg://user?id=${c.tg_id}`} target="_blank" rel="noreferrer">
-                    <MessageSquare size={16} />Написать клиенту
+                    <MessageSquare size={16} />{t('Написать клиенту')}
                   </a>
                 )}
-                {lead.contacts_shared_at && <span className="faint" style={{ fontSize: 12 }}>Контакты переданы агенту {fmtDateTime(lead.contacts_shared_at)}</span>}
+                {lead.contacts_shared_at && <span className="faint" style={{ fontSize: 12 }}>{t('Контакты переданы агенту {d}', { d: fmtDateTime(lead.contacts_shared_at) })}</span>}
               </div>
             ) : (
-              <div className="alert alert-info" style={{ marginBottom: 12 }}>Контакты бот пришлёт сам, когда клиент выберет время</div>
+              <div className="alert alert-info" style={{ marginBottom: 12 }}>{t('Контакты бот пришлёт сам, когда клиент выберет время')}</div>
             )}
-            {c?.profile ? <ProfileView profile={c.profile} /> : <span className="muted">Анкета не заполнена</span>}
+            {c?.profile ? <ProfileView profile={c.profile} /> : <span className="muted">{t('Анкета не заполнена')}</span>}
           </Card>
-          {compact && <Card label="Заявка" title="История"><Timeline events={lead.history || []} /></Card>}
+          {compact && <Card label={t('Заявка')} title={t('История')}><Timeline events={lead.history || []} /></Card>}
         </div>
       </div>
 
       {listingOpen && l && <ListingModal id={l.id} onClose={() => setListingOpen(false)} />}
       <AssignModal lead={lead} open={assignOpen} onClose={() => setAssignOpen(false)} />
-      <Modal open={cancelOpen} onClose={() => setCancelOpen(false)} title="Отменить заявку">
-        <Field label="Причина"><Textarea value={reason} onChange={(e) => setReason(e.target.value)} /></Field>
-        <Button className="mt" variant="danger" disabled={!reason.trim()} loading={cancel.isPending} onClick={() => cancel.mutate()}>Отменить заявку</Button>
+      <Modal open={cancelOpen} onClose={() => setCancelOpen(false)} title={t('Отменить заявку')}>
+        <Field label={t('Причина')}><Textarea value={reason} onChange={(e) => setReason(e.target.value)} /></Field>
+        <Button className="mt" variant="danger" disabled={!reason.trim()} loading={cancel.isPending} onClick={() => cancel.mutate()}>{t('Отменить заявку')}</Button>
       </Modal>
     </div>
   );

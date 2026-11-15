@@ -17,11 +17,12 @@ import { Badge, Button, Card, Field, Input, Modal, PageHead, Select, Switch, Tab
 import { useSettledId } from '../components/RegistryApps';
 import { OwnerLookup, parseRegistryText, useKnownObjects, type ExtractFields, type KnownObject } from '../features/contracts/OwnerLookup';
 import { CONTRACT_STAGES, LEAD_STATUS, todayStr } from '../lib/format';
+import { t, lx, LOCALE } from '../lib/i18n';
 import {
   CX_LANGS, CX_TYPES, DATE_FIELDS, EMPTY, addMonthsIso, buildContract, cxFmt, cxOnem, langsFor, monthsBetween, requiredFields, reviewLabels,
   type ContractDoc, type CxData, type CxLang, type CxType, type DraftBlock, type DraftCell, type DraftDoc, type DraftKey, ENABLED_TYPES } from '../features/contracts/templates';
 
-const STEPS = ['Тип', 'Язык', 'Данные', 'Проверка', 'Документ'];
+const STEPS = [t('Тип'), t('Язык'), t('Данные'), t('Проверка'), t('Документ')];
 const TYPE_ICON: Record<CxType, typeof Home> = { rent: Home, comm: Building2, sale: KeyRound };
 const AUTOSAVE_MS = 800;
 
@@ -214,8 +215,8 @@ export function ContractWizard({ compact }: { compact?: boolean }) {
     setContract(c);
     touched.current = false;
     setPrefilled({ key: `contract:${c.id}`, text: c.has_pdf
-      ? `Договор #${c.id} · ${c.status_label}. Поменяйте данные и нажмите «Обновить PDF»: договор перегенерируется, прошлая версия PDF сохранится.`
-      : `Черновик договора #${c.id} восстановлен — продолжайте с того же места.` });
+      ? t('Договор #{id} · {status}. Поменяйте данные и нажмите «Обновить PDF»: договор перегенерируется, прошлая версия PDF сохранится.', { id: c.id, status: t(c.status_label) })
+      : t('Черновик договора #{id} восстановлен — продолжайте с того же места.', { id: c.id }) });
   }
   const current = contract ?? stored.data;
   const locked = !!current && current.status !== 'draft';  // signed / closed: not edited
@@ -243,11 +244,11 @@ export function ContractWizard({ compact }: { compact?: boolean }) {
     setEndTouched(false);
     setPrefilled({ key, text });
     setStep((s) => (s < 2 ? 2 : s));
-    toast(`Данные подставлены из ${key.startsWith('lead') ? 'заявки' : 'сделки'} #${key.split(':')[1]}`);
+    toast(t(key.startsWith('lead') ? 'Данные подставлены из заявки #{id}' : 'Данные подставлены из сделки #{id}', { id: key.split(':')[1] }));
   }
   function applyDeal(x: Deal, p?: Parameters<typeof fromDeal>[1]) {
     const r = fromDeal(x, p);
-    apply(r.type, r.data, `deal:${x.id}`, `Данные подставлены из сделки #${x.id}${x.address ? ` · ${x.address}` : ''}.`);
+    apply(r.type, r.data, `deal:${x.id}`, `${t('Данные подставлены из сделки #{id}', { id: x.id })}${x.address ? ` · ${x.address}` : ''}.`);
   }
 
   // ---- prefill from /contracts?lead_id= (lead card «Оформить договор», or the picker below)
@@ -264,8 +265,8 @@ export function ContractWizard({ compact }: { compact?: boolean }) {
       return parts.length ? ` ${label}: ${parts.join(' · ')}.` : '';
     };
     apply(x.type, x.data as Partial<CxData>, `lead:${x.lead_id}`,
-      `Данные подставлены из заявки #${x.lead_id}${x.data.street_house ? ` · ${x.data.street_house}` : ''}${x.district ? `, ${x.district}` : ''}.`
-      + who('Клиент', x.client) + who('Собственник', x.owner));
+      `${t('Данные подставлены из заявки #{id}', { id: x.lead_id })}${x.data.street_house ? ` · ${x.data.street_house}` : ''}${x.district ? `, ${x.district}` : ''}.`
+      + who(t('Клиент'), x.client) + who(t('Собственник'), x.owner));
   }
   const pickable = useQuery({ queryKey: ['leads', 'list', 'contract'], queryFn: () => api.leads.list({ status: CONTRACT_STAGES.join(',') }) });
   function pickLead(id: number) {
@@ -283,7 +284,7 @@ export function ContractWizard({ compact }: { compact?: boolean }) {
         const first = !cidRef.current;
         cidRef.current = c.id; restored.current = c.id;
         setContract(c);
-        setAutoState({ at: new Date().toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' }) });
+        setAutoState({ at: new Date().toLocaleTimeString(LOCALE, { hour: '2-digit', minute: '2-digit' }) });
         if (first) {
           setParams((sp) => { sp.set('edit', String(c.id)); return sp; }, { replace: true });
           qc.invalidateQueries({ queryKey: ['contracts', 'list'] });
@@ -338,8 +339,8 @@ export function ContractWizard({ compact }: { compact?: boolean }) {
   const clearKnown = () => setD((x) => ({ ...x, cadastral_code: '', street_house: '', street_house_en: '', floor: '', apartment_number: '', apartment_area: '' }));
   // a registry extract / the pasted NAPR page: the code always, the other fields where still empty; says what it filled
   const applyExtract = (f: ExtractFields) => {
-    const LABEL: Record<string, string> = { cadastral_code: 'код', street_house: 'адрес', street_house_en: 'адрес (ENG)', floor: 'этаж', apartment_number: 'квартира',
-      apartment_area: 'площадь', owner_full_name: 'собственник', owner_personal_number: 'личный номер' };
+    const LABEL: Record<string, string> = { cadastral_code: t('код'), street_house: t('адрес'), street_house_en: t('адрес (ENG)'), floor: t('этаж'), apartment_number: t('квартира'),
+      apartment_area: t('площадь'), owner_full_name: t('собственник'), owner_personal_number: t('личный номер') };
     // only the empty fields: what the agent typed stays (a different code is pointed out, not replaced)
     const put: Partial<CxData> = {};
     for (const k of Object.keys(LABEL) as (keyof ExtractFields & keyof CxData)[]) {
@@ -349,8 +350,8 @@ export function ContractWizard({ compact }: { compact?: boolean }) {
     setD((x) => ({ ...x, ...put }));
     const names = Object.keys(put).map((k) => LABEL[k]);
     const typed = String(d.cadastral_code ?? '').trim();
-    if (f.cadastral_code && typed && typed !== f.cadastral_code) toast(`В выписке другой кадастровый код: ${f.cadastral_code} — проверьте`, true);
-    else toast(names.length ? `Из реестра: ${names.join(', ')}` : 'Поля уже заполнены — из реестра ничего не изменено');
+    if (f.cadastral_code && typed && typed !== f.cadastral_code) toast(t('В выписке другой кадастровый код: {code} — проверьте', { code: f.cadastral_code }), true);
+    else toast(names.length ? t('Из реестра: {list}', { list: names.join(', ') }) : t('Поля уже заполнены — из реестра ничего не изменено'));
     return names;
   };
   const [autoFor, setAutoFor] = useState('');
@@ -359,7 +360,7 @@ export function ContractWizard({ compact }: { compact?: boolean }) {
     if (!first || autoFor === ownerPid || String(d.cadastral_code ?? '').trim()) return;
     setAutoFor(ownerPid);
     applyKnown(first);
-    toast(`Кадастровый код из базы CRM: ${first.cadastral} (${first.source})`);
+    toast(t('Кадастровый код из базы CRM: {code} ({source})', { code: first.cadastral, source: first.source }));
   }, [known.data, ownerPid]);  // eslint-disable-line react-hooks/exhaustive-deps
   const drafts = useDrafts();
   const doc = useMemo(() => (drafts && type && lang ? buildContract(drafts, type, lang, d) : null), [drafts, type, lang, d]);
@@ -369,23 +370,23 @@ export function ContractWizard({ compact }: { compact?: boolean }) {
   function next() {
     setErr('');
     if (step === 1) {
-      if (!type) { setErr('Выберите тип договора'); return; }
+      if (!type) { setErr(t('Выберите тип договора')); return; }
       setStep(2); return;
     }
-    if (step === 2) { if (!lang) { setErr('Выберите язык договора'); return; } setStep(3); return; }
+    if (step === 2) { if (!lang) { setErr(t('Выберите язык договора')); return; } setStep(3); return; }
     if (step === 3) {
       // «Далее» walks the sub-tabs first, validation only from the last one (11-13: it jumped straight to step 4)
       if (tab !== 'money') { goTab(tab === 'parties' ? 'property' : 'money'); return; }
       const miss = requiredFields(type as CxType).filter((k) => !String(d[k] ?? '').trim());
       if (miss.length) {
         setMissing(new Set(miss));
-        setErr('Заполните все обязательные поля');
+        setErr(t('Заполните все обязательные поля'));
         const parties: (keyof CxData)[] = ['timestamp', 'owner_full_name', 'owner_personal_number', 'owner_birth_day', 'client_full_name', 'client_personal_number', 'client_birth_day'];
         const property: (keyof CxData)[] = ['cadastral_code', 'street_house', 'apartment_area'];
         goTab(miss.some((k) => parties.includes(k)) ? 'parties' : miss.some((k) => property.includes(k)) ? 'property' : 'money');
         return;
       }
-      if (cadastralError(d.cadastral_code)) { setErr('Проверьте кадастровый код'); goTab('property'); return; }
+      if (cadastralError(d.cadastral_code)) { setErr(t('Проверьте кадастровый код')); goTab('property'); return; }
       setStep(4); return;
     }
     if (step === 4) { setStep(5); return; }
@@ -443,13 +444,13 @@ export function ContractWizard({ compact }: { compact?: boolean }) {
       setContract(c);
       if (first) setParams((sp) => { sp.set('edit', String(c.id)); return sp; }, { replace: true });
       qc.invalidateQueries({ queryKey: ['contracts'] });
-      toast(c.versions?.length ? `PDF обновлён: договор #${c.id}, версия ${c.versions.length + 1}` : `PDF сохранён: договор #${c.id}`);
+      toast(c.versions?.length ? t('PDF обновлён: договор #{id}, версия {n}', { id: c.id, n: c.versions.length + 1 }) : t('PDF сохранён: договор #{id}', { id: c.id }));
     },
     onError: (e) => toast(errText(e), true),
   });
   const sendTg = useMutation({
     mutationFn: () => api.contracts.send(`${fileBase}.doc`, docHtml(doc!)),
-    onSuccess: () => toast('Договор отправлен вам в Telegram'),
+    onSuccess: () => toast(t('Договор отправлен вам в Telegram')),
     onError: (e) => toast(errText(e), true),
   });
 
@@ -467,7 +468,7 @@ export function ContractWizard({ compact }: { compact?: boolean }) {
           if (t.length < 40) return;
           e.preventDefault();
           parseRegistryText(t).then(
-            (r) => (Object.keys(r.fields).length ? applyExtract(r.fields) : toast('В тексте не нашлось данных реестра', true)),
+            (r) => (Object.keys(r.fields).length ? applyExtract(r.fields) : toast(lx('В тексте не нашлось данных реестра', 'ტექსტში რეესტრის მონაცემები ვერ მოიძებნა', 'No registry data found in the text'), true)),
             (err) => toast(errText(err), true));
         } : undefined} />
     </Field>
@@ -475,8 +476,8 @@ export function ContractWizard({ compact }: { compact?: boolean }) {
 
   if (locked && current) return (
     <div className="alert alert-info">
-      Договор #{current.id} · {current.status_label}: подписанный или закрытый договор не меняется.{' '}
-      <Link to={`?id=${current.id}`}>Открыть договор</Link>
+      {t('Договор #{id} · {status}: подписанный или закрытый договор не меняется.', { id: current.id, status: t(current.status_label) })}{' '}
+      <Link to={`?id=${current.id}`}>{t('Открыть договор')}</Link>
     </div>
   );
 
@@ -484,14 +485,14 @@ export function ContractWizard({ compact }: { compact?: boolean }) {
     <div className="col gap-lg contract-wizard">
       <div className="no-print">
         {!compact && (
-          <PageHead label="Генератор договоров" title="Договоры" actions={<Button variant="secondary" onClick={reset}><RotateCcw size={16} />Новый договор</Button>} />
+          <PageHead label={t('Генератор договоров')} title={t('Договоры')} actions={<Button variant="secondary" onClick={reset}><RotateCcw size={16} />{t('Новый договор')}</Button>} />
         )}
         {(contract || autoState.err) && (
           <div className="row row-wrap gap-sm" style={{ fontSize: 12, marginBottom: 6 }} aria-live="polite">
             {contract && <ContractStatusBadge c={contract} />}
-            {contract && <span className="muted">Договор #{contract.id}{linkLead ? ` · заявка #${linkLead}` : ''}{linkDeal ? ` · сделка #${linkDeal}` : ''}</span>}
-            {autoState.err ? <span style={{ color: 'var(--accent)' }}>Черновик не сохранён: {autoState.err}</span>
-              : autoState.at && <span className="faint">Сохранено в {autoState.at}</span>}
+            {contract && <span className="muted">{t('Договор #{id}', { id: contract.id })}{linkLead ? ` · ${t('заявка #{id}', { id: linkLead })}` : ''}{linkDeal ? ` · ${t('сделка #{id}', { id: linkDeal })}` : ''}</span>}
+            {autoState.err ? <span style={{ color: 'var(--accent)' }}>{t('Черновик не сохранён: {err}', { err: autoState.err })}</span>
+              : autoState.at && <span className="faint">{t('Сохранено в {at}', { at: autoState.at })}</span>}
           </div>
         )}
         <div className="stepper" style={{ marginBottom: 6 }}>
@@ -501,24 +502,24 @@ export function ContractWizard({ compact }: { compact?: boolean }) {
             </div>
           ))}
         </div>
-        {prefilled && <div className="alert alert-info mt">{prefilled.text} Проверьте и дополните поля (личные номера сторон вводятся вручную).</div>}
-        {deal.error && <div className="alert alert-warn mt">Не удалось загрузить сделку #{dealId}: {errText(deal.error)}</div>}
-        {leadC.error && <div className="alert alert-warn mt">Не удалось загрузить заявку #{leadId}: {errText(leadC.error)}</div>}
-        {prefilled && step < 4 && !prefilled.key.startsWith('contract') && <Button size="sm" variant="ghost" className="no-print" onClick={() => setPrefilled(null)}>Подставить из другой заявки</Button>}
+        {prefilled && <div className="alert alert-info mt">{prefilled.text} {t('Проверьте и дополните поля (личные номера сторон вводятся вручную).')}</div>}
+        {deal.error && <div className="alert alert-warn mt">{t('Не удалось загрузить сделку #{id}: {err}', { id: dealId, err: errText(deal.error) })}</div>}
+        {leadC.error && <div className="alert alert-warn mt">{t('Не удалось загрузить заявку #{id}: {err}', { id: leadId, err: errText(leadC.error) })}</div>}
+        {prefilled && step < 4 && !prefilled.key.startsWith('contract') && <Button size="sm" variant="ghost" className="no-print" onClick={() => setPrefilled(null)}>{t('Подставить из другой заявки')}</Button>}
         {step < 4 && !prefilled && (
-          <Card label="Сделка · необязательно" title="Заявка договора" className="mt">
+          <Card label={t('Сделка · необязательно')} title={t('Заявка договора')} className="mt">
             {itemsOf(pickable.data).length === 0 ? (
-              <div className="muted" style={{ fontSize: 13 }}>{pickable.isLoading ? 'Загрузка…' : 'Нет заявок после просмотра: договор можно оформить и без заявки, привязать позже из карточки договора.'}</div>
+              <div className="muted" style={{ fontSize: 13 }}>{pickable.isLoading ? t('Загрузка…') : t('Нет заявок после просмотра: договор можно оформить и без заявки, привязать позже из карточки договора.')}</div>
             ) : (
-              <Select aria-label="Заявка" value={leadId || ''} onChange={(e) => e.target.value && pickLead(Number(e.target.value))} placeholder="Без заявки (можно привязать позже) — или выберите заявку"
-                options={itemsOf(pickable.data).map((l) => ({ value: l.id, label: `#${l.id} · ${l.listing?.address || l.listing?.title || 'объект'} · ${l.client?.name || 'клиент'} · ${LEAD_STATUS[l.status]}${l.agent?.name ? ` · ${l.agent.name}` : ''}` }))} />
+              <Select aria-label={t('Заявка')} value={leadId || ''} onChange={(e) => e.target.value && pickLead(Number(e.target.value))} placeholder={t('Без заявки (можно привязать позже) — или выберите заявку')}
+                options={itemsOf(pickable.data).map((l) => ({ value: l.id, label: `#${l.id} · ${l.listing?.address || l.listing?.title || t('объект')} · ${l.client?.name || t('клиент')} · ${LEAD_STATUS[l.status]}${l.agent?.name ? ` · ${l.agent.name}` : ''}` }))} />
             )}
           </Card>
         )}
       </div>
 
       {step === 1 && (
-        <Card label="Шаг 1" title="Тип договора" className="no-print">
+        <Card label={t('Шаг 1')} title={t('Тип договора')} className="no-print">
           <div className="grid g3">
             {ENABLED_TYPES.map((t) => {
               const Icon = TYPE_ICON[t];
@@ -534,7 +535,7 @@ export function ContractWizard({ compact }: { compact?: boolean }) {
       )}
 
       {step === 2 && (
-        <Card label="Шаг 2" title="Язык договора" className="no-print">
+        <Card label={t('Шаг 2')} title={t('Язык договора')} className="no-print">
           <div className="grid g3">
             {(Object.keys(CX_LANGS) as CxLang[]).map((l) => {
               const on = lang === l;
@@ -542,7 +543,7 @@ export function ContractWizard({ compact }: { compact?: boolean }) {
               return (
                 <button key={l} type="button" className={`choice ${on ? 'on' : ''}`} disabled={off} style={off ? { opacity: 0.45, cursor: 'not-allowed' } : undefined}
                   onClick={() => { touched.current = true; setLang(l); setErr(''); }} aria-pressed={on}>
-                  <span className="grow"><b lang={l === 'GEO' ? 'ka' : undefined}>{CX_LANGS[l].title}</b><small>{off ? 'Нет такого шаблона для этого типа договора' : CX_LANGS[l].sub}</small></span><Badge tone={on ? 'solid' : 'blue'}>{l}</Badge>
+                  <span className="grow"><b lang={l === 'GEO' ? 'ka' : undefined}>{CX_LANGS[l].title}</b><small>{off ? t('Нет такого шаблона для этого типа договора') : CX_LANGS[l].sub}</small></span><Badge tone={on ? 'solid' : 'blue'}>{l}</Badge>
                 </button>
               );
             })}
@@ -551,68 +552,68 @@ export function ContractWizard({ compact }: { compact?: boolean }) {
       )}
 
       {step === 3 && type && (
-        <Card label={`Шаг 3 · ${CX_TYPES[type].title} · ${lang}`} title="Данные договора" className="no-print cx-data">
-          <Tabs value={tab} onChange={setTab} tabs={[{ value: 'parties', label: 'Стороны' }, { value: 'property', label: 'Объект' }, { value: 'money', label: sale ? 'Цена' : 'Финансы' }]} />
+        <Card label={`${t('Шаг 3')} · ${CX_TYPES[type].title} · ${lang}`} title={t('Данные договора')} className="no-print cx-data">
+          <Tabs value={tab} onChange={setTab} tabs={[{ value: 'parties', label: t('Стороны') }, { value: 'property', label: t('Объект') }, { value: 'money', label: sale ? t('Цена') : t('Финансы') }]} />
           {tab === 'parties' && (
             <div className="form-grid">
-              <div className="span2">{F({ k: 'timestamp', label: 'Дата договора', type: 'date' })}</div>
-              {F({ k: 'owner_full_name', label: sale ? 'Продавец (ФИО)' : 'Собственник (ФИО)', placeholder: 'Полное имя' })}
-              <div>{F({ k: 'owner_personal_number', label: sale ? 'Личный номер продавца' : 'Личный номер собственника', placeholder: 'Personal ID' })}
+              <div className="span2">{F({ k: 'timestamp', label: t('Дата договора'), type: 'date' })}</div>
+              {F({ k: 'owner_full_name', label: sale ? t('Продавец (ФИО)') : t('Собственник (ФИО)'), placeholder: t('Полное имя') })}
+              <div>{F({ k: 'owner_personal_number', label: sale ? t('Личный номер продавца') : t('Личный номер собственника'), placeholder: 'Personal ID' })}
                 <CecCheck pid={String(d.owner_personal_number ?? '')} fullName={String(d.owner_full_name ?? '')} /></div>
-              {sale && <div className="span2">{F({ k: 'owner_birth_day', label: 'Дата рождения продавца', type: 'date' })}</div>}
-              {F({ k: 'client_full_name', label: sale ? 'Покупатель (ФИО)' : 'Арендатор (ФИО)', placeholder: 'Полное имя' })}
-              <div>{F({ k: 'client_personal_number', label: sale ? 'Личный номер покупателя' : 'Личный номер арендатора', placeholder: 'Personal ID' })}
+              {sale && <div className="span2">{F({ k: 'owner_birth_day', label: t('Дата рождения продавца'), type: 'date' })}</div>}
+              {F({ k: 'client_full_name', label: sale ? t('Покупатель (ФИО)') : t('Арендатор (ФИО)'), placeholder: t('Полное имя') })}
+              <div>{F({ k: 'client_personal_number', label: sale ? t('Личный номер покупателя') : t('Личный номер арендатора'), placeholder: 'Personal ID' })}
                 <CecCheck pid={String(d.client_personal_number ?? '')} fullName={String(d.client_full_name ?? '')} /></div>
-              {sale && <div className="span2">{F({ k: 'client_birth_day', label: 'Дата рождения покупателя', type: 'date' })}</div>}
+              {sale && <div className="span2">{F({ k: 'client_birth_day', label: t('Дата рождения покупателя'), type: 'date' })}</div>}
             </div>
           )}
           {tab === 'property' && (
             <div className="col gap-lg">
               <div className="form-grid">
-                <div className="span2">{F({ k: 'cadastral_code', label: 'Кадастровый код', placeholder: '01.10.13.015.029.01.150' })}</div>
+                <div className="span2">{F({ k: 'cadastral_code', label: t('Кадастровый код'), placeholder: '01.10.13.015.029.01.150' })}</div>
                 <div className="span2">
                   <OwnerLookup personalId={ownerPid} current={String(d.cadastral_code ?? '')} onKnown={applyKnown} onClear={clearKnown} onFields={applyExtract}
                     extractUrl={d.extract_url} onExtract={(url, file) => setD((x) => ({ ...x, extract_url: url, extract_file: file }))}
-                    onCode={(c) => { if (c !== d.cadastral_code) { set('cadastral_code', c); toast(`Из реестра: ${c}`); } }} />
+                    onCode={(c) => { if (c !== d.cadastral_code) { set('cadastral_code', c); toast(t('Из реестра: {list}', { list: c })); } }} />
                 </div>
-                <div className="span2">{F({ k: 'street_house', label: 'Адрес', placeholder: 'Улица, номер дома' })}</div>
+                <div className="span2">{F({ k: 'street_house', label: t('Адрес'), placeholder: t('Улица, номер дома') })}</div>
                 {/* 11-13: the RU / ENG contracts print this one; filled from the extract's Georgian, editable */}
-                <div className="span2">{F({ k: 'street_house_en', label: 'Адрес (ENG)', placeholder: 'Tabidze St, 43 — для русской и английской версии' })}</div>
-                {F({ k: 'floor', label: 'Этаж', placeholder: '2' })}
-                {F({ k: 'apartment_number', label: 'Квартира №', placeholder: 'Номер' })}
-                <div className="span2">{F({ k: 'apartment_area', label: 'Площадь, м²', placeholder: '45 или 45.05' })}</div>
+                <div className="span2">{F({ k: 'street_house_en', label: t('Адрес (ENG)'), placeholder: t('Tabidze St, 43 — для русской и английской версии') })}</div>
+                {F({ k: 'floor', label: t('Этаж'), placeholder: '2' })}
+                {F({ k: 'apartment_number', label: t('Квартира №'), placeholder: t('Номер') })}
+                <div className="span2">{F({ k: 'apartment_area', label: t('Площадь, м²'), placeholder: t('45 или 45.05') })}</div>
               </div>
             </div>
           )}
           {tab === 'money' && (sale ? (
             <div className="form-grid">
-              {F({ k: 'sale_price', label: 'Цена продажи, USD', type: 'number', placeholder: 'Итоговая цена' })}
-              {F({ k: 'transfer_date', label: 'Дата передачи', type: 'date' })}
+              {F({ k: 'sale_price', label: t('Цена продажи, USD'), type: 'number', placeholder: t('Итоговая цена') })}
+              {F({ k: 'transfer_date', label: t('Дата передачи'), type: 'date' })}
             </div>
           ) : (
             <div className="col gap-lg">
               <div className="form-grid">
-                {F({ k: 'rent_duration_months', label: 'Срок, месяцев', type: 'number', placeholder: 'Количество месяцев' })}
-                {F({ k: 'pay_day', label: 'День оплаты (1–31)', type: 'number', placeholder: 'Число месяца' })}
-                {F({ k: 'price_usd', label: 'Цена в месяц, USD', type: 'number', placeholder: 'Ежемесячная плата' })}
-                {F({ k: 'deposit_usd', label: 'Депозит, USD', type: 'number', placeholder: 'Равен цене, можно изменить' })}
+                {F({ k: 'rent_duration_months', label: t('Срок, месяцев'), type: 'number', placeholder: t('Количество месяцев') })}
+                {F({ k: 'pay_day', label: t('День оплаты (1–31)'), type: 'number', placeholder: t('Число месяца') })}
+                {F({ k: 'price_usd', label: t('Цена в месяц, USD'), type: 'number', placeholder: t('Ежемесячная плата') })}
+                {F({ k: 'deposit_usd', label: t('Депозит, USD'), type: 'number', placeholder: t('Равен цене, можно изменить') })}
               </div>
               {type === 'rent' && <div className="outcome-card col">
-                <Switch checked={d.with_pets} onChange={(v) => set('with_pets', v)} label="С животными" />
-                <span className="muted" style={{ fontSize: 12 }}>Договор по шаблону Pet DRAFT (с депозитом за животных)</span>
+                <Switch checked={d.with_pets} onChange={(v) => set('with_pets', v)} label={t('С животными')} />
+                <span className="muted" style={{ fontSize: 12 }}>{t('Договор по шаблону Pet DRAFT (с депозитом за животных)')}</span>
                 {d.with_pets && (
-                  <Field label="Депозит за животных, USD" hint="По умолчанию 50% основного депозита">
+                  <Field label={t('Депозит за животных, USD')} hint={t('По умолчанию 50% основного депозита')}>
                     <Input type="number" value={d.pet_deposit} onChange={(e) => { setPetTouched(true); set('pet_deposit', e.target.value); }} />
                   </Field>
                 )}
               </div>}
               <div className="form-grid">
-                {F({ k: 'start_rent', label: 'Начало аренды', type: 'date' })}
-                {F({ k: 'end_rent', label: 'Окончание аренды', type: 'date' })}
+                {F({ k: 'start_rent', label: t('Начало аренды'), type: 'date' })}
+                {F({ k: 'end_rent', label: t('Окончание аренды'), type: 'date' })}
               </div>
               <div className="muted" style={{ fontSize: 13 }}>
-                {d.start_rent ? `Первый платёж за период ${cxFmt(d.start_rent)} – ${cxOnem(d.start_rent)}. ` : ''}
-                {endTouched ? 'Окончание введено вручную.' : 'Окончание = начало + срок.'}
+                {d.start_rent ? `${t('Первый платёж за период {from} – {to}.', { from: cxFmt(d.start_rent), to: cxOnem(d.start_rent) })} ` : ''}
+                {endTouched ? t('Окончание введено вручную.') : t('Окончание = начало + срок.')}
               </div>
             </div>
           ))}
@@ -620,38 +621,38 @@ export function ContractWizard({ compact }: { compact?: boolean }) {
       )}
 
       {step === 4 && type && (
-        <Card label="Шаг 4" title="Проверка данных" className="no-print" actions={<Button size="sm" variant="ghost" onClick={() => setStep(3)}>Изменить</Button>}>
+        <Card label={t('Шаг 4')} title={t('Проверка данных')} className="no-print" actions={<Button size="sm" variant="ghost" onClick={() => setStep(3)}>{t('Изменить')}</Button>}>
           <dl className="kv">
-            <dt>Тип</dt><dd>{CX_TYPES[type].title}</dd>
-            <dt>Язык</dt><dd>{lang && CX_LANGS[lang].title}</dd>
+            <dt>{t('Тип')}</dt><dd>{CX_TYPES[type].title}</dd>
+            <dt>{t('Язык')}</dt><dd>{lang && CX_LANGS[lang].title}</dd>
             {reviewLabels(type).map(([k, label]) => {
               let v = k === 'one_month' ? cxOnem(d.start_rent) : String(d[k] ?? '');
               if (k !== 'one_month' && DATE_FIELDS.includes(k)) v = cxFmt(v);
               return <div key={k} style={{ display: 'contents' }}><dt>{label}</dt><dd>{v || '—'}</dd></div>;
             })}
-            {type === 'rent' && <><dt>С животными</dt><dd>{d.with_pets ? `да, депозит ${d.pet_deposit || 0} USD` : 'нет'}</dd></>}
+            {type === 'rent' && <><dt>{t('С животными')}</dt><dd>{d.with_pets ? t('да, депозит {n} USD', { n: d.pet_deposit || 0 }) : t('нет')}</dd></>}
           </dl>
         </Card>
       )}
 
-      {step === 5 && !doc && <div className="muted no-print">Загрузка шаблона…</div>}
+      {step === 5 && !doc && <div className="muted no-print">{t('Загрузка шаблона…')}</div>}
       {step === 5 && doc && (
         <>
           <div className="row row-wrap no-print">
-            <Button loading={save.isPending} onClick={() => save.mutate()}><Save size={16} />{saved ? 'Обновить PDF' : 'Сохранить PDF'}</Button>
-            {!tg && <Button variant="secondary" onClick={print}><Printer size={16} />Печать</Button>}
-            {tg ? <Button variant="secondary" loading={sendTg.isPending} onClick={() => sendTg.mutate()}><Send size={16} />.doc в Telegram</Button>
-              : <Button variant="secondary" onClick={download}><Download size={16} />Скачать .doc</Button>}
-            <Button variant="ghost" onClick={() => setStep(3)}>Изменить данные</Button>
+            <Button loading={save.isPending} onClick={() => save.mutate()}><Save size={16} />{saved ? t('Обновить PDF') : t('Сохранить PDF')}</Button>
+            {!tg && <Button variant="secondary" onClick={print}><Printer size={16} />{t('Печать')}</Button>}
+            {tg ? <Button variant="secondary" loading={sendTg.isPending} onClick={() => sendTg.mutate()}><Send size={16} />{t('.doc в Telegram')}</Button>
+              : <Button variant="secondary" onClick={download}><Download size={16} />{t('Скачать .doc')}</Button>}
+            <Button variant="ghost" onClick={() => setStep(3)}>{t('Изменить данные')}</Button>
           </div>
           {saved && (
-            <Card className="no-print" label={`Договор #${saved.id}`} title={<span className="row gap-sm">PDF сохранён <ContractStatusBadge c={saved} /></span>}
-              actions={<Link className="btn btn-sm btn-ghost" to={`?id=${saved.id}`}>Открыть договор</Link>}>
-              {saved.pdf_stale && <div className="alert alert-warn" style={{ marginBottom: 8 }}>Данные изменены после генерации: нажмите «Обновить PDF», иначе в PDF старый текст.</div>}
+            <Card className="no-print" label={t('Договор #{id}', { id: saved.id })} title={<span className="row gap-sm">{t('PDF сохранён')} <ContractStatusBadge c={saved} /></span>}
+              actions={<Link className="btn btn-sm btn-ghost" to={`?id=${saved.id}`}>{t('Открыть договор')}</Link>}>
+              {saved.pdf_stale && <div className="alert alert-warn" style={{ marginBottom: 8 }}>{t('Данные изменены после генерации: нажмите «Обновить PDF», иначе в PDF старый текст.')}</div>}
               <ContractActions c={saved} onChange={setContract} />
             </Card>
           )}
-          <div className="muted no-print" style={{ fontSize: 12 }}>Текст договора можно поправить прямо здесь: правка уйдёт в PDF{saved ? ' (нажмите «Обновить PDF»)' : ''}, в печать и в .doc.</div>
+          <div className="muted no-print" style={{ fontSize: 12 }}>{saved ? t('Текст договора можно поправить прямо здесь: правка уйдёт в PDF (нажмите «Обновить PDF»), в печать и в .doc.') : t('Текст договора можно поправить прямо здесь: правка уйдёт в PDF, в печать и в .doc.')}</div>
           <div className="contract-paper-wrap"><ContractDocument doc={doc} editable /></div>
         </>
       )}
@@ -660,11 +661,11 @@ export function ContractWizard({ compact }: { compact?: boolean }) {
 
       {step < 5 && (
         <div className="row no-print" style={{ justifyContent: 'flex-end' }}>
-          {step > 1 && <Button variant="secondary" onClick={back}>Назад</Button>}
-          <Button onClick={next}>{step === 4 ? <><FileText size={16} />Создать договор</> : 'Далее'}</Button>
+          {step > 1 && <Button variant="secondary" onClick={back}>{t('Назад')}</Button>}
+          <Button onClick={next}>{step === 4 ? <><FileText size={16} />{t('Создать договор')}</> : t('Далее')}</Button>
         </div>
       )}
-      {step === 5 && compact && <Button variant="secondary" className="no-print" onClick={reset}><RotateCcw size={16} />Новый договор</Button>}
+      {step === 5 && compact && <Button variant="secondary" className="no-print" onClick={reset}><RotateCcw size={16} />{t('Новый договор')}</Button>}
     </div>
   );
 }
@@ -682,7 +683,7 @@ function CecCheck({ pid, fullName }: { pid: string; fullName: string }) {
   const id = pid.replace(/\D/g, '');
   const surname = fullName.trim().split(/\s+/).pop() ?? '';  // ponytail: "Имя Фамилия" order assumed
   const phone = (user?.phone ?? '').replace(/\D/g, '').slice(-9);  // the site wants 5XXXXXXXX without +995
-  const copy = (v: string, what: string) => navigator.clipboard?.writeText(v).then(() => toast(`${what} скопирован${what === 'Фамилия' ? 'а' : ''}`), () => toast('Не удалось скопировать', true));
+  const copy = (v: string, what: string) => navigator.clipboard?.writeText(v).then(() => toast(t(`${what} скопирован${what === 'Фамилия' ? 'а' : ''}`)), () => toast(t('Не удалось скопировать'), true));
   const go = () => {
     void navigator.clipboard?.writeText(id).catch(() => undefined);  // before the popup takes focus
     const wa = insideTelegram() ? tgWebApp() : null;
@@ -693,20 +694,20 @@ function CecCheck({ pid, fullName }: { pid: string; fullName: string }) {
   const row = (label: string, v: string, what: string) => (
     <div className="row gap-sm" style={{ justifyContent: 'space-between' }}>
       <span><span className="faint">{label}: </span><b>{v}</b></span>
-      <Button variant="ghost" size="sm" onClick={() => copy(v, what)}><Copy size={14} />Копировать</Button>
+      <Button variant="ghost" size="sm" onClick={() => copy(v, what)}><Copy size={14} />{t('Копировать')}</Button>
     </div>
   );
   return (
     <>
-      <Button variant="ghost" size="sm" disabled={!id} onClick={go} style={{ marginTop: 4 }}><UserCheck size={14} />Проверить в ЦИК</Button>
-      <Modal open={open} onClose={() => setOpen(false)} title="Проверка в ЦИК">
+      <Button variant="ghost" size="sm" disabled={!id} onClick={go} style={{ marginTop: 4 }}><UserCheck size={14} />{t('Проверить в ЦИК')}</Button>
+      <Modal open={open} onClose={() => setOpen(false)} title={t('Проверка в ЦИК')}>
         <div className="col gap-sm">
-          <span>Личный номер скопирован — вставьте его на сайте ЦИК, затем фамилию и телефон, и введите код из SMS.</span>
-          {row('Личный номер', id, 'Номер')}
-          {surname && row('Фамилия', surname, 'Фамилия')}
-          {phone ? row('Телефон', phone, 'Телефон') : <span className="faint">В профиле нет вашего телефона — укажите номер, на который придёт код.</span>}
-          <a href={CEC_URL} target="_blank" rel="noreferrer" className="row gap-sm"><ExternalLink size={14} />Открыть voters.cec.gov.ge</a>
-          <span className="faint" style={{ fontSize: 12 }}>Проверка необязательна. Фамилию на сайте вводят по-грузински.</span>
+          <span>{t('Личный номер скопирован — вставьте его на сайте ЦИК, затем фамилию и телефон, и введите код из SMS.')}</span>
+          {row(t('Личный номер'), id, 'Номер')}
+          {surname && row(t('Фамилия'), surname, 'Фамилия')}
+          {phone ? row(t('Телефон'), phone, 'Телефон') : <span className="faint">{t('В профиле нет вашего телефона — укажите номер, на который придёт код.')}</span>}
+          <a href={CEC_URL} target="_blank" rel="noreferrer" className="row gap-sm"><ExternalLink size={14} />{t('Открыть voters.cec.gov.ge')}</a>
+          <span className="faint" style={{ fontSize: 12 }}>{t('Проверка необязательна. Фамилию на сайте вводят по-грузински.')}</span>
         </div>
       </Modal>
     </>
@@ -721,8 +722,8 @@ function Contracts({ compact }: { compact?: boolean }) {
   if (params.has('new') || params.has('lead_id') || params.has('deal_id') || params.has('edit')) return <ContractWizard compact={compact} />;
   return (
     <div className="col gap-lg">
-      {!compact && <PageHead label="Генератор договоров" title="Договоры" />}
-      <Link className="btn btn-lg" to={`${base}?new=1`}><Plus size={18} />Новый договор</Link>
+      {!compact && <PageHead label={t('Генератор договоров')} title={t('Договоры')} />}
+      <Link className="btn btn-lg" to={`${base}?new=1`}><Plus size={18} />{t('Новый договор')}</Link>
       <ContractList base={base} />
     </div>
   );

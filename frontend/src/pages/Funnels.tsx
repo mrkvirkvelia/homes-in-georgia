@@ -17,6 +17,7 @@ import { metroLabel, PropertyDetail } from '../features/properties/PropertyDetai
 import { ChangeRequestQueue } from '../features/properties/requests';
 import { distLabel, phoneInput } from '../lib/format';
 import { useNavigate } from 'react-router-dom';
+import { t } from '../lib/i18n';
 
 type ObjTab = 'new' | 'board' | 'review' | 'requests' | 'mine' | 'all' | 'archive';
 
@@ -34,18 +35,18 @@ export function ManualProperty({ open, onClose, base = '', deal = 'rent' }: { op
     onError: (e) => toast(errText(e), true),
   });
   return (
-    <Modal open={open} onClose={onClose} title={deal === 'sale' ? 'Объект на продажу' : 'Объект вручную'}>
-      <div className="muted" style={{ fontSize: 13, marginBottom: 12 }}>Собственник пришёл сам: объект сразу в статусе «Собственник», дальше откроется пост-генератор — там цена, параметры и фото.</div>
+    <Modal open={open} onClose={onClose} title={deal === 'sale' ? t('Объект на продажу') : t('Объект вручную')}>
+      <div className="muted" style={{ fontSize: 13, marginBottom: 12 }}>{t('Собственник пришёл сам: объект сразу в статусе «Собственник», дальше откроется пост-генератор — там цена, параметры и фото.')}</div>
       <div className="form-grid">
-        <Field label="Имя собственника"><Input value={f.owner_name} onChange={(e) => setF({ ...f, owner_name: e.target.value })} /></Field>
-        <Field label="Телефон собственника"><Input type="tel" inputMode="tel" placeholder="+995 5XX XXX XXX" value={f.owner_phone} onChange={(e) => setF({ ...f, owner_phone: phoneInput(e) })} /></Field>
-        <div className="field span2"><span className="label">Адрес (можно позже)</span>
+        <Field label={t('Имя собственника')}><Input value={f.owner_name} onChange={(e) => setF({ ...f, owner_name: e.target.value })} /></Field>
+        <Field label={t('Телефон собственника')}><Input type="tel" inputMode="tel" placeholder="+995 5XX XXX XXX" value={f.owner_phone} onChange={(e) => setF({ ...f, owner_phone: phoneInput(e) })} /></Field>
+        <div className="field span2"><span className="label">{t('Адрес (можно позже)')}</span>
           <AddressField value={f.address} onChange={(address) => setF((x) => ({ ...x, address }))} point={f.point} onPoint={(point) => setF((x) => ({ ...x, point }))}
             onFacts={(facts) => setF((x) => ({ ...x, facts, district: facts.district || x.district }))} />
-          {f.facts && <span className="faint" style={{ fontSize: 13 }}>🚇 {f.facts.metro ? `${metroLabel(f.facts.metro)} · ≈ ${distLabel(f.facts.metro_m ?? 0)}` : 'метро не найдено (точка за городом)'}</span>}</div>
-        <Field label="Район"><DistrictSelect value={f.district} onChange={(district) => setF({ ...f, district })} /></Field>
+          {f.facts && <span className="faint" style={{ fontSize: 13 }}>🚇 {f.facts.metro ? `${metroLabel(f.facts.metro)} · ≈ ${distLabel(f.facts.metro_m ?? 0)}` : t('метро не найдено (точка за городом)')}</span>}</div>
+        <Field label={t('Район')}><DistrictSelect value={f.district} onChange={(district) => setF({ ...f, district })} /></Field>
       </div>
-      <Button className="mt-lg" disabled={!f.owner_name.trim() || !f.owner_phone.trim()} loading={m.isPending} onClick={() => m.mutate()}>Создать и заполнить пост</Button>
+      <Button className="mt-lg" disabled={!f.owner_name.trim() || !f.owner_phone.trim()} loading={m.isPending} onClick={() => m.mutate()}>{t('Создать и заполнить пост')}</Button>
     </Modal>
   );
 }
@@ -53,11 +54,11 @@ export function ManualProperty({ open, onClose, base = '', deal = 'rent' }: { op
 /** «Объекты» tabs in three groups (Stanislav 11-13 mock-up): Входящие (new ads, operators' requests), Работа (the board,
  * the publication queue), База (mine, the whole base, the archive). */
 const OBJ_GROUPS: { key: string; label: string; icon: ReactNode; tabs: ObjTab[] }[] = [
-  { key: 'in', label: 'Входящие', icon: <Inbox size={20} />, tabs: ['new', 'requests'] },
-  { key: 'work', label: 'Работа', icon: <Briefcase size={20} />, tabs: ['board', 'review'] },
-  { key: 'base', label: 'База', icon: <Database size={20} />, tabs: ['mine', 'all', 'archive'] },
+  { key: 'in', label: t('Входящие'), icon: <Inbox size={20} />, tabs: ['new', 'requests'] },
+  { key: 'work', label: t('Работа'), icon: <Briefcase size={20} />, tabs: ['board', 'review'] },
+  { key: 'base', label: t('База'), icon: <Database size={20} />, tabs: ['mine', 'all', 'archive'] },
 ];
-const OBJ_TAB: Record<ObjTab, string> = { new: 'Новые объявления', requests: 'Запросы', board: 'В работе', review: 'На публикацию', mine: 'Мои объекты', all: 'База объектов', archive: 'Архив' };
+const OBJ_TAB: Record<ObjTab, string> = { new: t('Новые объявления'), requests: t('Запросы'), board: t('В работе'), review: t('На публикацию'), mine: t('Мои объекты'), all: t('База объектов'), archive: t('Архив') };
 
 export function ObjectsPage() {
   const { isStaff } = useAuth();
@@ -86,14 +87,14 @@ export function ObjectsPage() {
       <div className="obj-head">
         <div className="row row-between row-wrap gap-sm">
           <div className="row gap row-wrap">
-            <h1>Объекты</h1>
-            <div className="obj-deal" role="tablist" aria-label="Аренда или продажа">
-              {([['rent', 'Аренда'], ['sale', 'Продажа']] as [Deal, string][]).map(([d, l]) => (
+            <h1>{t('Объекты')}</h1>
+            <div className="obj-deal" role="tablist" aria-label={t('Аренда или продажа')}>
+              {([['rent', t('Аренда')], ['sale', t('Продажа')]] as [Deal, string][]).map(([d, l]) => (
                 <button key={d} type="button" role="tab" aria-selected={deal === d} className={deal === d ? 'active' : ''} onClick={() => setDeal(d)}>{l}</button>
               ))}
             </div>
           </div>
-          <button type="button" className="btn obj-head-btn" onClick={() => setManual(true)}><Plus size={16} />Объект вручную</button>
+          <button type="button" className="btn obj-head-btn" onClick={() => setManual(true)}><Plus size={16} />{t('Объект вручную')}</button>
         </div>
         <div className="obj-groups" role="tablist">
           {groups.map((g) => (
@@ -126,7 +127,7 @@ export function PropertyPage() {
   const { id } = useParams();
   return (
     <>
-      <BackLink to="/objects">Объекты</BackLink>
+      <BackLink to="/objects">{t('Объекты')}</BackLink>
       <PropertyDetail id={Number(id)} />
     </>
   );
@@ -137,8 +138,8 @@ export function LeadsPage() {
   const [tab, setTab] = useState<'board' | 'mine' | 'archive'>(isStaff ? 'board' : 'mine');
   return (
     <>
-      <PageHead title="Заявки" />
-      <Tabs value={tab} onChange={setTab} tabs={[{ value: 'board', label: 'Доска' }, { value: 'mine', label: isStaff ? 'Списком' : 'Мои заявки' }, { value: 'archive', label: 'Архив' }]} />
+      <PageHead title={t('Заявки')} />
+      <Tabs value={tab} onChange={setTab} tabs={[{ value: 'board', label: t('Доска') }, { value: 'mine', label: isStaff ? t('Списком') : t('Мои заявки') }, { value: 'archive', label: t('Архив') }]} />
       {tab === 'archive' ? <ArchivedLeads /> : <LeadStages key={tab} list={tab === 'mine'} />}
     </>
   );
@@ -148,7 +149,7 @@ export function LeadPage() {
   const { id } = useParams();
   return (
     <>
-      <BackLink to="/leads">Заявки</BackLink>
+      <BackLink to="/leads">{t('Заявки')}</BackLink>
       <LeadDetail id={Number(id)} />
     </>
   );

@@ -2,8 +2,9 @@
 import { useEffect, useRef, useState, type ButtonHTMLAttributes, type ChangeEvent, type CSSProperties, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes, type TextareaHTMLAttributes } from 'react';
 import { createPortal } from 'react-dom';
 import { CalendarDays, ChevronDown, ChevronLeft, ChevronRight, Inbox, X } from 'lucide-react';
-import { DISTRICT_LIST, DISTRICTS, districtLabel, initials, phoneBlur, phoneFocus, pluralForm } from '../lib/format';
+import { DISTRICT_LIST, DISTRICTS, districtValue, initials, phoneBlur, phoneFocus, pluralForm } from '../lib/format';
 import { mediaUrl } from '../api/client';
+import { LOCALE, lx, t } from '../lib/i18n';
 
 type BtnVariant = 'primary' | 'secondary' | 'ghost' | 'danger' | 'ok';
 export function Button({ variant = 'primary', size, block, loading, children, className = '', ...rest }:
@@ -60,8 +61,10 @@ export function Field({ label, children, className = '', hint }: { label: string
   );
 }
 /** inputMode="tel" (the phoneInput fields): «+995 » appears on focus, a bare one is cleared on blur */
-const MONTHS = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'];
-const WEEK = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
+const MONTHS = lx(['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'],
+  ['იანვარი', 'თებერვალი', 'მარტი', 'აპრილი', 'მაისი', 'ივნისი', 'ივლისი', 'აგვისტო', 'სექტემბერი', 'ოქტომბერი', 'ნოემბერი', 'დეკემბერი'],
+  ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']);
+const WEEK = lx(['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'], ['ორ', 'სა', 'ოთ', 'ხუ', 'პა', 'შა', 'კვ'], ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su']);
 const pad = (n: number) => String(n).padStart(2, '0');
 const isoToday = () => { const d = new Date(); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; };
 
@@ -93,7 +96,7 @@ function usePopover(open: boolean, setOpen: (v: boolean) => void, height = 380) 
 
 /** The brand date picker behind every <Input type="date">: same value (YYYY-MM-DD) and onChange(e.target.value)
  * contract as the native input, whose browser calendar can't be styled. Month + year selects for birth dates. */
-function DateInput({ value, onChange, min, max, disabled, placeholder = 'Выберите дату', name, style, ...rest }: InputHTMLAttributes<HTMLInputElement>) {
+function DateInput({ value, onChange, min, max, disabled, placeholder = t('Выберите дату'), name, style, ...rest }: InputHTMLAttributes<HTMLInputElement>) {
   const v = typeof value === 'string' && /^\d{4}-\d\d-\d\d$/.test(value) ? value : '';
   const lo = typeof min === 'string' ? min : '', hi = typeof max === 'string' ? max : '';
   const [open, setOpen] = useState(false);
@@ -115,7 +118,7 @@ function DateInput({ value, onChange, min, max, disabled, placeholder = 'Выб�
   const iso = (d: number) => `${y}-${pad(m)}-${pad(d)}`;
   const out = (s: string) => (!!lo && s < lo) || (!!hi && s > hi);
   const today = isoToday();
-  const label = v ? new Date(`${v}T00:00`).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' }).replace(/\s?г\.$/, '') : '';
+  const label = v ? new Date(`${v}T00:00`).toLocaleDateString(LOCALE, { day: 'numeric', month: 'long', year: 'numeric' }).replace(/\s?г\.$/, '') : '';
   return (
     <div className="dp">
       <button type="button" ref={box} className={`input dp-trigger ${v ? '' : 'dp-empty'}`} disabled={disabled} onClick={toggle} style={style}
@@ -125,14 +128,14 @@ function DateInput({ value, onChange, min, max, disabled, placeholder = 'Выб�
       {open && view && createPortal(
         <div className="dp-pop" role="dialog" ref={pop} style={pos}>
           <div className="dp-head">
-            <button type="button" className="dp-nav" aria-label="Предыдущий месяц" onClick={() => shift(-1)}><ChevronLeft size={16} /></button>
-            <select className="dp-sel" value={m} aria-label="Месяц" onChange={(e) => setView(`${y}-${pad(Number(e.target.value))}`)}>
+            <button type="button" className="dp-nav" aria-label={t('Предыдущий месяц')} onClick={() => shift(-1)}><ChevronLeft size={16} /></button>
+            <select className="dp-sel" value={m} aria-label={t('Месяц')} onChange={(e) => setView(`${y}-${pad(Number(e.target.value))}`)}>
               {MONTHS.map((n, i) => <option key={n} value={i + 1}>{n}</option>)}
             </select>
-            <select className="dp-sel" value={y} aria-label="Год" onChange={(e) => setView(`${e.target.value}-${pad(m)}`)}>
+            <select className="dp-sel" value={y} aria-label={t('Год')} onChange={(e) => setView(`${e.target.value}-${pad(m)}`)}>
               {Array.from({ length: Math.max(y1, y) - Math.min(y0, y) + 1 }, (_, i) => Math.max(y1, y) - i).map((n) => <option key={n} value={n}>{n}</option>)}
             </select>
-            <button type="button" className="dp-nav" aria-label="Следующий месяц" onClick={() => shift(1)}><ChevronRight size={16} /></button>
+            <button type="button" className="dp-nav" aria-label={t('Следующий месяц')} onClick={() => shift(1)}><ChevronRight size={16} /></button>
           </div>
           <div className="dp-grid">
             {WEEK.map((w) => <span key={w} className="dp-wd">{w}</span>)}
@@ -144,8 +147,8 @@ function DateInput({ value, onChange, min, max, disabled, placeholder = 'Выб�
             })}
           </div>
           <div className="dp-foot">
-            {!out(today) && <button type="button" className="dp-link" onClick={() => emit(today)}>Сегодня</button>}
-            {v && <button type="button" className="dp-link dp-clear" onClick={() => emit('')}>Очистить</button>}
+            {!out(today) && <button type="button" className="dp-link" onClick={() => emit(today)}>{t('Сегодня')}</button>}
+            {v && <button type="button" className="dp-link dp-clear" onClick={() => emit('')}>{t('Очистить')}</button>}
           </div>
         </div>, document.body,
       )}
@@ -188,7 +191,7 @@ export function MultiSelect({ value, onChange, options, placeholder, many, label
       </button>
       {open && createPortal(
         <div className="dp-pop ms-pop" ref={pop} style={pos}>
-          {options.length > 10 && <input className="input ms-q" placeholder="Найти" value={q} onChange={(e) => setQ(e.target.value)} />}
+          {options.length > 10 && <input className="input ms-q" placeholder={t('Найти')} value={q} onChange={(e) => setQ(e.target.value)} />}
           <div className="ms-list" role="listbox" aria-multiselectable="true" aria-label={aria}>
             {shown.map((o) => (
               <label key={o.value} className={`ms-opt${picked.has(o.value) ? ' sel' : ''}`}>
@@ -197,11 +200,11 @@ export function MultiSelect({ value, onChange, options, placeholder, many, label
                 {o.count !== undefined && <span className="ms-count">{o.count}</span>}
               </label>
             ))}
-            {!shown.length && <div className="faint" style={{ fontSize: 13, padding: 8 }}>Ничего не найдено</div>}
+            {!shown.length && <div className="faint" style={{ fontSize: 13, padding: 8 }}>{t('Ничего не найдено')}</div>}
           </div>
           <div className="dp-foot">
-            {!!value.length && <button type="button" className="dp-link dp-clear" style={{ marginLeft: 0 }} onClick={() => onChange([])}>Сбросить</button>}
-            <button type="button" className="dp-link" style={{ marginLeft: 'auto' }} onClick={() => setOpen(false)}>Готово</button>
+            {!!value.length && <button type="button" className="dp-link dp-clear" style={{ marginLeft: 0 }} onClick={() => onChange([])}>{t('Сбросить')}</button>}
+            <button type="button" className="dp-link" style={{ marginLeft: 'auto' }} onClick={() => setOpen(false)}>{t('Готово')}</button>
           </div>
         </div>, document.body,
       )}
@@ -211,13 +214,13 @@ export function MultiSelect({ value, onChange, options, placeholder, many, label
 /** The channel's districts in groups (native select: the phone's own picker, type-to-find on desktop). An old value that
  * has no tag today («Старый город») stays as the first option, so the card shows it until someone picks a new one. */
 export function DistrictSelect({ value, onChange, placeholder = '—', ...p }: Omit<SelectHTMLAttributes<HTMLSelectElement>, 'value' | 'onChange'> & { value?: string | null; onChange: (v: string) => void; placeholder?: string }) {
-  const v = districtLabel(value);
+  const v = districtValue(value);
   const groups = [...new Set(DISTRICT_LIST.map((d) => d[2]))];
   return (
     <select className="select" value={v} onChange={(e) => onChange(e.target.value)} {...p}>
       <option value="">{placeholder}</option>
-      {v && !DISTRICTS.includes(v) && <option value={v}>{v}</option>}
-      {groups.map((g) => <optgroup key={g} label={g}>{DISTRICT_LIST.filter((d) => d[2] === g).map((d) => <option key={d[0]} value={d[1]}>{d[1]}</option>)}</optgroup>)}
+      {v && !DISTRICTS.includes(v) && <option value={v}>{t(v)}</option>}
+      {groups.map((g) => <optgroup key={g} label={t(g)}>{DISTRICT_LIST.filter((d) => d[2] === g).map((d) => <option key={d[0]} value={d[1]}>{t(d[1])}</option>)}</optgroup>)}
     </select>
   );
 }
@@ -279,12 +282,12 @@ export function Progress({ value, max }: { value: number; max: number }) {
   return <div className={`progress ${pct >= 100 ? 'done' : ''}`}><div style={{ width: `${pct}%` }} /></div>;
 }
 
-export function Empty({ text = 'Пока пусто', icon, children }: { text?: string; icon?: ReactNode; children?: ReactNode }) {
+export function Empty({ text = t('Пока пусто'), icon, children }: { text?: string; icon?: ReactNode; children?: ReactNode }) {
   return <div className="empty">{icon ?? <Inbox size={32} />}<div>{text}</div>{children}</div>;
 }
 export function Loading() { return <div className="loading"><span className="spinner" /></div>; }
 export function ErrorBox({ error }: { error: unknown }) {
-  const msg = error instanceof Error ? error.message : 'Не удалось загрузить данные';
+  const msg = error instanceof Error ? error.message : t('Не удалось загрузить данные');
   return <div className="alert alert-warn">{msg}</div>;
 }
 
@@ -329,7 +332,7 @@ export function Drawer({ open, onClose, title, children }: { open: boolean; onCl
     <>
       <div className="overlay" onClick={onClose} />
       <aside className="drawer" role="dialog" aria-modal="true">
-        <div className="drawer-head"><h2>{title}</h2><Button variant="ghost" className="icon-btn" onClick={onClose} aria-label="Закрыть"><X size={18} /></Button></div>
+        <div className="drawer-head"><h2>{title}</h2><Button variant="ghost" className="icon-btn" onClick={onClose} aria-label={t('Закрыть')}><X size={18} /></Button></div>
         <div className="drawer-body">{children}</div>
       </aside>
     </>,
@@ -345,7 +348,7 @@ export function Modal({ open, onClose, title, children, wide }: { open: boolean;
     <>
       <div className="overlay" onClick={onClose} />
       <div className={`modal ${wide ? 'modal-wide' : ''}`} role="dialog" aria-modal="true">
-        <div className="modal-head"><h2>{title}</h2><Button variant="ghost" className="icon-btn" onClick={onClose} aria-label="Закрыть"><X size={18} /></Button></div>
+        <div className="modal-head"><h2>{title}</h2><Button variant="ghost" className="icon-btn" onClick={onClose} aria-label={t('Закрыть')}><X size={18} /></Button></div>
         <div className="modal-body">{children}</div>
       </div>
     </>,
@@ -390,10 +393,10 @@ export function Lightbox({ items, index, onIndex, onClose }: { items: { kind?: s
           {m.kind === 'video' ? <video key={m.src} src={mediaUrl(m.src)} controls autoPlay /> : <img src={mediaUrl(m.src)} alt={m.room || ''} />}
         </div>
         <div className="lightbox-bar" onClick={(e) => e.stopPropagation()}>
-          {items.length > 1 && <Button variant="secondary" className="icon-btn" onClick={() => go(-1)} aria-label="Назад"><ChevronLeft size={18} /></Button>}
+          {items.length > 1 && <Button variant="secondary" className="icon-btn" onClick={() => go(-1)} aria-label={t('Назад')}><ChevronLeft size={18} /></Button>}
           <span className="badge">{index + 1} / {items.length}{m.room ? ` · ${m.room}` : ''}</span>
-          {items.length > 1 && <Button variant="secondary" className="icon-btn" onClick={() => go(1)} aria-label="Вперёд"><ChevronRight size={18} /></Button>}
-          <Button variant="secondary" className="icon-btn" onClick={onClose} aria-label="Закрыть"><X size={18} /></Button>
+          {items.length > 1 && <Button variant="secondary" className="icon-btn" onClick={() => go(1)} aria-label={t('Вперёд')}><ChevronRight size={18} /></Button>}
+          <Button variant="secondary" className="icon-btn" onClick={onClose} aria-label={t('Закрыть')}><X size={18} /></Button>
         </div>
       </div>
     </>,

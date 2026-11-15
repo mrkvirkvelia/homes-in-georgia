@@ -9,14 +9,15 @@ import type { AiFlags, EventItem, Lead, LeadStatus, Listing, Property, PropertyS
 import { thumbUrl } from '../api/client';
 import { Badge, Button, ErrorBox, KV, Lightbox, Loading, Modal, useNow } from './ui';
 import { useToast } from './toast';
+import { lx, t, tmap } from '../lib/i18n';
 import { ARCHIVE_REASON, CR_KIND, LEAD_STATUS, OUTCOME_LABEL, PROPERTY_STATUS, REFUSAL_LABEL, bedroomsLabel, districtLabel, fmtDateTime, formatPhone, money, pluralForm, SOURCE_LABEL } from '../lib/format';
 
 /** «Скопировать» next to a phone: tel: links do nothing on desktop / Telegram Desktop. */
 export function CopyPhone({ phone }: { phone: string }) {
   const toast = useToast();
   const copy = () => (navigator.clipboard ? navigator.clipboard.writeText(formatPhone(phone)) : Promise.reject())
-    .then(() => toast(`Скопировано: ${formatPhone(phone)}`), () => toast('Не удалось скопировать, выделите номер вручную', true));
-  return <Button size="sm" variant="secondary" onClick={(e) => { e.preventDefault(); e.stopPropagation(); copy(); }}><Copy size={14} />Скопировать</Button>;
+    .then(() => toast(t('Скопировано: {p}', { p: formatPhone(phone) })), () => toast(t('Не удалось скопировать, выделите номер вручную'), true));
+  return <Button size="sm" variant="secondary" onClick={(e) => { e.preventDefault(); e.stopPropagation(); copy(); }}><Copy size={14} />{t('Скопировать')}</Button>;
 }
 
 const SLA_DEFAULT: Record<string, number> = { operator_take: 5, agent_slots: 30, slots_to_client: 60 };
@@ -39,7 +40,7 @@ export function SlaChip({ lead }: { lead: Pick<Lead, 'sla_due_at' | 'sla_stage' 
   const left = due - now;
   const tone = left < 0 ? 'red' : left / windowMs <= 0.4 ? 'yellow' : 'green';
   return (
-    <span className={`sla sla-${tone}`} title="Срок шага">
+    <span className={`sla sla-${tone}`} title={t('Срок шага')}>
       <Clock size={11} strokeWidth={3} />
       {left < 0 ? `−${fmtDur(left)}` : fmtDur(left)}
     </span>
@@ -62,9 +63,9 @@ export function AiFlagBadges({ flags }: { flags?: AiFlags | null }) {
   const reasons = (flags.reasons || []).join(' · ');
   return (
     <>
-      {flags.owner && <Badge tone="ok" title={reasons}>собственник</Badge>}
-      {flags.agent_suspect && <Badge tone="warn" title={reasons}>похоже на агента</Badge>}
-      {flags.duplicate && <Badge tone="red" title={reasons}>дубль</Badge>}
+      {flags.owner && <Badge tone="ok" title={reasons}>{t('собственник')}</Badge>}
+      {flags.agent_suspect && <Badge tone="warn" title={reasons}>{t('похоже на агента')}</Badge>}
+      {flags.duplicate && <Badge tone="red" title={reasons}>{t('дубль')}</Badge>}
     </>
   );
 }
@@ -73,8 +74,8 @@ export function AiFlagBadges({ flags }: { flags?: AiFlags | null }) {
 export function ExclusiveConflictBadge({ p }: { p: Pick<Property, 'exclusive_conflict'> }) {
   const ads = p.exclusive_conflict || [];
   if (!ads.length) return null;
-  const where = [...new Set(ads.map((a) => SOURCE_LABEL[a.source || ''] || a.source || 'другом сайте'))].join(', ');
-  return <Badge tone="red" title="Попросите собственника снять объявление">Эксклюзив висит на {where}</Badge>;
+  const where = [...new Set(ads.map((a) => SOURCE_LABEL[a.source || ''] || a.source || t('другом сайте')))].join(', ');
+  return <Badge tone="red" title={t('Попросите собственника снять объявление')}>{t('Эксклюзив висит на {where}', { where })}</Badge>;
 }
 
 /** Full listing: photos, text, all source links. A merged duplicate keeps every copy's link in `urls`. */
@@ -82,7 +83,7 @@ export function ExclusiveConflictBadge({ p }: { p: Pick<Property, 'exclusive_con
 export function PhotoStrip({ photos }: { photos: (string | null | undefined)[] }) {
   const shots = photos.filter(Boolean) as string[];
   const [open, setOpen] = useState<number | null>(null);
-  if (!shots.length) return <div className="faint" style={{ fontSize: 12 }}>Без фото</div>;
+  if (!shots.length) return <div className="faint" style={{ fontSize: 12 }}>{t('Без фото')}</div>;
   return (
     <>
       <div className="cmp-photos">{shots.map((p, i) => <img key={p} src={thumbUrl(p)} alt="" loading="lazy" style={{ cursor: 'zoom-in' }} onClick={() => setOpen(i)} />)}</div>
@@ -104,8 +105,8 @@ export function SimilarInChannel({ listing, similar }: { listing: Listing & { fl
   const [cmp, setCmp] = useState(false);
   return (
     <div className="col gap-sm">
-      <div className="alert alert-warn">По этому адресу в нашей базе есть похожие квартиры: тот же этаж и площадь. Сравните фото: это одна из них?</div>
-      <Button variant="secondary" onClick={() => setCmp(true)}>Сравнить по фото: {baseAtAddress(similar).toLowerCase()}</Button>
+      <div className="alert alert-warn">{t('По этому адресу в нашей базе есть похожие квартиры: тот же этаж и площадь. Сравните фото: это одна из них?')}</div>
+      <Button variant="secondary" onClick={() => setCmp(true)}>{t('Сравнить по фото: {x}', { x: baseAtAddress(similar).toLowerCase() })}</Button>
       {cmp && <ChannelCompare listing={{ ...listing, similar }} onClose={() => setCmp(false)} />}
     </div>
   );
@@ -118,54 +119,54 @@ export function ListingModal({ id, onClose, actions }: { id: string; onClose: ()
   const loc = useLocation();
   const l = data as (Listing & { property?: { id: number; status?: string } | null; urls?: string[]; dup_sources?: string[]; phones?: string[]; telegram_contacts?: string[]; floor?: number | null; description?: string | null; contacts_visible?: boolean; owner?: { name?: string | null; phone?: string | null; is_agent?: boolean } }) | undefined;
   return (
-    <Modal open onClose={onClose} title={l?.address || 'Объявление'}>
+    <Modal open onClose={onClose} title={l?.address || t('Объявление')}>
       {isLoading ? <Loading /> : error ? <ErrorBox error={error} /> : l && (
         <div className="col gap-lg">
           {l.property && (
             <Link className="btn btn-secondary" to={`${loc.pathname.startsWith('/m/') ? '/m/properties' : '/objects'}/${l.property.id}`} onClick={onClose}>
-              <ExternalLink size={16} />Открыть объект #{l.property.id}
+              <ExternalLink size={16} />{t('Открыть объект #{id}', { id: l.property.id })}
             </Link>
           )}
           {!!l.photos?.length && (
             <div className="col gap-sm">
               <PhotoStrip photos={l.photos} />
-              {l.photos.length > 2 && <div className="faint" style={{ fontSize: 12 }}>{l.photos.length} фото · листайте вбок</div>}
+              {l.photos.length > 2 && <div className="faint" style={{ fontSize: 12 }}>{t('{n} фото · листайте вбок', { n: l.photos.length })}</div>}
             </div>
           )}
           <div className="row row-wrap gap-sm"><AiFlagBadges flags={l.ai_flags} /></div>
           <KV items={[
-            ['Цена', money(l.price, l.currency || 'USD')], ['Район', l.district || '—'], ['Спальни', bedroomsLabel(l.bedrooms) || '—'],
-            ['Площадь', l.area ? `${l.area} м²` : '—'], ['Этаж', l.floor ?? '—'],
+            [t('Цена'), money(l.price, l.currency || 'USD')], [t('Район'), l.district || '—'], [t('Спальни'), bedroomsLabel(l.bedrooms) || '—'],
+            [t('Площадь'), l.area ? `${l.area} ${t('м²')}` : '—'], [t('Этаж'), l.floor ?? '—'],
           ]} />
           {l.owner && (
             <div className="col gap-sm">
-              <span className="label">{l.owner.is_agent ? 'Контакт агента' : 'Собственник'}{l.owner.name ? ` · ${l.owner.name}` : ''}</span>
-              {l.owner.phone && <div className="row gap-sm"><a className="btn btn-secondary grow" href={`tel:${l.owner.phone.replace(/[^+\d]/g, '')}`}>Позвонить · {formatPhone(l.owner.phone)}</a><CopyPhone phone={l.owner.phone} /></div>}
+              <span className="label">{l.owner.is_agent ? t('Контакт агента') : t('Собственник')}{l.owner.name ? ` · ${l.owner.name}` : ''}</span>
+              {l.owner.phone && <div className="row gap-sm"><a className="btn btn-secondary grow" href={`tel:${l.owner.phone.replace(/[^+\d]/g, '')}`}>{t('Позвонить')} · {formatPhone(l.owner.phone)}</a><CopyPhone phone={l.owner.phone} /></div>}
             </div>
           )}
           {!!l.phones?.length && (
             <div className="col gap-sm">
-              <span className="label">Контакты из объявления</span>
-              {l.phones.map((phone) => <div key={phone} className="row gap-sm"><a className="btn btn-secondary grow" href={`tel:${phone.replace(/[^+\d]/g, '')}`}>Позвонить · {formatPhone(phone)}</a><CopyPhone phone={phone} /></div>)}
+              <span className="label">{t('Контакты из объявления')}</span>
+              {l.phones.map((phone) => <div key={phone} className="row gap-sm"><a className="btn btn-secondary grow" href={`tel:${phone.replace(/[^+\d]/g, '')}`}>{t('Позвонить')} · {formatPhone(phone)}</a><CopyPhone phone={phone} /></div>)}
             </div>
           )}
           {!!l.telegram_contacts?.length && (
             <div className="col gap-sm">
-              <span className="label">Telegram из объявления</span>
-              {l.telegram_contacts.map((username) => <a key={username} className="btn btn-secondary" href={`https://t.me/${username}`} target="_blank" rel="noreferrer">Написать @{username}</a>)}
+              <span className="label">{t('Telegram из объявления')}</span>
+              {l.telegram_contacts.map((username) => <a key={username} className="btn btn-secondary" href={`https://t.me/${username}`} target="_blank" rel="noreferrer">{t('Написать')} @{username}</a>)}
             </div>
           )}
           {l.contacts_visible && !l.owner?.phone && !l.phones?.length && !l.telegram_contacts?.length && (
-            <div className="alert alert-info">Телефон не указан. {l.urls?.length ? 'Откройте источник ниже, чтобы связаться с автором объявления.' : 'Уточните контакт у оператора.'}</div>
+            <div className="alert alert-info">{t('Телефон не указан.')} {l.urls?.length ? t('Откройте источник ниже, чтобы связаться с автором объявления.') : t('Уточните контакт у оператора.')}</div>
           )}
-          {l.contacts_visible === false && <div className="alert alert-info">Контакты доступны ответственному агенту и оператору.</div>}
+          {l.contacts_visible === false && <div className="alert alert-info">{t('Контакты доступны ответственному агенту и оператору.')}</div>}
           {l.ai_flags?.duplicate && (
-            <div className="alert alert-warn">Дубль: эта квартира уже опубликована в канале агентства. Ссылка на пост — в списке ниже.</div>
+            <div className="alert alert-warn">{t('Дубль: эта квартира уже опубликована в канале агентства. Ссылка на пост — в списке ниже.')}</div>
           )}
           {!l.ai_flags?.duplicate && !!l.similar?.length && <SimilarInChannel listing={l} similar={l.similar} />}
           {!!l.urls?.length && (
             <div className="col gap-sm">
-              <span className="label">{l.urls.length > 1 ? `Где опубликовано · ${l.urls.length}` : 'Источник'}</span>
+              <span className="label">{l.urls.length > 1 ? t('Где опубликовано · {n}', { n: l.urls.length }) : t('Источник')}</span>
               {l.urls.map((u) => <a key={u} href={u} target="_blank" rel="noreferrer" className="row gap-sm ellipsis"><ExternalLink size={14} />{u}</a>)}
             </div>
           )}
@@ -192,7 +193,7 @@ export function CompareSide({ label, photos, address, rows, link, children }: {
     <div className="cmp-side">
       <span className="label">{label}</span>
       <PhotoStrip photos={photos} />
-      <strong style={{ fontSize: 15 }}>{address || 'Адрес не указан'}</strong>
+      <strong style={{ fontSize: 15 }}>{address || t('Адрес не указан')}</strong>
       <KV items={rows} />
       {children}
       {/* our own object: in-app navigation (back returns here, and the Mini App stays the Mini App); a source site: new tab */}
@@ -204,8 +205,8 @@ export function CompareSide({ label, photos, address, rows, link, children }: {
 }
 
 export const listingRows = (l: Listing & { floor?: number | null }): [string, ReactNode][] => [
-  ['Цена', money(l.price, l.currency || 'USD')], ['Район', l.district || '—'], ['Спальни', bedroomsLabel(l.bedrooms) || '—'],
-  ['Площадь', l.area ? `${l.area} м²` : '—'], ['Этаж', l.floor ?? '—'],
+  [t('Цена'), money(l.price, l.currency || 'USD')], [t('Район'), l.district || '—'], [t('Спальни'), bedroomsLabel(l.bedrooms) || '—'],
+  [t('Площадь'), l.area ? `${l.area} ${t('м²')}` : '—'], [t('Этаж'), l.floor ?? '—'],
 ];
 
 /** The ad's column; the source link comes from the full listing (the feed hides it until you may see contacts). */
@@ -213,16 +214,16 @@ export function ListingSide({ l }: { l: Listing & { floor?: number | null } }) {
   const { data } = useQuery({ queryKey: ['listing', l.id], queryFn: () => api.listings.get(l.id) });
   const href = l.url || (data as { urls?: string[] } | undefined)?.urls?.[0];
   return (
-    <CompareSide label={`Это объявление${l.source ? ` · ${SOURCE_LABEL[l.source] || l.source}` : ''}`} photos={l.photos || []} address={l.address}
-      rows={listingRows(l)} link={{ href, text: 'Открыть источник' }} />
+    <CompareSide label={`${t('Это объявление')}${l.source ? ` · ${SOURCE_LABEL[l.source] || l.source}` : ''}`} photos={l.photos || []} address={l.address}
+      rows={listingRows(l)} link={{ href, text: t('Открыть источник') }} />
   );
 }
 
 /** «В архиве по этому адресу: 3 объекта» / «В базе по этому адресу: 2 объекта (в архиве 1)» */
 export function baseAtAddress(similar: SimilarFlat[]): string {
   const n = similar.length, arch = similar.filter((s) => s.status === 'archived').length;
-  const objs = (k: number) => `${k} ${['объект', 'объекта', 'объектов'][pluralForm(k)]}`;
-  return arch === n ? `В архиве по этому адресу: ${objs(n)}` : `В базе по этому адресу: ${objs(n)}${arch ? ` (в архиве ${arch})` : ''}`;
+  const objs = (k: number) => lx(`${k} ${['объект', 'объекта', 'объектов'][pluralForm(k)]}`, `${k} ობიექტი`, `${k} ${k === 1 ? 'property' : 'properties'}`);
+  return arch === n ? t('В архиве по этому адресу: {x}', { x: objs(n) }) : `${t('В базе по этому адресу: {x}', { x: objs(n) })}${arch ? t(' (в архиве {n})', { n: arch }) : ''}`;
 }
 
 /** «Есть в базе»: the ad next to the objects of our base at its address. */
@@ -231,14 +232,14 @@ function ChannelCompare({ listing, onClose }: { listing: Listing & { floor?: num
   return (
     <Modal open wide onClose={onClose} title={baseAtAddress(similar)}>
       <div className="col gap-lg">
-        <div className="alert alert-warn" style={{ fontSize: 13 }}>В базе по этому адресу есть квартиры с тем же этажом, площадью и спальнями. Сравните фото (нажмите, чтобы открыть крупно): это одна из них? Бот мог ошибиться — решите сами.</div>
+        <div className="alert alert-warn" style={{ fontSize: 13 }}>{t('В базе по этому адресу есть квартиры с тем же этажом, площадью и спальнями. Сравните фото (нажмите, чтобы открыть крупно): это одна из них? Бот мог ошибиться — решите сами.')}</div>
         <div className="cmp">
           <ListingSide l={listing} />
           <div className="col gap-sm" style={{ minWidth: 0 }}>
             {similar.map((s) => (
-              <CompareSide key={s.id} label={`Объект #${s.id}${s.status ? ` · ${PROPERTY_STATUS[s.status as PropertyStatus] || s.status}` : ''}${s.archive_reason ? ` (${ARCHIVE_REASON[s.archive_reason] || s.archive_reason})` : ''} ${s.reasons?.length ? ` · ${s.reasons.join(' · ')}` : ''}`} photos={s.photos?.length ? s.photos : [s.photo]} address={s.address}
-                rows={[['Цена', money(s.price_usd ?? null, 'USD')], ['Спальни', bedroomsLabel(s.bedrooms) || '—'], ['Площадь', s.area ? `${s.area} м²` : '—'], ['Этаж', s.floor ?? '—']]}
-                link={{ href: s.url, text: 'Открыть объект' }} />
+              <CompareSide key={s.id} label={`${t('Объект #{id}', { id: s.id })}${s.status ? ` · ${PROPERTY_STATUS[s.status as PropertyStatus] || s.status}` : ''}${s.archive_reason ? ` (${ARCHIVE_REASON[s.archive_reason] || s.archive_reason})` : ''} ${s.reasons?.length ? ` · ${s.reasons.join(' · ')}` : ''}`} photos={s.photos?.length ? s.photos : [s.photo]} address={s.address}
+                rows={[[t('Цена'), money(s.price_usd ?? null, 'USD')], [t('Спальни'), bedroomsLabel(s.bedrooms) || '—'], [t('Площадь'), s.area ? `${s.area} ${t('м²')}` : '—'], [t('Этаж'), s.floor ?? '—']]}
+                link={{ href: s.url, text: t('Открыть объект') }} />
             ))}
           </div>
         </div>
@@ -272,9 +273,9 @@ export function ListingCard({ listing, locked, footer, chips, onOpen }: { listin
       </div>
       <div className="lcard-body">
         <div className="row row-between">
-          <span className="label">{[listing.district, bedroomsLabel(listing.bedrooms), listing.area ? `${listing.area} м²` : null].filter(Boolean).join(' · ')}</span>
+          <span className="label">{[listing.district, bedroomsLabel(listing.bedrooms), listing.area ? `${listing.area} ${t('м²')}` : null].filter(Boolean).join(' · ')}</span>
         </div>
-        <div className="price" onClick={show} style={{ cursor: 'pointer' }}>{money(listing.price, listing.currency || 'USD')}<span className="muted" style={{ fontSize: 12, fontWeight: 600 }}>/мес</span></div>
+        <div className="price" onClick={show} style={{ cursor: 'pointer' }}>{money(listing.price, listing.currency || 'USD')}<span className="muted" style={{ fontSize: 12, fontWeight: 600 }}>{t('/мес')}</span></div>
         <div className="row row-wrap gap-sm">
           {listing.source && <Badge tone="grey">{SOURCE_LABEL[listing.source] || listing.source}</Badge>}
           {listing.created_at && <span className="faint" style={{ fontSize: 12 }}>{fmtDateTime(listing.created_at)}</span>}
@@ -289,7 +290,7 @@ export function ListingCard({ listing, locked, footer, chips, onOpen }: { listin
         )}
         {listing.refused && (
           <div className="alert alert-info" style={{ fontSize: 12 }}>
-            Звонил {listing.refused.by || 'агент'} {fmtDateTime(listing.refused.at)}: собственник не хочет работать{listing.refused.comment ? ` («${listing.refused.comment}»)` : ''}. Попробуйте вы.
+            {t('Звонил {who} {at}: собственник не хочет работать{c}. Попробуйте вы.', { who: listing.refused.by || t('агент'), at: fmtDateTime(listing.refused.at), c: listing.refused.comment ? ` («${listing.refused.comment}»)` : '' })}
           </div>
         )}
         {locked && <div className="row gap-sm muted" style={{ fontSize: 12, fontWeight: 600 }}><Lock size={14} />{locked}</div>}
@@ -302,14 +303,14 @@ export function ListingCard({ listing, locked, footer, chips, onOpen }: { listin
 /** Latest first; long histories show the latest `limit` and «Показать ещё». */
 export function Timeline({ events, limit = 5 }: { events: EventItem[]; limit?: number }) {
   const [all, setAll] = useState(false);
-  if (!events.length) return <div className="muted">Событий пока нет</div>;
+  if (!events.length) return <div className="muted">{t('Событий пока нет')}</div>;
   const sorted = [...events].sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime());
   const shown = all ? sorted : sorted.slice(0, limit);
   return (
     <div className="timeline">
       {shown.map((e) => {
         const isBot = e.actor_label === 'bot';
-        const who = e.actor_name || (e.actor_label === 'bot' ? 'Бот' : e.actor_label === 'client' ? 'Клиент' : e.actor_label) || '';
+        const who = e.actor_name || (e.actor_label === 'bot' ? t('Бот') : e.actor_label === 'client' ? t('Клиент') : e.actor_label) || '';
         return (
           <div className="tl-item" key={e.id}>
             <span className={`tl-dot ${isBot ? 'bot' : ''}`} />
@@ -324,12 +325,12 @@ export function Timeline({ events, limit = 5 }: { events: EventItem[]; limit?: n
           </div>
         );
       })}
-      {sorted.length > shown.length && <Button size="sm" variant="secondary" style={{ alignSelf: 'flex-start', marginTop: 8 }} onClick={() => setAll(true)}>Показать ещё ({sorted.length - shown.length})</Button>}
+      {sorted.length > shown.length && <Button size="sm" variant="secondary" style={{ alignSelf: 'flex-start', marginTop: 8 }} onClick={() => setAll(true)}>{t('Показать ещё')} ({sorted.length - shown.length})</Button>}
     </div>
   );
 }
 
-const ACTION_TEXT: Record<string, string> = {
+const ACTION_TEXT: Record<string, string> = tmap({
   created: 'Заявка создана', operator_taken: 'Оператор взял заявку', agent_assigned: 'Назначен агент', slots_sent: 'Время отправлено клиенту',
   time_chosen: 'Клиент выбрал время', contacts_shared: 'Бот передал контакты агенту', viewing_done: 'Просмотр прошёл',
   agent_outcome: 'Итог агента', client_outcome: 'Ответ клиента', deal_confirmed: 'Сделка подтверждена', cancelled: 'Отменено',
@@ -351,7 +352,7 @@ const ACTION_TEXT: Record<string, string> = {
   legacy_posted: 'Пост в канале (старая база)', legacy_updated: 'Пост обновлён (старая база)', legacy_discount: 'Скидка (старая база)',
   legacy_exclusive: 'Эксклюзив (старая база)', legacy_archived: 'В архив (старая база)',
   legacy_rented_by_owner: 'Собственник сдал сам (старая база)', legacy_rented_by_us: 'Сдали мы (старая база)',
-};
+});
 const AD_EVENTS = ['listing_linked', 'exclusive_conflict', 'ad_removed_checked'];
 function eventText(e: EventItem): string {
   const base = ACTION_TEXT[e.action] || e.action;
@@ -367,8 +368,8 @@ function eventText(e: EventItem): string {
 export function DupCheck({ value }: { value?: string | null }) {
   if (!value) return null;
   return value === 'exists'
-    ? <div className="alert alert-warn">⚠️ Уже есть в базе · собственник уже был в работе</div>
-    : <div className="alert alert-ok">✅ Добавлено в базу</div>;
+    ? <div className="alert alert-warn">⚠️ {t('Уже есть в базе · собственник уже был в работе')}</div>
+    : <div className="alert alert-ok">✅ {t('Добавлено в базу')}</div>;
 }
 
 export function Place({ district, address }: { district?: string | null; address?: string | null }) {

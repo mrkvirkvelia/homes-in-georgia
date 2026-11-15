@@ -399,7 +399,7 @@ export interface Contract extends ContractSummary {
   sent_to_client?: { at: string; by: string; to: string; version: number | string; extract: boolean } | null;
 }
 export interface ContractDraftIn {
-  id?: number | null; kind?: Contract['kind'] | ''; lang?: Contract['lang'] | ''; lead_id?: number | null; deal_id?: number | null;
+  id?: number | null; kind?: Contract['kind'] | ''; lang?: Contract['lang'] | ''; lead_id?: number | null; deal_id?: number | null; property_id?: number | null;
   data: Record<string, string | number | boolean>;
 }
 export interface ContractESign {

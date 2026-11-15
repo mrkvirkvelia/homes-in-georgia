@@ -46,6 +46,7 @@ class DraftIn(BaseModel):
     lang: str | None = None
     lead_id: int | None = None
     deal_id: int | None = None
+    property_id: int | None = None  # the object card's «Оформить договор аренды» (11-15)
     data: dict | None = None
 
 
@@ -97,10 +98,17 @@ def _pdf(data: bytes, name: str, download: bool) -> Response:
 
 @router.get("/contracts")
 def contracts_list(status: str | None = None, lead_id: int | None = None, deal_id: int | None = None,
-                   agent_id: int | None = None, q: str | None = None, limit: int = 50, offset: int = 0,
+                   property_id: int | None = None, agent_id: int | None = None, q: str | None = None, limit: int = 50, offset: int = 0,
                    db: Session = Depends(get_db, scope="function"), user: User = Depends(current_user)):
     """status: active (default: draft + signed) | draft | signed | deal | closed_no_deal | all."""
-    return paginate(db, C.query(db, user, status, lead_id, q, deal_id, agent_id), lambda c: C.out(db, c), limit, offset)
+    return paginate(db, C.query(db, user, status, lead_id, q, deal_id, agent_id, property_id), lambda c: C.out(db, c), limit, offset)
+
+
+@router.get("/properties/{pid}/contract")
+def property_contract(pid: int, db: Session = Depends(get_db, scope="function"), user: User = Depends(current_user)):
+    """The wizard's prefill from the object card («Оформить договор аренды», Irakli 11-15), as GET /leads/{id}/contract:
+    address, cadastral code, floor, area, price, owner. Another agent's object: refused, as in the deal form."""
+    return C.property_prefill(db, pid, user)
 
 
 @router.post("/contracts/draft")

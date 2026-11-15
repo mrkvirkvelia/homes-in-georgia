@@ -1612,8 +1612,9 @@ def post_rich(db: Session, p: Property, media: list[str]) -> str:
 def hge_map_url(address: str | None) -> str:
     """Irakli's site map (hge.ge/map/, built from the channel posts, whose titles are these addresses) filtered to one
     object: ?q=<address> shows it alone and zooms in; without an address, the whole map (Irakli / Stanislav 11-11)."""
-    q = " ".join(w.strip(",.;") for w in (address or "").split())
-    return "https://hge.ge/map/" + (f"?{urlencode({'q': q})}" if q else "")
+    # ponytail: the whole map for now — hge.ge is still Irakli's GitHub Pages build, which doesn't know CRM-only objects,
+    # so ?q=<address> showed «Найдено: 0» (David 11-15); bring the filter back after the DNS switch to our site
+    return "https://hge.ge/map/"
 
 
 def record_publication(db: Session, p: Property, channel: str, url: str | None, message_id: str | None) -> PropertyPublication:

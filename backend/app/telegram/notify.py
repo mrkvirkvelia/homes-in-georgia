@@ -917,6 +917,7 @@ WATERMARK = os.path.join(os.path.dirname(os.path.dirname(__file__)), "static", "
 FOOTER_LINKS = (
     ("🌟 Check all listings | Reviews", '<a href="https://t.me/rent_tbilisi_ge/9859">🌟 Check all listings</a> | '
                                        '<a href="https://t.me/reviews_rent_tbilisi">Reviews</a>'),
+    ("SALE IN TBILISI🇬🇪", '<a href="https://t.me/sale_in_tbilisi">SALE IN TBILISI🇬🇪</a>'),  # David 11-15
     ("📱 Instagram 🗳 FB 🎥 YouTube", '<a href="https://www.instagram.com/rent_in_tbilisi/profilecard/?igsh=N3kxbTd4bTdkN2Vk">📱 Instagram</a> '
                                      '<a href="https://www.facebook.com/share/18GSsdio3b/?mibextid=LQQJ4d">🗳 FB</a> '
                                      '<a href="https://youtube.com/@rentintbilisi">🎥 YouTube</a>'),
@@ -1012,6 +1013,30 @@ def post_link(m, chat):
     return f"https://t.me/c/{cid[4:]}/{m['message_id']}" if cid.startswith("-100") else None
 
 
+def video_meta(path):
+    """width/height/duration of a video for the Bot API (without them Telegram shows it as a square, David 11-15);
+    a phone's rotation tag swaps width and height. {} when ffprobe can't read it."""
+    import json
+    import subprocess
+    try:
+        info = json.loads(subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
+                                          "stream=width,height:stream_side_data=rotation:stream_tags=rotate:format=duration",
+                                          "-of", "json", path], capture_output=True, text=True, timeout=60).stdout)
+        st = info["streams"][0]
+        w, h = int(st["width"]), int(st["height"])
+        rot = int(float((st.get("tags") or {}).get("rotate") or next((d.get("rotation") for d in st.get("side_data_list") or []
+                                                                          if "rotation" in d), 0) or 0))
+        if rot % 180:
+            w, h = h, w
+        return {"width": w, "height": h, "duration": round(float(info["format"]["duration"])), "supports_streaming": True}
+    except Exception:  # noqa: BLE001
+        return {}
+
+
+def _meta(kind, path):
+    return video_meta(path) if kind == "video" else {}
+
+
 def send_group(chat, thread, media, caption=None):
     """[(photo|video|document, path)] -> one album (a single file goes as sendPhoto/sendVideo/sendDocument: an album
     needs 2–10 items); the HTML caption on the first item. -> [message, ...] or None."""
@@ -1020,9 +1045,9 @@ def send_group(chat, thread, media, caption=None):
     if len(media) == 1:
         kind = media[0][0]
         m = tg.call({"photo": "sendPhoto", "video": "sendVideo"}.get(kind, "sendDocument"), files={kind: files["f0"]},
-                    chat_id=chat, message_thread_id=thread, **cap)
+                    chat_id=chat, message_thread_id=thread, **cap, **_meta(kind, media[0][1]))
         return [m] if m else None
-    items = [{"type": k, "media": f"attach://f{n}", **(cap if n == 0 else {})} for n, (k, _) in enumerate(media)]
+    items = [{"type": k, "media": f"attach://f{n}", **_meta(k, p), **(cap if n == 0 else {})} for n, (k, p) in enumerate(media)]
     return tg.call("sendMediaGroup", files=files, chat_id=chat, message_thread_id=thread, media=items)
 
 
@@ -1030,8 +1055,9 @@ def send_rich(chat, thread, prop, media):
     """The post as one rich message (sendRichMessage): the files go as its media, the slideshow links them by id.
     -> the message or None (the caller falls back to the album)."""
     ids = [f"tg://{'video' if k == 'video' else 'photo'}?id=m{n}" for n, (k, _) in enumerate(media)]
-    rich = {"html": prop.post_rich(ids), "media": [{"id": f"m{n}", "media": {"type": k if k == "video" else "photo", "media": f"attach://f{n}"}}
-                                    for n, (k, _) in enumerate(media)]}
+    rich = {"html": prop.post_rich(ids), "media": [{"id": f"m{n}", "media": {"type": k if k == "video" else "photo", "media": f"attach://f{n}",
+                                                                  **_meta(k, p)}}
+                                    for n, (k, p) in enumerate(media)]}
     return tg.call("sendRichMessage", files={f"f{n}": p for n, (_, p) in enumerate(media)} or None, chat_id=chat,
                    message_thread_id=thread, rich_message=rich)
 

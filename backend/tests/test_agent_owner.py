@@ -2,7 +2,7 @@
 the owner's agent first in the lead hint; the full post fields of the old generator in post_text."""
 from app.models import Event, Owner, Property
 from app.services import inbound, leads, properties, settings, users
-from app.telegram.notify import post_html  # the real one: the `sent` fixture stubs notify.*
+from app.telegram.notify import post_html, video_meta  # the real ones: the `sent` fixture stubs notify.*
 from tests.conftest import auth, make_client, make_client_listing, make_listing, make_user
 
 
@@ -125,7 +125,7 @@ def test_post_fields_validated_and_full_rent_post(db, client):
     assert lines.index("👬Tenants: 1-3") < lines.index("💰 500$ + Deposit 500$")  # the generator's order
     html = post_html(text)
     assert '<a href="https://maps.google.com/?q=41.72,44.75">📍3 Ferdinand Tavadze St</a>' in html
-    assert '📍<b><a href="https://hge.ge/map/?q=3+Ferdinand+Tavadze+St">APARTMENTS ON MAP</a></b>📍' in html  # this object
+    assert '📍<b><a href="https://hge.ge/map/">APARTMENTS ON MAP</a></b>📍' in html  # the whole map until the DNS switch
     assert 'href="https://hge.ge/map/"' in post_html("📍APARTMENTS ON MAP📍")  # no address: the whole map
 
 
@@ -149,3 +149,17 @@ def test_sale_post(db):
                  "✅ #Balcony ✅ #Oven ✅ #Bath", "✅ #Elevator"):
         assert line in lines, line
     assert "#WiFi" not in "\n".join(lines)
+
+
+def test_post_video_keeps_its_shape_and_sale_footer_links(tmp_path):
+    """David 11-15: a video went square (no width/height to the Bot API); «SALE IN TBILISI» had no channel link."""
+    import shutil
+    import subprocess
+    import pytest
+    assert '<a href="https://t.me/sale_in_tbilisi">SALE IN TBILISI🇬🇪</a>' in post_html("SALE IN TBILISI🇬🇪")
+    if not shutil.which("ffmpeg"):
+        pytest.skip("no ffmpeg")
+    v = str(tmp_path / "v.mp4")
+    subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "color=c=red:s=320x568:d=2", "-c:v", "libx264", v], check=True)
+    assert video_meta(v) == {"width": 320, "height": 568, "duration": 2, "supports_streaming": True}
+    assert video_meta(str(tmp_path / "nope.mp4")) == {}

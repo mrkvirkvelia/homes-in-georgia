@@ -116,7 +116,7 @@ export function NdaSignPage() {
         <span className="label">{t.read}</span>
         <Button size="sm" variant="secondary" onClick={() => document.getElementById('nda-form')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>{t.toSign}</Button>
       </div>
-      {v.html && <ContractFrame html={v.html} />}
+      {v.html && <ContractFrame html={v.html} col={l === 'ka' ? 1 : 2} />}
     </div>
     <div className="col gap-sm" id="nda-form">
       <span className="label">{t.step1}</span>

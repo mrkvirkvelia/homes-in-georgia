@@ -695,6 +695,9 @@ html, body { overflow-x: clip; }
   .table-stack td { padding: 0; border: 0; overflow-wrap: anywhere; }
   .table-stack td:empty { display: none; }
   .table-stack tbody tr.clickable:hover td { background: none; }
+  /* Управление → Пользователи: the name on its own line, then role · level · tag, the switch on the right (Irakli 11-15) */
+  .users-table td:first-child { flex: 1 1 100%; }
+  .users-table td:last-child { margin-left: auto; }
 }
 /* touch: small controls keep their look, but the finger target grows to 44px (Apple HIG) via an invisible halo */
 @media (pointer: coarse) {

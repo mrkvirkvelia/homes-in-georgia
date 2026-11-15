@@ -209,7 +209,7 @@ function Users() {
       </div>
       {isLoading ? <Loading /> : error ? <ErrorBox error={error} /> : (
         <div className="card table-wrap">
-          <table className="table table-stack">
+          <table className="table table-stack users-table">
             <thead><tr><th>Имя</th><th>Роль</th><th>Уровень</th><th>Хэштег</th><th className="hide-mobile">Telegram</th><th>Активен</th></tr></thead>
             <tbody>
               {active.map(row)}

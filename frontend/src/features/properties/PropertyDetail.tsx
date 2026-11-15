@@ -12,7 +12,7 @@ import { FIELD_FILTER } from '../../api/types';
 import { useAuth } from '../../auth/AuthContext';
 import { AiFlagBadges, CopyPhone, DupCheck, ExclusiveConflictBadge, PropertyStatusBadge, Timeline } from '../../components/domain';
 import { errText, useToast } from '../../components/toast';
-import { Badge, Button, Card, ErrorBox, Field, Input, KV, Lightbox, Loading, Modal, Seg, Select, Switch, Textarea, DistrictSelect } from '../../components/ui';
+import { Badge, Button, Card, Checkbox, ErrorBox, Field, Input, KV, Lightbox, Loading, Modal, Seg, Select, Switch, Textarea, DistrictSelect } from '../../components/ui';
 import { ARCHIVE_REASON, agentLabel, distLabel, districtLabel, SOURCE_LABEL, bedroomsLabel, demandLabel, fmtDate, fmtDateTime, formatPhone, isoToLocal, localToIso, money, phoneInput } from '../../lib/format';
 import { DealStatusBadge } from '../../pages/Deals';
 import { RequestRow } from './requests';
@@ -848,10 +848,9 @@ function PostComposer({ p }: { p: Property }) {
   const { toast, set } = useProp(p.id);
   const draft = useQuery({ queryKey: ['property-post', p.id], queryFn: () => api.properties.post(p.id) });
   const [edited, setEdited] = useState<string | null>(null); // null = the generated text
-  const first = p.status !== 'published';
   // a published object: the target it is not on yet is checked; the first publication: both
-  const [toSite, setToSite] = useState(first || !!p.site_hidden);
-  const [toTg, setToTg] = useState(first || !p.post_url);
+  const [toSite, setToSite] = useState(true);
+  const [toTg, setToTg] = useState(true);
   const files = p.media || [];
   const [order, setOrder] = useState<number[]>(() => files.map((m) => m.id));
   const [off, setOff] = useState<Set<number>>(() => new Set());
@@ -911,9 +910,8 @@ export function PublishTargets({ site, tg, onSite, onTg, tgLocked }: { site: boo
     <div className="col gap-sm">
       <span className="label">Куда публикуем</span>
       <div className="row row-wrap gap">
-        <label className="row gap-sm" style={{ cursor: 'pointer', fontWeight: 600 }}><input type="checkbox" checked={site} onChange={(e) => onSite(e.target.checked)} /><Globe size={16} />На сайт hge.ge</label>
-        <label className="row gap-sm" style={{ cursor: tgLocked ? 'not-allowed' : 'pointer', fontWeight: 600, opacity: tgLocked ? 0.5 : 1 }} title={tgLocked}>
-          <input type="checkbox" checked={tg && !tgLocked} disabled={!!tgLocked} onChange={(e) => onTg(e.target.checked)} /><Send size={16} />В Telegram</label>
+        <Checkbox checked={site} onChange={onSite}><Globe size={16} />На сайт hge.ge</Checkbox>
+        <Checkbox checked={tg && !tgLocked} disabled={!!tgLocked} onChange={onTg} title={tgLocked}><Send size={16} />В Telegram</Checkbox>
       </div>
       {tgLocked && <span className="faint" style={{ fontSize: 12 }}>{tgLocked}</span>}
       {!site && !tg && <span className="faint" style={{ fontSize: 12 }}>Отметьте хотя бы одно</span>}

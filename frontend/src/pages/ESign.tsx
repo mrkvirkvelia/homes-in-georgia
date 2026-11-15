@@ -7,7 +7,7 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { CheckCircle2, Download, FileText } from 'lucide-react';
 import { ApiError, http } from '../api/client';
 import type { ESignView } from '../api/types';
-import { Badge, Button, Field, Input, Loading, Seg } from '../components/ui';
+import { Checkbox, Badge, Button, Field, Input, Loading, Seg } from '../components/ui';
 import { SignaturePad, signaturePng } from '../components/SignaturePad';
 import type { Lang } from '../lib/exclusivePdf';
 import { fmtDateTime, phoneInput } from '../lib/format';
@@ -192,7 +192,7 @@ export function ESignPage() {
       </div>
     </div>
     <div className="col gap-sm"><span className="label">{t.sign}</span><SignaturePad padRef={pad} onInk={setInk} clearLabel={t.clear} /></div>
-    <label className="row gap-sm" style={{ cursor: 'pointer' }}><input type="checkbox" checked={agree} onChange={(e) => setAgree(e.target.checked)} />{t.agree}</label>
+    <Checkbox checked={agree} onChange={setAgree}>{t.agree}</Checkbox>
     {sign.error && <div className="alert alert-warn">{errIn(t, sign.error)}</div>}
     <Button size="lg" variant="ok" disabled={!ready} loading={sign.isPending} onClick={() => sign.mutate()}>{t.send}</Button>
   </>);

@@ -436,6 +436,10 @@ function SettingsAdmin() {
     <div className="grid g2">
       <OperatorAccount />
       <Card label="Заявки" title="Сроки (SLA), минуты">
+        <div className="col" style={{ marginBottom: 12 }}>
+          <Switch checked={str('sla_enabled') !== '0'} onChange={(v) => setK('sla_enabled', v ? '1' : '0')} label="SLA включён" />
+          <div className="muted" style={{ fontSize: 12 }}>Выключите — у заявок пропадут таймеры, напоминания и эскалации по срокам. Включите — сроки снова считаются с ближайшего шага заявки.</div>
+        </div>
         <div className="form-grid">
           <Field label="Оператор берёт заявку"><Input type="number" value={str('sla_operator_take_min')} onChange={(e) => setK('sla_operator_take_min', e.target.value)} /></Field>
           <Field label="Агент вводит время"><Input type="number" value={str('sla_agent_slots_min')} onChange={(e) => setK('sla_agent_slots_min', e.target.value)} /></Field>

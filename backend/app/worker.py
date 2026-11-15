@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from app.config import settings as env
 from app.db import SessionLocal
 from app.models import Deal, Job, Lead, Property
-from app.services import birthdays, catalog, jobs, leads
+from app.services import birthdays, catalog, jobs, leads, settings
 from app.services.common import TZ, log_event, now
 from app.telegram import notify
 
@@ -36,6 +36,8 @@ def lead_sla(db: Session, job: Job):
     stage = job.payload.get("stage")
     if not lead or lead.sla_stage != stage or not lead.sla_due_at:
         return "stale"
+    if settings.get(db, "sla_enabled") == "0":  # turned off in Управление → Настройки after this job was planned
+        return "sla off"
     if job.payload.get("phase") == "warning":
         notify.sla_warning(lead, stage)
         jobs.schedule(db, "lead_sla", lead.id, max(lead.sla_due_at, now()), {"stage": stage, "phase": "overdue"},

@@ -5,7 +5,7 @@ import { useParams } from 'react-router-dom';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { http } from '../api/client';
 import { errText } from '../components/toast';
-import { Button, ErrorBox, Field, Input, Loading, Seg } from '../components/ui';
+import { Checkbox, Button, ErrorBox, Field, Input, Loading, Seg } from '../components/ui';
 import { LANG_LABEL, buildExclusivePdf, confirmText, tbilisiNow, type Lang } from '../lib/exclusivePdf';
 import { fmtDateTime, phoneInput } from '../lib/format';
 import { cadastralError, cadastralInput, cadastralNorm } from '../lib/cadastral';
@@ -131,7 +131,7 @@ export function ExclusiveSignPage() {
       {lines.map((s, i) => <div key={i} style={s.startsWith('• ') ? { paddingLeft: 16 } : undefined}>{s}</div>)}
     </div>
     <div className="col gap-sm"><span className="label">{t.sign}</span><SignaturePad padRef={pad} onInk={setInk} clearLabel={t.clear} /></div>
-    <label className="row gap-sm" style={{ cursor: 'pointer' }}><input type="checkbox" checked={agree} onChange={(e) => setAgree(e.target.checked)} />{t.agree}</label>
+    <Checkbox checked={agree} onChange={setAgree}>{t.agree}</Checkbox>
     {sign.error && <div className="alert alert-warn">{errText(sign.error)}</div>}
     <Button size="lg" variant="ok" disabled={!ready} loading={sign.isPending} onClick={() => sign.mutate()}>{t.send}</Button>
   </>);

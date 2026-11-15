@@ -8,7 +8,7 @@ import { CheckCircle2, Download, ShieldCheck } from 'lucide-react';
 import { http } from '../api/client';
 import { api } from '../api';
 import { errText } from '../components/toast';
-import { Button, ErrorBox, Loading, Seg } from '../components/ui';
+import { Checkbox, Button, ErrorBox, Loading, Seg } from '../components/ui';
 import { SignaturePad, signaturePng } from '../components/SignaturePad';
 import { ContractFrame } from './ESign';
 import { fmtDateTime } from '../lib/format';
@@ -133,7 +133,7 @@ export function NdaSignPage() {
     <div className="col gap-sm" style={v.confirmed ? undefined : { opacity: 0.45, pointerEvents: 'none' }}>
       <span className="label">{t.step2}</span>
       <SignaturePad padRef={pad} onInk={setInk} clearLabel={t.clear} />
-      <label className="row gap-sm" style={{ cursor: 'pointer' }}><input type="checkbox" checked={agree} onChange={(e) => setAgree(e.target.checked)} />{t.agree}</label>
+      <Checkbox checked={agree} onChange={setAgree}>{t.agree}</Checkbox>
     </div>
     {err && <div className="alert alert-warn">{err}</div>}
     <Button size="lg" variant="ok" disabled={!(v.confirmed && ink && agree)} loading={sign.isPending} onClick={() => sign.mutate()}>{t.send}</Button>

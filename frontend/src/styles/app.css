@@ -929,3 +929,15 @@ html.tg .drawer { height: var(--tg-viewport-height, 100dvh); }
 .ph .pick-box { position: absolute; right: 4px; top: 4px; width: 30px; height: 30px; display: grid; place-items: center; background: rgba(255,255,255,.92); border-radius: 8px; cursor: pointer; z-index: 2; opacity: 1; }
 .ph .pick-box input { width: 18px; height: 18px; margin: 0; cursor: pointer; accent-color: var(--brand); }
 .ph.ph-off img, .ph.ph-off video { opacity: .35; }
+
+/* one checkbox look everywhere (Checkbox in ui.tsx, the multi-select, the post picker); .switch keeps its own */
+input[type=checkbox]:not(.switch input) { appearance: none; -webkit-appearance: none; width: 20px; height: 20px; flex: none; margin: 0;
+  border: 1.5px solid var(--line-2); border-radius: 6px; background: var(--surface) center / 14px no-repeat; cursor: pointer;
+  display: inline-grid; place-items: center; transition: background-color .15s, border-color .15s; }
+input[type=checkbox]:not(.switch input):hover:not(:disabled) { border-color: var(--brand); }
+input[type=checkbox]:not(.switch input):checked { background-color: var(--brand); border-color: var(--brand);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='white' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 8.5l3.2 3L13 4.5'/%3E%3C/svg%3E"); }
+input[type=checkbox]:not(.switch input):focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+input[type=checkbox]:not(.switch input):disabled { opacity: .45; cursor: not-allowed; }
+.cb { display: inline-flex; align-items: center; gap: 10px; cursor: pointer; font-weight: 600; user-select: none; min-height: 36px; }
+.cb-off { cursor: not-allowed; opacity: .55; }

@@ -5,7 +5,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { ArrowLeft, ArrowRight, Copy, ImagePlus, Plus, RefreshCw, Trash2 } from 'lucide-react';
 import { mediaUrl, thumbUrl } from '../../api/client';
-import { Badge, Button, Card, DistrictSelect, Empty, ErrorBox, Field, Input, Lightbox, Loading, PageHead, Seg, Select, Stat, Switch, Textarea } from '../../components/ui';
+import { Badge, Button, Card, Checkbox, DistrictSelect, Empty, ErrorBox, Field, Input, Lightbox, Loading, PageHead, Seg, Select, Stat, Switch, Textarea } from '../../components/ui';
 import { errText, useToast } from '../../components/toast';
 import { pool, shrinkPhoto } from '../../lib/upload';
 import { BookingModal, copy, useDrInvalidate } from './Booking';
@@ -103,9 +103,7 @@ export function AptForm({ a, onDone }: { a?: DrApartment; onDone?: (x: DrApartme
         <Field label="Адрес" className="span2"><Input value={d.address || ''} onChange={(e) => set('address', e.target.value)} /></Field>
         <Field label="Платформы" className="span2">
           <div className="row gap row-wrap">{PLATFORMS.map((p) => (
-            <label key={p} className="row gap-sm" style={{ cursor: 'pointer' }}>
-              <input type="checkbox" checked={plats.includes(p)} onChange={(e) => set('platforms', e.target.checked ? [...plats, p] : plats.filter((x) => x !== p))} />{p}
-            </label>))}</div>
+            <Checkbox key={p} checked={plats.includes(p)} onChange={(on) => set('platforms', on ? [...plats, p] : plats.filter((x) => x !== p))}>{p}</Checkbox>))}</div>
         </Field>
         <Field label="Статус"><Select value={d.status || 'free'} onChange={(e) => set('status', e.target.value)} options={Object.entries(STATUS_LABEL).map(([value, label]) => ({ value, label }))} /></Field>
         <Field label="Комнат"><Input type="number" min={0} value={d.rooms ?? ''} onChange={(e) => set('rooms', e.target.value)} /></Field>

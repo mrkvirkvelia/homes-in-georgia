@@ -234,6 +234,17 @@ export function Seg<T extends string | number>({ value, options, onChange }: { v
   );
 }
 
+/** The app's one checkbox: a styled box (CSS `.cb`) + its label. */
+export function Checkbox({ checked, onChange, disabled, title, children }:
+  { checked: boolean; onChange: (v: boolean) => void; disabled?: boolean; title?: string; children?: ReactNode }) {
+  return (
+    <label className={`cb${disabled ? ' cb-off' : ''}`} title={title}>
+      <input type="checkbox" checked={checked} disabled={disabled} onChange={(e) => onChange(e.target.checked)} />
+      {children && <span className="row gap-sm">{children}</span>}
+    </label>
+  );
+}
+
 export function Switch({ checked, onChange, label }: { checked: boolean; onChange: (v: boolean) => void; label?: ReactNode }) {
   return (
     <label className="row" style={{ cursor: 'pointer' }}>

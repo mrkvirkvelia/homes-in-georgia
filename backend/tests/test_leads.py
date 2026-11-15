@@ -141,6 +141,21 @@ def test_sla_job_goes_stale_after_stage_change(db, sent):
     assert jobs.pending(db, "lead_sla", lead.id)[0].payload["stage"] == "agent_slots"
 
 
+def test_sla_switch_off_clears_timers_and_stops_new_ones(db, client, sent):
+    ad = make_listing(db)
+    lead = leads.create_from_like(db, make_client(db).id, ad.id)
+    assert lead.sla_due_at and jobs.pending(db, "lead_sla", lead.id)
+    admin = make_user(db, "admin")
+    assert client.put("/api/settings", json={"sla_enabled": "0"}, headers=auth(admin)).status_code == 200
+    db.expire_all()
+    assert db.get(Lead, lead.id).sla_due_at is None and not jobs.pending(db, "lead_sla", lead.id)
+    fresh = leads.create_from_like(db, make_client(db, external_id=5550002).id, ad.id)
+    assert fresh.sla_due_at is None and not jobs.pending(db, "lead_sla", fresh.id)
+    client.put("/api/settings", json={"sla_enabled": "1"}, headers=auth(admin))
+    db.expire_all()
+    assert leads.create_from_like(db, make_client(db, external_id=5550003).id, ad.id).sla_due_at is not None
+
+
 def test_refusal_reason_and_thinking(db, sent):
     op, ag = make_user(db, "operator"), make_user(db, "agent")
     c = make_client(db)

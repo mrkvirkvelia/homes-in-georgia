@@ -7,14 +7,14 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import FileResponse, RedirectResponse, Response
 from pydantic import BaseModel
-from sqlalchemy import or_, select
+from sqlalchemy import delete, or_, select, update
 from sqlalchemy.orm import Session
 
 from app import storage
 from app.api.deps import current_user, paginate, require_level
 from app.config import REPO_ROOT, settings as env
 from app.db import get_db
-from app.models import Address, ChannelPost, Lead, Listing, News, Property, Source, TickerMessage, User, at_least
+from app.models import Address, ChannelPost, Job, Lead, Listing, News, Property, Source, TickerMessage, User, at_least
 from app.services import ics, settings
 from app.services import properties as P
 from app.services.common import get_or_404, jload, log_event, now_text
@@ -135,6 +135,9 @@ def settings_put(body: dict, db: Session = Depends(get_db, scope="function"), us
         if k in settings.HIDDEN:  # written by the parser / its own page, never by this form
             continue
         settings.set(db, k, json.dumps(v, ensure_ascii=False) if isinstance(v, (list, dict)) else v, commit=False)
+    if str(body.get("sla_enabled", "")) == "0":  # SLA off: drop the running timers and their pending reminders
+        db.execute(update(Lead).where(Lead.sla_due_at.isnot(None)).values(sla_stage=None, sla_due_at=None))
+        db.execute(delete(Job).where(Job.kind == "lead_sla", Job.done_at.is_(None)))
     log_event(db, "settings", "-", "updated", user, keys=sorted(body))
     db.commit()
     return settings.all(db)

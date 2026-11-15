@@ -50,7 +50,7 @@ def _touch(lead: Lead, status: str | None = None):
 
 def _set_sla(db: Session, lead: Lead, stage: str | None):
     jobs.cancel(db, "lead_sla", lead.id)
-    if not stage:
+    if not stage or settings.get(db, "sla_enabled") == "0":
         lead.sla_stage = lead.sla_due_at = None
         return
     minutes = settings.sla_minutes(db, stage)

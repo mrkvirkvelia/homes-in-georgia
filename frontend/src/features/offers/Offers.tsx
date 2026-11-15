@@ -173,8 +173,8 @@ function Publish({ o, dirty, onChange }: { o: Offer; dirty: boolean; onChange: (
   const { isStaff } = useAuth();
   const post = useQuery({ queryKey: ['offer-post', KIND, o.id, o.updated_at], queryFn: () => api.offers.post(KIND, o.id) });
   const [edited, setEdited] = useState<string | null>(null);
-  const [toSite, setToSite] = useState(o.status !== 'published');
-  const [toTg, setToTg] = useState(!o.post_url);
+  const [toSite, setToSite] = useState(true);
+  const [toTg, setToTg] = useState(true);
   const [order, setOrder] = useState<string[] | null>(null);
   const [off, setOff] = useState<Set<string>>(() => new Set());
   const own = shots(o);
@@ -186,7 +186,7 @@ function Publish({ o, dirty, onChange }: { o: Offer; dirty: boolean; onChange: (
   const tg = toTg && isStaff;
   const publish = useMutation({
     mutationFn: () => api.offers.publish(KIND, o.id, { text: edited ?? undefined, tg, site: toSite, keys: tg ? picked : undefined }),
-    onSuccess: (x) => { onChange(x); setToSite(x.status !== 'published'); setToTg(!x.post_url); toast('Опубликовано'); },
+    onSuccess: (x) => { onChange(x); toast('Опубликовано'); },
     onError: (e) => toast(errText(e), true),
   });
   const status = useMutation({

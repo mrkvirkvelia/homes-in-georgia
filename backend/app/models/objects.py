@@ -67,6 +67,7 @@ class Property(Base):
     total_floors = Column(Integer)
     description = Column(Text)
     is_exclusive = Column(Boolean, nullable=False, server_default=text("false"))
+    site_hidden = Column(Boolean, nullable=False, server_default=text("false"))  # «Снять с сайта»: in the base, not on hge.ge
     checklist = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
     post_fields = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))  # services.properties.POST_FIELDS
     ai_flags = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))

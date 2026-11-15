@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Archive, ArrowRightLeft, Camera, CheckCircle2, Copy, FileText, ChevronDown, ChevronLeft, ChevronRight, Clock, ExternalLink, Home, Pencil, Phone, PhoneOff, Play, RotateCcw, Send, Sparkles, Trash2, Upload, Wand2 } from 'lucide-react';
+import { Archive, ArrowRightLeft, Camera, CheckCircle2, Copy, FileText, ChevronDown, ChevronLeft, ChevronRight, Clock, ExternalLink, Globe, Home, Pencil, Phone, PhoneOff, Play, RotateCcw, Send, Sparkles, Trash2, Upload, Wand2 } from 'lucide-react';
 import { api } from '../../api';
 import { itemsOf, mediaUrl, thumbUrl } from '../../api/client';
 import type { Media, PostFields, Property } from '../../api/types';
@@ -190,9 +190,9 @@ type GenForm = {
 };
 const BEDROOM_CHIPS: Record<string, string> = { 0: 'Студия', 1: '1', 2: '2', 3: '3', 4: '4', 5: '5+' };
 // the old generator's sale block (backend SALE_AMENITIES): its own type order, beds up to 6+, only these amenities
-const SALE_TYPES = ['Apartment', 'House', 'Land', 'Commercial', 'Retail', 'Business', 'Cafe', 'Restaurant', 'BeautySalon', 'Warehouses', 'Manufacture', 'Duplex', 'Townhouse'];
-const SALE_BEDROOM_CHIPS: Record<string, string> = { ...BEDROOM_CHIPS, 5: '5', 6: '6+' };
-const SALE_AMENITIES = ['Balcony', 'Terrace', 'Courtyard', 'ParkingPlace', 'Conditioner', 'Dishwasher', 'Oven', 'Stove', 'Bath', 'Shower', 'Elevator', 'Fireplace'];
+export const SALE_TYPES = ['Apartment', 'House', 'Land', 'Commercial', 'Retail', 'Business', 'Cafe', 'Restaurant', 'BeautySalon', 'Warehouses', 'Manufacture', 'Duplex', 'Townhouse'];
+export const SALE_BEDROOM_CHIPS: Record<string, string> = { ...BEDROOM_CHIPS, 5: '5', 6: '6+' };
+export const SALE_AMENITIES = ['Balcony', 'Terrace', 'Courtyard', 'ParkingPlace', 'Conditioner', 'Dishwasher', 'Oven', 'Stove', 'Bath', 'Shower', 'Elevator', 'Fireplace'];
 const AMENITY_FIXED = ['Elevator', 'Oven', 'ParkingPlace', 'Conditioner']; // backend FIXED_AMENITIES: ✖️ in a rent post when absent
 const str = (v: unknown) => (v === null || v === undefined ? '' : String(v));
 const genOf = (p: Property): GenForm => ({
@@ -223,7 +223,7 @@ const postPreview = (t: string) => t.split(/(\[[^\]]+\]\([^)\s]+\))/g).map((x, i
 });
 
 /** One-of tag group as chips (the old generator's buttons); a tap on the picked one clears it. */
-function Chips({ options, value, onChange }: { options: Record<string, string>; value?: string; onChange: (v?: string) => void }) {
+export function Chips({ options, value, onChange }: { options: Record<string, string>; value?: string; onChange: (v?: string) => void }) {
   return (
     <div className="row row-wrap gap-sm">
       {Object.entries(options).map(([v, l]) => (
@@ -461,7 +461,7 @@ function PostGeneratorStep({ p, canEdit }: { p: Property; canEdit: boolean }) {
             )}
           </>
         )}
-        <MediaGrid p={p} grouped onOrder={canEdit ? (ids) => order.mutate(ids) : undefined} onDelete={canEdit ? (id) => del.mutate(id) : undefined} onRoom={canEdit && roomsOn ? (id, r) => room.mutate([id, r]) : undefined} />
+        <MediaGrid p={p} grouped onOrder={canEdit ? (ids) => order.mutate(ids.map(Number)) : undefined} onDelete={canEdit ? (id) => del.mutate(Number(id)) : undefined} onRoom={canEdit && roomsOn ? (id, r) => room.mutate([id, r]) : undefined} />
         {roomsOn && <>
           <div className="row row-between"><span className="label">Что снято · необязательно</span><span className="muted num" style={{ fontWeight: 700 }}>{done}/{ROOMS.length}</span></div>
           <div className="row row-wrap gap-sm">
@@ -493,14 +493,15 @@ function PostGeneratorStep({ p, canEdit }: { p: Property; canEdit: boolean }) {
   );
 }
 
-type Shot = Pick<Media, 'kind' | 'room'> & { id: number | string; src: string };
+export type Shot = Pick<Media, 'kind' | 'room'> & { id: number | string; src: string };
 const shotsOf = (p: Property): Shot[] => (p.media || []).map((m) => ({ id: m.id, kind: m.kind, room: m.room, src: m.url || m.path }));
 
-function MediaGrid({ p, items, grouped, onDelete, onRoom, onOrder }: { p?: Property; items?: Shot[]; grouped?: boolean; onDelete?: (id: number) => void; onRoom?: (id: number, room: string | null) => void; onOrder?: (ids: number[]) => void }) {
+export function MediaGrid({ p, items, grouped, onDelete, onRoom, onOrder }: { p?: Property; items?: Shot[]; grouped?: boolean; onDelete?: (id: Shot['id']) => void; onRoom?: (id: number, room: string | null) => void; onOrder?: (ids: Shot['id'][]) => void }) {
   const all = items || (p ? shotsOf(p) : []);
   // photos first, then videos: the lightbox walks them in that order, and a saved order is this one (the album's)
   const [local, setLocal] = useState<Shot[] | null>(null); // the order just set, until the server's comes back
-  useEffect(() => setLocal(null), [p?.media]);
+  const ids = all.map((m) => m.id).join(',');
+  useEffect(() => setLocal(null), [p?.media, ids]);
   const media = local || [...all.filter((m) => m.kind !== 'video'), ...all.filter((m) => m.kind === 'video')];
   const [open, setOpen] = useState<number | null>(null);
   // drag-and-drop on pointer events (mouse and touch): a mouse drags after a few px; a finger after a long press
@@ -513,7 +514,7 @@ function MediaGrid({ p, items, grouped, onDelete, onRoom, onOrder }: { p?: Prope
     const next = [...media];
     next.splice(to, 0, next.splice(from, 1)[0]);
     setLocal(next);
-    onOrder(next.map((m) => Number(m.id)));
+    onOrder(next.map((m) => m.id));
   };
   useEffect(() => {  // while dragging, a finger must not scroll the page (touchmove has to be non-passive for that)
     if (!drag) return;
@@ -591,7 +592,7 @@ function MediaGrid({ p, items, grouped, onDelete, onRoom, onOrder }: { p?: Prope
           </select>
         </span>
       ) : m.room && m.kind !== 'video' && <span className="room badge badge-blue">{m.room}</span>}
-      {onDelete && <button className="del btn btn-danger icon-btn btn-sm" style={{ width: 28, height: 28 }} onClick={(e) => { e.stopPropagation(); onDelete(Number(m.id)); }} aria-label="Удалить"><Trash2 size={14} /></button>}
+      {onDelete && <button className="del btn btn-danger icon-btn btn-sm" style={{ width: 28, height: 28 }} onClick={(e) => { e.stopPropagation(); onDelete(m.id); }} aria-label="Удалить"><Trash2 size={14} /></button>}
     </div>
     );
   };
@@ -903,7 +904,7 @@ function PostComposer({ p }: { p: Property }) {
       </div>
       {blocked && <div className="alert alert-warn">Эксклюзив ещё висит на других сайтах: публикация закрыта до «Проверено: снято».</div>}
       <Button variant="ok" size="lg" disabled={blocked || !text.trim()} loading={publish.isPending} onClick={() => publish.mutate()}>
-        <Send size={18} />Опубликовать
+        <Send size={18} />Опубликовать в Telegram
       </Button>
     </div>
   );
@@ -1035,6 +1036,23 @@ function PublishedActions({ p, onArchive }: { p: Property; onArchive: (reason: s
   );
 }
 
+/** «Опубликовать на сайте» / «Снять с сайта»: hge.ge shows a published object with a photo unless staff hid it
+ * (backend properties.set_site); the Telegram post is the other button. */
+function SiteButton({ p }: { p: Property }) {
+  const { toast, set } = useProp(p.id);
+  const m = useMutation({
+    mutationFn: (on: boolean) => api.properties.site(p.id, on),
+    onSuccess: (r) => { set(r); toast(r.site_hidden ? 'Снято с сайта' : 'Опубликовано на сайте'); },
+    onError: (e) => toast(errText(e), true),
+  });
+  return p.site_hidden
+    ? <Button variant="ok" loading={m.isPending} onClick={() => m.mutate(true)}><Globe size={16} />Опубликовать на сайте</Button>
+    : <>
+      <a className="btn btn-secondary" href={`https://hge.ge/listing/o${p.id}`} target="_blank" rel="noreferrer"><Globe size={16} />На сайте</a>
+      <Button variant="ghost" loading={m.isPending} onClick={() => { if (confirm('Снять объект с сайта hge.ge? В базе и в Telegram он останется.')) m.mutate(false); }}>Снять с сайта</Button>
+    </>;
+}
+
 function Resume({ p }: { p: Property }) {
   const { toast, set } = useProp(p.id);
   const m = useMutation({ mutationFn: () => api.properties.resume(p.id), onSuccess: (r) => { set(r); toast('Объект снова в базе'); }, onError: (e) => toast(errText(e), true) });
@@ -1074,7 +1092,7 @@ function OwnerTransfer({ p, request }: { p: Property; request?: boolean }) {
 // the old generator's tag groups (backend services/properties.py POST_ONE / POST_MANY), stored without '#'
 const opts = (o: Record<string, string>) => Object.entries(o).map(([value, label]) => ({ value, label }));
 export const metroLabel = (tag?: string | null) => (tag ? POST_ONE.metro[1][tag] || tag : '');
-const POST_ONE: Record<string, [string, Record<string, string>]> = {
+export const POST_ONE: Record<string, [string, Record<string, string>]> = {
   prop_type: ['Тип', { Apartment: 'Квартира', House: 'Дом', Commercial: 'Коммерция', Duplex: 'Дуплекс', Townhouse: 'Таунхаус', Land: 'Земля', Retail: 'Ритейл', Business: 'Бизнес', Cafe: 'Кафе', Restaurant: 'Ресторан', BeautySalon: 'Салон красоты', Warehouses: 'Склад', Manufacture: 'Производство' }],
   metro: ['Метро', { LibertySquare: 'Площадь Свободы', Rustaveli: 'Руставели', Marjanishvili: 'Марджанишвили', StationSquare: 'Вокзальная площадь', Tsereteli: 'Церетели', Gotsiridze: 'Гоциридзе', Nadzaladevi: 'Надзаладеви', Didube: 'Дидубе', Grmagele: 'Грмагеле', Guramishvili: 'Гурамишвили', Sarajishvili: 'Сараджишвили', AhmeteliTheatre: 'Театр Ахметели', STUniversity: 'Техуниверситет', VazhaPshavela: 'Важа-Пшавела', Delisi: 'Делиси', TCUniversity: 'Госуниверситет', MCUniversity: 'Медуниверситет', AvlabariMetro: 'Авлабари', IsaniMetro: 'Исани', '300Aragveli': '300 Арагвели', SamgoriMetro: 'Самгори', Varketili: 'Варкетили' }],
   building: ['Дом', { NewBuilding: 'Новостройка', OldBuilding: 'Старый фонд', HistoricalBuilding: 'Исторический', Reconstruction: 'Реконструкция' }],
@@ -1084,7 +1102,7 @@ const POST_ONE: Record<string, [string, Record<string, string>]> = {
   bathrooms: ['Санузлов', { '2Bathroom': '2', '3Bathroom': '3', '4Bathroom': '4' }],
   pets: ['Животные', { Allowed: 'Можно', NotAllowed: 'Нельзя', ByAgreement: 'По договорённости' }],
 };
-const POST_MANY: Record<string, [string, Record<string, string>]> = {
+export const POST_MANY: Record<string, [string, Record<string, string>]> = {
   amenities: ['Удобства', { Balcony: 'Балкон', Terrace: 'Терраса', Courtyard: 'Двор', WiFi: 'Wi-Fi', TV: 'ТВ', SmartTV: 'Smart TV', Bath: 'Ванна', Shower: 'Душ', Dishwasher: 'Посудомойка', Stove: 'Плита', Microwave: 'Микроволновка', WashingMachine: 'Стиральная машина', VacuumCleaner: 'Пылесос', Fireplace: 'Камин', Elevator: 'Лифт', Oven: 'Духовка', ParkingPlace: 'Парковка', Conditioner: 'Кондиционер' }],
   periods: ['Сроки аренды', { '1Day': '1 день', '1Month': '1 мес', '2Month': '2 мес', '3Month': '3 мес', '4Month': '4 мес', '5Month': '5 мес', '6Month': '6 мес', '9Month': '9 мес', '12Month': '12 мес' }],
 };
@@ -1262,6 +1280,7 @@ export function PropertyDetail({ id, compact }: { id: number; compact?: boolean 
       <div className="alert alert-ok">Опубликовано {fmtDateTime(p.published_at)}</div>
       <div className="row row-wrap">
         {p.post_url && <a className="btn" href={p.post_url} target="_blank" rel="noreferrer"><ExternalLink size={16} />Пост в канале</a>}
+        {isStaff && p.status === 'published' && <SiteButton p={p} />}
       </div>
       {canWork && p.status === 'published' && <PublishedActions p={p} onArchive={setArchiving} />}
       {isStaff && p.status === 'published' && <Republish p={p} />}

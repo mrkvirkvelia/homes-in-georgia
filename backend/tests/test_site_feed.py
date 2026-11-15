@@ -167,8 +167,9 @@ def test_crm_sale_flow_to_the_site(db, client):
     agent = make_user(db, "agent", username="zaza", phone="+995 555 11 22 33")
     h = auth(agent)
     r = client.post("/api/offers/sale", headers=h, json={"service": "new", "title": "9 Test St", "price": 100000, "area": 50,
-                                                          "kind": "apartment", "building": "new", "completion": "2027",
-                                                          "amenities": ["balcony"], "district": "Vake"})
+                                                          "completion": "2027", "district": "Vake",
+                                                          "post_fields": {"prop_type": "Apartment", "building": "NewBuilding",
+                                                                          "amenities": ["Balcony"]}})
     assert r.status_code == 200, r.text
     o = r.json()
     oid = o["id"]
@@ -207,7 +208,7 @@ def test_crm_car_and_validation(db, client):
     h = auth(agent)
     assert client.post("/api/offers/car", headers=h, json={"title": "X"}).status_code == 422  # no deal
     assert client.post("/api/offers/car", headers=h, json={"deal": "lease", "title": "X"}).status_code == 422
-    assert client.post("/api/offers/sale", headers=h, json={"service": "sale", "title": "A", "heating": "lava"}).status_code == 422
+    assert client.post("/api/offers/sale", headers=h, json={"service": "sale", "title": "A", "post_fields": {"heating": "lava"}}).status_code == 400
     r = client.post("/api/offers/car", headers=h, json={"deal": "rent", "title": "Kia Rio", "price": 40, "period": "day",
                                                          "year": 2020, "gearbox": "auto", "pickup": "Airport"})
     cid = r.json()["id"]
@@ -232,3 +233,82 @@ def test_crm_access(db, client):
     o = client.post("/api/offers/sale", headers=auth(a), json={"service": "sale", "title": "A", "agent_id": b.id}).json()
     assert o["agent_id"] == a.id  # an agent cannot hand it to somebody else
     assert client.patch(f"/api/offers/sale/{o['id']}", headers=auth(b), json={"agent_id": b.id}).json()["agent_id"] == b.id
+
+
+# ---------------------------------------------------------------- the two publications: Telegram and the site
+
+def test_sale_params_reach_the_site_and_the_telegram_post(db, client, sent):
+    agent, op = make_user(db, "agent", name="Zaza"), make_user(db, "operator")
+    pf = {"prop_type": "Cafe", "building": "OldBuilding", "design": "New", "condition": "WhiteFrame", "heating": "ACHeating",
+          "bathrooms": "2Bathroom", "amenities": ["Terrace", "Fireplace"], "metro": "Rustaveli", "headline": "Corner cafe"}
+    o = client.post("/api/offers/sale", headers=auth(agent), json={"service": "commercial", "title": "5 Rustaveli Ave",
+                    "district": "Vake", "price": 255000, "area": 85, "floor": 1, "floors": 5, "rooms": 2, "lat": 41.7, "lng": 44.78,
+                    "post_fields": pf}).json()
+    oid = o["id"]
+    assert o["post_fields"]["deal"] == "Sale" and o["post_fields"]["bathrooms"] == "2Bathroom"
+    text = client.get(f"/api/offers/sale/{oid}/post", headers=auth(agent)).json()["text"]
+    assert "🌟 Corner cafe 🌟" in text and "🏢 #2Bed #Cafe for #Sale" in text and "💰255.000$" in text
+    assert "#OldBuilding | #NewApartment | #WhiteFrame" in text and "85 Sq.m | 1/5 Floor | #ACHeating | #2Bathroom" in text
+    assert "#Price240000to270000" in text and text.endswith("SALE IN TBILISI🇬🇪") and "🚇 #Rustaveli" in text
+    # Telegram: operators only, a photo needed; the site stays as it was (draft)
+    assert client.post(f"/api/offers/sale/{oid}/telegram", headers=auth(agent), json={}).status_code == 403
+    assert client.post(f"/api/offers/sale/{oid}/telegram", headers=auth(op), json={}).status_code == 400  # no photo
+    up(client, auth(agent), "sale", oid, 2)
+    r = client.post(f"/api/offers/sale/{oid}/telegram", headers=auth(op), json={}).json()
+    assert r["post_url"] == "https://t.me/rent_tbilisi_ge/777" and r["status"] == "draft" and r["public"] is False
+    (post,), = sent.of("publish_post")
+    assert post.post_text == text and [k for k, _ in post.post_media_keys] == ["photo", "photo"]
+    assert client.get("/api/public/site/listings").json()["items"] == []
+    # the site: its own button
+    client.post(f"/api/offers/sale/{oid}/status", headers=auth(agent), json={"status": "published"})
+    it = client.get(f"/api/public/site/listings/s{oid}").json()
+    assert it["kind"] == "commercial" and it["type"] == "cafe" and it["bathrooms"] == 2 and it["heating"] == "ac"
+    assert it["building"] == "old" and it["condition"] == "white_frame" and it["metro"] == "Rustaveli"
+    assert it["amenities"] == ["terrace", "fireplace"] and it["headline"] == "Corner cafe" and it["lat"] == 41.7
+    # an edit keeps the imported words the form does not show
+    db.get(SaleObject, oid).post_fields = {**db.get(SaleObject, oid).post_fields, "site_extra": {"amenities": ["pool"]}}
+    db.commit()
+    r = client.patch(f"/api/offers/sale/{oid}", headers=auth(agent), json={"post_fields": {**pf, "bathrooms": "3Bathroom"}}).json()
+    assert r["post_fields"]["site_extra"] == {"amenities": ["pool"]} and r["post_fields"]["bathrooms"] == "3Bathroom"
+
+
+def test_car_telegram_post_and_failure(db, client, sent, monkeypatch):
+    from app.config import settings
+    from app.telegram import notify
+    op = make_user(db, "operator")
+    cid = client.post("/api/offers/car", headers=auth(op), json={"deal": "sale", "title": "Toyota Camry", "year": 2018,
+                      "price": 14500, "gearbox": "auto", "fuel": "hybrid", "body": "sedan", "seats": 5, "mileage": 76538,
+                      "is_exclusive": True}).json()["id"]
+    text = client.get(f"/api/offers/car/{cid}/post", headers=auth(op)).json()["text"]
+    assert text.startswith("🚗 #Toyota Camry 2018") and "🏁 #Car for #Sale" in text and "✨ #Sedan | #Automatic | #Hybrid" in text
+    assert "5 Seats | 76.538 km" in text and "💰 14.500$" in text and "#Price10000to15000" in text and "#CarSale" in text
+    rent = client.post("/api/offers/car", headers=auth(op), json={"deal": "rent", "title": "Kia Rio", "price": 40, "period": "day",
+                       "deposit": 200, "pickup": "Airport"}).json()["id"]
+    t2 = client.get(f"/api/offers/car/{rent}/post", headers=auth(op)).json()["text"]
+    assert "💰 40$/day + Deposit 200$" in t2 and "📍 Airport" in t2 and "#CarRent" in t2
+    up(client, auth(op), "car", cid)
+    monkeypatch.setattr(notify, "publish_post", lambda p: None)  # Telegram refused: nothing changes
+    assert client.post(f"/api/offers/car/{cid}/telegram", headers=auth(op), json={"text": "Мой текст"}).status_code == 502
+    assert db.get(Car, cid).post_url is None
+    monkeypatch.setattr(settings, "BOT_TOKEN", "")
+    monkeypatch.setattr(settings, "APP_ENV", "dev")
+    assert client.post(f"/api/offers/car/{cid}/telegram", headers=auth(op), json={}).status_code == 200  # dev dry run
+
+
+def test_rent_object_site_button(db, client):
+    op, agent = make_user(db, "operator"), make_user(db, "agent")
+    p = Property(source_type="manual", status="published", address="1 Site St", price=900, agent_id=agent.id)
+    db.add(p)
+    db.flush()
+    db.add(PropertyMedia(property_id=p.id, kind="photo", path="properties/x/1.jpg", position=0))
+    db.commit()
+    assert client.get(f"/api/public/site/listings/o{p.id}").status_code == 200
+    assert client.post(f"/api/properties/{p.id}/site", headers=auth(agent), json={"on": False}).status_code == 403
+    r = client.post(f"/api/properties/{p.id}/site", headers=auth(op), json={"on": False}).json()
+    assert r["site_hidden"] is True and r["status"] == "published"
+    assert client.get(f"/api/public/site/listings/o{p.id}").status_code == 404
+    assert client.post(f"/api/properties/{p.id}/site", headers=auth(op), json={"on": True}).json()["site_hidden"] is False
+    assert client.get(f"/api/public/site/listings/o{p.id}").status_code == 200
+    p.status = "review"
+    db.commit()
+    assert client.post(f"/api/properties/{p.id}/site", headers=auth(op), json={"on": True}).status_code == 409

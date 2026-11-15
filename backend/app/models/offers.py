@@ -1,8 +1,10 @@
 """What the site hge.ge shows besides rent: sale objects (resale, new buildings, commercial for sale) and cars.
 
 Rent (apartments, daily, commercial for rent) stays in `properties`. Here an agent types the facts by hand (no funnel,
-no owner): draft -> published (needs a photo) -> archived. Photos / video are storage keys in the row itself; the
-words (building, condition, heating, metro, amenities) are the site's own (services/site_feed.py)."""
+no owner): draft -> published on the site (needs a photo) -> archived; the Telegram post is a separate action (post_url).
+Photos / video are storage keys in the row itself. A sale object's tags (type, building, design, condition, heating,
+bathrooms, amenities, metro, headline) are `post_fields` in the rent objects' vocabulary (services/properties.POST_ONE);
+services/site_feed.py turns them into the site's words for both."""
 from sqlalchemy import Boolean, CheckConstraint, Column, DateTime, Float, ForeignKey, Index, Integer, Numeric, Text, func, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import declared_attr
@@ -11,7 +13,6 @@ from app.db import Base
 
 OFFER_STATUSES = ("draft", "published", "archived")
 SALE_SERVICES = ("sale", "new", "commercial")  # resale | new buildings | commercial for sale
-SALE_KINDS = ("apartment", "house", "land", "commercial")
 CAR_DEALS = ("rent", "sale")
 
 
@@ -44,20 +45,13 @@ class SaleObject(_Offer, Base):
                       CheckConstraint(f"status IN {OFFER_STATUSES}", name="sale_objects_status_check"),
                       CheckConstraint(f"service IN {SALE_SERVICES}", name="sale_objects_service_check"))
     service = Column(Text, nullable=False)
-    kind = Column(Text, nullable=False, server_default="apartment")
-    headline = Column(Text)
     district = Column(Text)
-    metro = Column(Text)
-    approx = Column(Boolean, nullable=False, server_default=text("false"))  # the point is approximate: the site shows no exact pin
     rooms = Column(Integer)
     area = Column(Numeric(10, 2))
     floor = Column(Integer)
     floors = Column(Integer)
-    building = Column(Text)  # new | old | historical
-    condition = Column(Text)  # white_frame | green_frame | black_frame | renovated | mixed | old
-    heating = Column(Text)  # central | gas | electric
     completion = Column(Text)  # new buildings: "Q4 2027"
-    amenities = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    post_fields = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))  # {"prop_type": "Apartment", ...}
 
 
 class Car(_Offer, Base):

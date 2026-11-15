@@ -172,6 +172,7 @@ export interface Property {
   is_exclusive?: boolean;
   checklist?: Record<string, boolean> | null;
   post_fields?: PostFields | null;
+  site_hidden?: boolean;  // «Снять с сайта»: published, not on hge.ge
   ai_flags?: AiFlags | null;
   duplicate_of?: number | null;
   dup_check?: 'added' | 'exists' | null;

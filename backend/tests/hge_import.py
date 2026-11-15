@@ -144,11 +144,11 @@ def one(db: Session, it: dict, photos: bool) -> tuple[str, int]:
             db.add(PropertyMedia(property_id=p.id, kind="photo", path=key, position=pos))
         return outcome, len(got)
     if kind == "sale":
-        o = SaleObject(service=it["service"], kind=it.get("kind") or "apartment", title=it["title"], headline=it.get("headline"),
-                       district=it.get("district"), metro=it.get("metro"), approx=bool(it.get("approx")), rooms=it.get("rooms"),
-                       area=it.get("area"), floor=it.get("floor"), floors=it.get("floors"), building=it.get("building"),
-                       condition=it.get("condition"), heating=it.get("heating"), completion=it.get("completion"),
-                       amenities=it.get("amenities") or [], is_exclusive=bool(it.get("exclusive")))
+        pf = {k: v for k, v in rent_fields(it).items() if k not in ("service", "site_id", "months", "periods", "period")}
+        o = SaleObject(service=it["service"], title=it["title"], district=it.get("district"), rooms=it.get("rooms"),
+                       area=it.get("area"), floor=it.get("floor"), floors=it.get("floors"), completion=it.get("completion"),
+                       post_fields={**pf, "deal": "Sale", "prop_type": pf.get("prop_type") or "Apartment"},
+                       is_exclusive=bool(it.get("exclusive")))
     else:
         o = Car(deal=it["deal"], period=it.get("period"), title=it["title"], deposit=it.get("deposit"), year=it.get("year"),
                 gearbox=it.get("gearbox"), fuel=it.get("fuel"), body=it.get("body"), seats=it.get("seats"),

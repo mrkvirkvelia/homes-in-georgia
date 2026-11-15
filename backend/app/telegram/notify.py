@@ -1049,7 +1049,9 @@ def publish_post(prop):
     _, owner_topic = chat_and_topic("PUBLISH_CHAT_ID", "PUBLISH_TOPIC_OWNER")
     caption = post_html(g(prop, "post_text") or g(prop, "description") or prop_title(prop))
     with tempfile.TemporaryDirectory() as tmp:
-        media = media_paths(g(prop, "id"), tmp, g(prop, "post_media_ids"))
+        keys = g(prop, "post_media_keys")  # [(photo|video, storage key)]: sale objects and cars keep keys in the row
+        media = ([(k, p) for k, key in keys[:10] if (p := storage.fetch(key, tmp))] if keys is not None
+                 else media_paths(g(prop, "id"), tmp, g(prop, "post_media_ids")))
         if media and originals_topic:
             send_group(chat, originals_topic, [("document", p) for _, p in media])
         m = None

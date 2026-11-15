@@ -1680,6 +1680,22 @@ def publish(db: Session, pid: int, actor: User, text: str | None = None, media_i
     return p
 
 
+def set_site(db: Session, pid: int, actor: User, on: bool) -> Property:
+    """«Опубликовать на сайте» / «Снять с сайта»: a published object is on hge.ge unless hidden (site_feed.public_filter);
+    the Telegram post (publish) is the other button. Operators only."""
+    p = _prop(db, pid, lock=True)
+    if not at_least(actor, "operator"):
+        raise forbidden("only operators publish")
+    if on and p.status != "published":
+        raise DomainError("bad_status", "На сайт попадает опубликованный объект — сначала опубликуйте его в Telegram")
+    p.site_hidden = not on
+    log_event(db, "property", p.id, "site_on" if on else "site_off", actor)
+    db.commit()
+    from app.services import site_feed
+    site_feed.clear_cache()
+    return p
+
+
 def resume(db: Session, pid: int, actor: User) -> Property:
     """«Снять с паузы»: a paused object goes back to the base as it was before (published, if it ever was)."""
     p = _prop(db, pid, lock=True)
@@ -1870,7 +1886,7 @@ def out(db: Session, p: Property, user: User, full: bool = False, cache: dict | 
     agent = get(User, p.agent_id)
     d = {c: getattr(p, c) for c in ("id", "listing_id", "source_type", "source_url", "status", "agent_id", "call_attempts",
                                     "address", "district", "lat", "lng", "cadastral_code", "currency", "bedrooms", "rooms", "floor",
-                                    "total_floors", "description", "is_exclusive", "checklist", "ai_flags",
+                                    "total_floors", "description", "is_exclusive", "site_hidden", "checklist", "ai_flags",
                                     "duplicate_of", "dup_check", "review_comment", "reviewed_by", "post_url",
                                     "post_message_id", "owner_id", "post_fields", "archive_reason", "archive_comment")}
     for c in ("taken_at", "next_call_at", "shoot_at", "reviewed_at", "published_at", "verified_at", "archived_at",

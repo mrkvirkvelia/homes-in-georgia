@@ -1,5 +1,6 @@
 """CRM: the site's own objects, sale (resale / new buildings / commercial for sale) and cars. Agents add and edit them
-(recruits and the Daily Rent manager have no access); status draft -> published (a photo is needed) -> archived."""
+(recruits and the Daily Rent manager have no access); status draft -> published on the site (a photo is needed) ->
+archived. The Telegram post is its own action (POST /{kind}/{id}/telegram, operators)."""
 from typing import Literal
 
 from fastapi import APIRouter, Depends, File, Query, UploadFile
@@ -8,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import require_level
 from app.db import get_db
-from app.models import CAR_DEALS, OFFER_STATUSES, SALE_KINDS, SALE_SERVICES, Car, SaleObject, User
+from app.models import CAR_DEALS, OFFER_STATUSES, SALE_SERVICES, Car, SaleObject, User
 from app.services import offers as O
 from app.services.common import get_or_404
 from app.services.errors import DomainError
@@ -31,18 +32,12 @@ class _In(BaseModel):
 
 class SaleIn(_In):
     service: Literal[SALE_SERVICES] | None = None
-    kind: Literal[SALE_KINDS] | None = None
-    headline: str | None = None
     district: str | None = None
-    metro: str | None = None
-    approx: bool | None = None
+    post_fields: dict | None = None  # the rent generator's tags (services/properties.POST_ONE), deal Sale
     rooms: int | None = Field(None, ge=0, le=100)
     area: float | None = Field(None, ge=0)
     floor: int | None = None
     floors: int | None = None
-    building: Literal["new", "old", "historical"] | None = None
-    condition: Literal["white_frame", "green_frame", "black_frame", "renovated", "mixed", "old"] | None = None
-    heating: Literal["central", "gas", "electric"] | None = None
     completion: str | None = None
     amenities: list[str] | None = None
 
@@ -62,6 +57,10 @@ class CarIn(_In):
 
 class StatusIn(BaseModel):
     status: Literal[OFFER_STATUSES]
+
+
+class PostIn(BaseModel):
+    text: str | None = Field(None, max_length=4096)  # the caption as edited; empty = built from the fields
 
 
 def _model(kind: str):
@@ -127,3 +126,13 @@ def offers_media_order(kind: Kind, oid: int, body: dict, db: Session = Db, user:
 @router.delete("/{kind}/{oid}/media")
 def offers_media_delete(kind: Kind, oid: int, key: str, db: Session = Db, user: User = Agent):
     return O.out(O.delete_file(db, _model(kind), oid, key, user))
+
+
+@router.get("/{kind}/{oid}/post")
+def offers_post(kind: Kind, oid: int, db: Session = Db, user: User = Agent):
+    return {"text": O.post_text(db, get_or_404(db, _model(kind), oid, "object"))}
+
+
+@router.post("/{kind}/{oid}/telegram")
+def offers_telegram(kind: Kind, oid: int, body: PostIn, db: Session = Db, user: User = Agent):
+    return O.out(O.publish_tg(db, _model(kind), oid, user, body.text))

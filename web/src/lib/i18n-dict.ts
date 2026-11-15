@@ -107,6 +107,8 @@ export const dict: Record<Lang, Record<string, Msg>> = {
     'cond.white_frame': 'White frame', 'cond.black_frame': 'Black frame', 'cond.green_frame': 'Green frame',
     'cond.under_construction': 'Under construction',
     'heat.central': 'Central', 'heat.gas': 'Gas', 'heat.electric': 'Electric',
+    'heat.ac': 'Air conditioner', 'heat.fireplace': 'Fireplace', 'building.reconstruction': 'Reconstruction', 'l.bathrooms': 'Bathrooms',
+    'type.retail': 'Retail', 'type.business': 'Business', 'type.cafe': 'Cafe', 'type.restaurant': 'Restaurant', 'type.beautysalon': 'Beauty salon', 'type.warehouses': 'Warehouse', 'type.manufacture': 'Manufacturing', 'type.duplex': 'Duplex', 'type.townhouse': 'Townhouse',
     'pets.allowed': 'Allowed', 'pets.agreement': 'By agreement', 'pets.no': 'Not allowed',
 
     'am.conditioner': 'Air conditioning', 'am.wifi': 'Wi-Fi', 'am.tv': 'TV', 'am.stove': 'Stove', 'am.oven': 'Oven',
@@ -250,6 +252,8 @@ export const dict: Record<Lang, Record<string, Msg>> = {
     'cond.white_frame': 'თეთრი კარკასი', 'cond.black_frame': 'შავი კარკასი', 'cond.green_frame': 'მწვანე კარკასი',
     'cond.under_construction': 'მშენებარე',
     'heat.central': 'ცენტრალური', 'heat.gas': 'გაზის', 'heat.electric': 'ელექტრო',
+    'heat.ac': 'კონდიციონერი', 'heat.fireplace': 'ბუხარი', 'building.reconstruction': 'რეკონსტრუქცია', 'l.bathrooms': 'სველი წერტილები',
+    'type.retail': 'სავაჭრო ფართი', 'type.business': 'ბიზნესი', 'type.cafe': 'კაფე', 'type.restaurant': 'რესტორანი', 'type.beautysalon': 'სილამაზის სალონი', 'type.warehouses': 'საწყობი', 'type.manufacture': 'წარმოება', 'type.duplex': 'დუპლექსი', 'type.townhouse': 'თაუნჰაუსი',
     'pets.allowed': 'შეიძლება', 'pets.agreement': 'შეთანხმებით', 'pets.no': 'არ შეიძლება',
 
     'am.conditioner': 'კონდიციონერი', 'am.wifi': 'Wi-Fi', 'am.tv': 'ტელევიზორი', 'am.stove': 'ქურა', 'am.oven': 'ღუმელი',
@@ -401,6 +405,8 @@ export const dict: Record<Lang, Record<string, Msg>> = {
     'cond.white_frame': 'Белый каркас', 'cond.black_frame': 'Чёрный каркас', 'cond.green_frame': 'Зелёный каркас',
     'cond.under_construction': 'Строится',
     'heat.central': 'Центральное', 'heat.gas': 'Газовое', 'heat.electric': 'Электрическое',
+    'heat.ac': 'Кондиционер', 'heat.fireplace': 'Камин', 'building.reconstruction': 'Реконструкция', 'l.bathrooms': 'Санузлы',
+    'type.retail': 'Ритейл', 'type.business': 'Бизнес', 'type.cafe': 'Кафе', 'type.restaurant': 'Ресторан', 'type.beautysalon': 'Салон красоты', 'type.warehouses': 'Склад', 'type.manufacture': 'Производство', 'type.duplex': 'Дуплекс', 'type.townhouse': 'Таунхаус',
     'pets.allowed': 'Можно', 'pets.agreement': 'По договорённости', 'pets.no': 'Нельзя',
 
     'am.conditioner': 'Кондиционер', 'am.wifi': 'Wi-Fi', 'am.tv': 'Телевизор', 'am.stove': 'Плита', 'am.oven': 'Духовка',

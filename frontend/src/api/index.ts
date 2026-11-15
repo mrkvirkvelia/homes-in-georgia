@@ -109,6 +109,7 @@ export const api = {
     submit: (id: number) => http.post<Property>(`/properties/${id}/submit`),
     review: (id: number, approve: boolean, comment?: string) => http.post<Property>(`/properties/${id}/review`, { approve, comment }),
     post: (id: number) => http.get<PostDraft>(`/properties/${id}/post`),
+    site: (id: number, on: boolean) => then(http.post<Property>(`/properties/${id}/site`, { on }), normProperty),
     publish: (id: number, b?: { text?: string; media_ids?: number[]; channel?: string; comment?: string }) => then(http.post<Property>(`/properties/${id}/publish`, b), normProperty),
     /** reason: ARCHIVE_REASON key; a verified object's agent gets change_request back instead */
     archive: (id: number, b: { reason: string; comment?: string; duplicate_of?: number | null }) => http.post<Property>(`/properties/${id}/archive`, b),
@@ -143,6 +144,8 @@ export const api = {
     },
     order: (kind: OfferKind, id: number, keys: string[]) => http.put<Offer>(`/offers/${kind}/${id}/media/order`, { keys }),
     deleteFile: (kind: OfferKind, id: number, key: string) => http.del<Offer>(`/offers/${kind}/${id}/media?key=${encodeURIComponent(key)}`),
+    post: (kind: OfferKind, id: number) => http.get<{ text: string }>(`/offers/${kind}/${id}/post`),
+    telegram: (kind: OfferKind, id: number, text?: string) => http.post<Offer>(`/offers/${kind}/${id}/telegram`, { text }),
   },
 
   changeRequests: {

@@ -30,6 +30,8 @@ export interface Item {
   deposit?: number;
   ppsqm_usd?: number;
   rooms?: number;
+  bathrooms?: number;
+  type?: string; // the exact type when kind is a group: cafe, retail, duplex …
   area?: number;
   floor?: number;
   floors?: number;

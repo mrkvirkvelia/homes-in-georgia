@@ -481,6 +481,16 @@ def properties_publish(pid: int, body: PublishIn | None = None, db: Session = De
     return P.out(db, P.publish(db, pid, user, b.text, b.media_ids, b.channel, b.comment), user, full=True)
 
 
+class SiteIn(BaseModel):
+    on: bool
+
+
+@router.post("/properties/{pid}/site")
+def properties_site(pid: int, body: SiteIn, db: Session = Depends(get_db, scope="function"),
+                    user: User = Depends(require_level("operator"))):
+    return P.out(db, P.set_site(db, pid, user, body.on), user, full=True)
+
+
 @router.get("/properties/{pid}/elsewhere")
 def properties_elsewhere(pid: int, db: Session = Depends(get_db, scope="function"), user: User = Depends(current_user)):
     """Where else the object is advertised (the exclusive toggle shows it). Links only for staff / the object's agent."""

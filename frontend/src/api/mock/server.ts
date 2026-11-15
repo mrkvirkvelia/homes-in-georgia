@@ -688,6 +688,68 @@ on('POST', '/registry/extract-from-url', (_m, b) => {
     fields: { cadastral_code: '01.10.14.016.017.01.001', street_house: 'ამბერკი ტაბიძის ქუჩა, N 43', street_house_en: 'Amberki Tabidze St, 43', apartment_number: '7', apartment_area: '52', owner_full_name: 'Демо Собственник', owner_personal_number: '01001000001' } };
 });
 
+// ---------- «Продажа» / «Авто» (backend api/offers.py) and the geocoder (services/geo.py) ----------
+type MockOffer = Record<string, unknown> & { id: number; status: string; photos: string[]; video: string | null; post_url: string | null; title: string };
+const offerBase = (id: number, o: Partial<MockOffer>): MockOffer => ({ id, status: 'draft', photos: [], video: null, post_url: null, title: '', description: null, price: null,
+  currency: 'USD', lat: null, lng: null, is_exclusive: false, site_id: null, agent_id: 2, published_at: null, created_at: new Date().toISOString(), updated_at: new Date().toISOString(), ...o });
+const OFFERS: Record<string, MockOffer[]> = {
+  sale: [
+    offerBase(1, { service: 'sale', title: 'ул. Палиашвили 12', district: 'Ваке', lat: 41.7105, lng: 44.7612, price: 255000, rooms: 2, area: 85, floor: 5, floors: 9, status: 'published',
+      photos: [F.photo(1, 's1'), F.photo(2, 's2'), F.photo(3, 's3')], post_url: 'https://t.me/rent_tbilisi_ge/777', is_exclusive: true,
+      post_fields: { deal: 'Sale', prop_type: 'Apartment', building: 'NewBuilding', condition: 'FullyRenovated', design: 'New', heating: 'CentralHeating', bathrooms: '2Bathroom', amenities: ['Balcony', 'Elevator', 'ParkingPlace'], metro: 'Rustaveli', headline: 'Вид на старый город' } }),
+    offerBase(2, { service: 'commercial', title: 'пр. Агмашенебели 40', district: 'Чугурети', price: 180000, area: 120, floor: 1, floors: 4,
+      photos: [F.photo(4, 's4')], post_fields: { deal: 'Sale', prop_type: 'Cafe', building: 'OldBuilding', condition: 'WhiteFrame' } }),
+  ],
+  car: [
+    offerBase(1, { deal: 'rent', title: 'Toyota Camry', year: 2019, price: 60, period: 'day', deposit: 300, gearbox: 'auto', fuel: 'hybrid', body: 'sedan', seats: 5, pickup: 'Аэропорт Тбилиси',
+      lat: 41.6692, lng: 44.9547, status: 'published', photos: [F.photo(5, 'c1'), F.photo(6, 'c2')] }),
+    offerBase(2, { deal: 'sale', title: 'Mercedes-Benz E 220', year: 2017, price: 21500, gearbox: 'auto', fuel: 'diesel', body: 'business', seats: 5, mileage: 98000, photos: [F.photo(7, 'c3')] }),
+  ],
+};
+const offerOut = (k: string, o: MockOffer) => ({ ...o, item_id: `${k === 'sale' ? 's' : 'c'}${o.id}`, public: o.status === 'published' && o.photos.length > 0 });
+const getOffer = (k: string, id: number) => { const o = OFFERS[k].find((x) => x.id === id); if (!o) throw new ApiError(404, 'Не найдено'); return o; };
+const dots = (n: unknown) => String(n ?? '').replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+const offerPost = (k: string, o: MockOffer) => {
+  const f = (o.post_fields || {}) as Record<string, string | string[] | undefined>;
+  const lines = k === 'car'
+    ? [`🚗 #${o.title.split(' ')[0]} ${o.title.split(' ').slice(1).join(' ')} ${o.year || ''}`.trim(), '', `🏁 #Car for ${o.deal === 'sale' ? '#Sale' : '#Rent'}`,
+      `✨ #${String(o.body || '').replace(/^./, (c) => c.toUpperCase())} | #${o.gearbox === 'auto' ? 'Automatic' : 'Manual'}`, '',
+      `💰 ${dots(o.price)}$${o.deal === 'rent' ? '/day' : ''}`, '0% Commission', o.deal === 'sale' ? '#CarSale' : '#CarRent', '', 'CARS IN TBILISI🇬🇪']
+    : [`#${o.district || 'Tbilisi'}${f.metro ? ` 🚇 #${f.metro}` : ''}`, `📍[${o.title}](https://maps.google.com/?q=${o.lat},${o.lng})`, '', f.headline ? `🌟 ${f.headline} 🌟` : '', '',
+      o.is_exclusive ? '❗️#Exclusive' : '', '', `🏢 ${o.rooms ? `#${o.rooms}Bed ` : ''}#${f.prop_type || 'Apartment'} for #Sale`,
+      `✨ ${[f.building, f.design === 'New' ? 'NewApartment' : f.design, f.condition].filter(Boolean).map((x) => `#${x}`).join(' | ')}`,
+      `🏠 ${o.area} Sq.m | ${o.floor}/${o.floors} Floor${f.heating ? ` | #${f.heating}` : ''}${f.bathrooms ? ` | #${f.bathrooms}` : ''}`, '',
+      ((f.amenities as string[]) || []).map((a) => `✅ #${a}`).join(' '), '', `💰${dots(o.price)}$`, '0% Commission', '', '📲 @David_Tibelashvili', '', 'SALE IN TBILISI🇬🇪'];
+  return lines.join('\n').replace(/\n{3,}/g, '\n\n');
+};
+on('GET', '/offers/:kind', (m, _b, q) => page(OFFERS[m[1]].filter((o) => !q.get('status') || o.status === q.get('status'))
+  .filter((o) => !q.get('q') || o.title.toLowerCase().includes(q.get('q')!.toLowerCase())).slice().reverse().map((o) => offerOut(m[1], o))));
+on('POST', '/offers/:kind', (m, b) => { const o = offerBase(nextId(), b as Partial<MockOffer>); OFFERS[m[1]].push(o); return offerOut(m[1], o); });
+on('GET', '/offers/:kind/:id', (m) => offerOut(m[1], getOffer(m[1], Number(m[2]))));
+on('PATCH', '/offers/:kind/:id', (m, b) => { const o = getOffer(m[1], Number(m[2])); Object.assign(o, b, { updated_at: new Date().toISOString() }); return offerOut(m[1], o); });
+on('POST', '/offers/:kind/:id/status', (m, b) => {
+  const o = getOffer(m[1], Number(m[2]));
+  if (b.status === 'published' && !o.photos.length) throw new ApiError(400, 'Добавьте хотя бы одно фото перед публикацией');
+  o.status = String(b.status);
+  return offerOut(m[1], o);
+});
+on('POST', '/offers/:kind/:id/media', (m, b) => {
+  const o = getOffer(m[1], Number(m[2]));
+  for (const f of (b as unknown as { __files: { name: string; url: string }[] }).__files) if (/\.(mp4|mov|webm)$/i.test(f.name)) o.video = f.url; else o.photos.push(f.url);
+  return { ...offerOut(m[1], o), uploaded_keys: [] };
+});
+on('PUT', '/offers/:kind/:id/media/order', (m, b) => { const o = getOffer(m[1], Number(m[2])); o.photos = b.keys as string[]; return offerOut(m[1], o); });
+on('DELETE', '/offers/:kind/:id/media', (m, _b, q) => {
+  const o = getOffer(m[1], Number(m[2])); const k = q.get('key');
+  if (k === o.video) o.video = null; else o.photos = o.photos.filter((x) => x !== k);
+  return offerOut(m[1], o);
+});
+on('GET', '/offers/:kind/:id/post', (m) => ({ text: offerPost(m[1], getOffer(m[1], Number(m[2]))) }));
+on('POST', '/offers/:kind/:id/telegram', (m) => { const o = getOffer(m[1], Number(m[2])); o.post_url = `https://t.me/rent_tbilisi_ge/${nextId()}`; return offerOut(m[1], o); });
+on('GET', '/geo/search', (_m, _b, q) => ({ point: false, items: (q.get('q') || '').length < 3 ? [] : [{ label: `${q.get('q')}, Тбилиси`, lat: 41.7105, lng: 44.7612 }] }));
+on('GET', '/geo/point', () => ({ district: 'Ваке', metro: 'Rustaveli', metro_m: 640 }));
+on('POST', '/properties/:id/site', (m, b) => { const u = currentUser(); const p = getProp(Number(m[1])); p.site_hidden = !b.on; return propOut(p, u); });
+
 async function formToBody(fd: FormData): Promise<Record<string, unknown>> {
   const files: { name: string; url: string }[] = [];
   let room: string | undefined;

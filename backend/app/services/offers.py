@@ -1,31 +1,48 @@
 """CRM side of the site's own objects: sale objects (sale_objects) and cars (cars). Public side: services/site_feed.py.
 
-An agent adds and edits them by hand; photos / video are keys in the row (offers/<s|c><id>/<uuid>.<ext>)."""
+An agent adds and edits them by hand; photos / video are keys in the row (offers/<s|c><id>/<uuid>.<ext>). Two separate
+publications, as for rent objects: the site (status published, set_status) and the Telegram post (publish_tg)."""
+import logging
 import os
+import re
 import uuid
 from datetime import datetime, timezone
+from types import SimpleNamespace
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app import storage
+from app.config import settings as env
 from app.api.deps import paginate
 from app.models import Car, SaleObject, User, at_least
 from app.services import properties as P
 from app.services import site_feed
 from app.services.common import get_or_404, log_event
-from app.services.errors import DomainError
+from app.services.errors import DomainError, forbidden
+from app.telegram import notify
+
+log = logging.getLogger(__name__)
 
 MODELS = {"sale": SaleObject, "car": Car}
 MAX_PHOTOS, MAX_VIDEOS = P.MAX_MEDIA["photo"], P.MAX_MEDIA["video"]
 # what the agent's form may write; status / photos / video / site_id / published_at only through the calls below
 FIELDS = {
-    "sale": ("service", "kind", "title", "headline", "district", "metro", "lat", "lng", "approx", "price", "currency", "rooms",
-             "area", "floor", "floors", "building", "condition", "heating", "completion", "amenities", "description",
-             "is_exclusive", "post_url"),
+    "sale": ("service", "title", "district", "lat", "lng", "price", "currency", "rooms", "area", "floor", "floors",
+             "completion", "post_fields", "description", "is_exclusive", "post_url"),
     "car": ("deal", "title", "period", "deposit", "year", "gearbox", "fuel", "body", "seats", "mileage", "pickup", "lat", "lng",
             "price", "currency", "description", "is_exclusive", "post_url"),
 }
+
+
+def _sale_fields(v, old: dict | None = None) -> dict:
+    """The sale form's tags in the rent generator's vocabulary (deal is always Sale); the imported words the form does not
+    show (site_extra, approx) are kept."""
+    f = P.clean_post_fields({**(v or {}), "deal": "Sale"})
+    for k in ("site_extra", "approx", "site_id"):
+        if old and k in old and k not in f:
+            f[k] = old[k]
+    return f
 
 
 def kind_of(model) -> str:
@@ -55,6 +72,8 @@ def _changed(db: Session, o, actor: User | None, action: str, **data):
 def create(db: Session, model, data: dict, actor: User) -> object:
     allowed = FIELDS[kind_of(model)]
     o = model(**{k: v for k, v in data.items() if k in allowed}, agent_id=actor.id, status="draft")
+    if model is SaleObject:
+        o.post_fields = _sale_fields(data.get("post_fields"))
     if (aid := data.get("agent_id")) and at_least(actor, "operator"):
         o.agent_id = aid
     db.add(o)
@@ -66,6 +85,8 @@ def create(db: Session, model, data: dict, actor: User) -> object:
 def update(db: Session, model, oid: int, data: dict, actor: User) -> object:
     o = get_or_404(db, model, oid, "object", lock=True)
     for k, v in data.items():
+        if k == "post_fields" and model is SaleObject:
+            v = _sale_fields(v, o.post_fields)
         if k in FIELDS[kind_of(model)] or (k == "agent_id" and at_least(actor, "operator")):
             setattr(o, k, v)
     _changed(db, o, actor, "updated", fields=sorted(data))
@@ -136,4 +157,89 @@ def delete_file(db: Session, model, oid: int, key: str, actor: User) -> object:
     except Exception:
         pass  # a stray file in the bucket is harmless; the row is the truth
     _changed(db, o, actor, "media_deleted", key=key)
+    return o
+
+
+# ---------------------------------------------------------------- the Telegram post (as rent objects: notify.publish_post)
+
+def _as_property(o: SaleObject):
+    """The fields properties.post_text reads, from a sale object: its sale post is the rent objects' generator's."""
+    return SimpleNamespace(id=o.id, post_fields={**(o.post_fields or {}), "deal": "Sale"}, district=o.district,
+                           address=o.title, bedrooms=o.rooms, area=o.area, floor=o.floor, total_floors=o.floors,
+                           is_exclusive=o.is_exclusive, price=o.price, agent_id=o.agent_id, lat=o.lat, lng=o.lng,
+                           listing_id=None, description=o.description)
+
+
+GEARBOX = {"auto": "Automatic", "manual": "Manual"}
+FUEL = {"petrol": "Petrol", "diesel": "Diesel", "hybrid": "Hybrid", "electric": "Electric", "gas": "Gas"}
+BODY = {"sedan": "Sedan", "suv": "SUV", "hatchback": "Hatchback", "wagon": "Wagon", "coupe": "Coupe",
+        "minivan": "Minivan", "business": "Business", "pickup": "Pickup", "convertible": "Convertible"}
+CAR_PRICE_STEPS = (5000, 10000, 15000, 20000, 30000, 50000, 70000, 100000)
+
+
+def _money(v) -> str:
+    return f"{int(v):,}".replace(",", ".")
+
+
+def car_post_text(db: Session, c: Car) -> str:
+    """A car post in the generator's style: the model and year, #Rent / #Sale, a ✨ line of tags, the price with its tag."""
+    sale = c.deal == "sale"
+    cur = {"USD": "$", "GEL": "₾", "EUR": "€"}.get(c.currency or "USD", "$")
+    tag = lambda m, v: v and f"#{m.get(v, str(v).title().replace(' ', ''))}"  # noqa: E731
+    brand = re.sub(r"\W", "", (c.title or "").split()[0]) if c.title else ""
+    lines = [f"🚗 #{brand} {' '.join((c.title or '').split()[1:])}".strip() + (f" {c.year}" if c.year else ""), ""]
+    if c.is_exclusive:
+        lines += ["❗️#Exclusive", ""]
+    lines.append(f"🏁 #Car for {'#Sale' if sale else '#Rent'}")
+    style = [x for x in (tag(BODY, c.body), tag(GEARBOX, c.gearbox), tag(FUEL, c.fuel)) if x]
+    if style:
+        lines.append("✨ " + " | ".join(style))
+    spec = [x for x in (c.seats and f"{c.seats} Seats", sale and c.mileage and f"{_money(c.mileage)} km") if x]
+    if spec:
+        lines.append("🚘 " + " | ".join(spec))
+    if not sale and c.pickup:
+        lines.append(f"📍 {c.pickup}")
+    lines.append("")
+    if c.price is not None:
+        per = "" if sale else f"/{'month' if c.period == 'month' else 'day'}"
+        dep = f" + Deposit {_money(c.deposit)}{cur}" if not sale and c.deposit else ""
+        lines.append(f"💰 {_money(c.price)}{cur}{per}{dep}")
+    lines.append("0% Commission")
+    if sale and c.price is not None:
+        lines.append(next((f"#Price{lo}to{hi}" for lo, hi in zip((0,) + CAR_PRICE_STEPS, CAR_PRICE_STEPS)
+                           if c.price <= hi), f"#Price{CAR_PRICE_STEPS[-1]}plus"))
+    lines.append("#CarSale" if sale else "#CarRent")
+    agent = db.get(User, c.agent_id) if c.agent_id else None
+    lines += ["", f"📲 @David_Tibelashvili | \n{P.phone_line(agent)}", "", "📱 Instagram 🗳 FB 🎥 YouTube", "",
+              "CARS IN TBILISI🇬🇪"]
+    return re.sub(r"\n{3,}", "\n\n", "\n".join(lines)).strip()
+
+
+def post_text(db: Session, o) -> str:
+    return P.post_text(db, _as_property(o)) if isinstance(o, SaleObject) else car_post_text(db, o)
+
+
+def publish_tg(db: Session, model, oid: int, actor: User, text: str | None = None) -> object:
+    """«Опубликовать в Telegram»: the post (as edited, default post_text) with the photos and the video, through the
+    rent objects' notify.publish_post (watermarked album + originals). Operators only, as for rent objects. Without
+    BOT_TOKEN in dev it is a dry run (no link); a Telegram failure changes nothing. The site is a separate action."""
+    if not at_least(actor, "operator"):
+        raise forbidden("only operators publish to Telegram")
+    o = get_or_404(db, model, oid, "object", lock=True)
+    if not o.photos:
+        raise DomainError("no_media", "Добавьте хотя бы одно фото перед публикацией")
+    post = SimpleNamespace(id=None, address=o.title, district=getattr(o, "district", None), price=o.price,
+                           description=o.description, owner_id=None, post_text=(text or "").strip() or post_text(db, o),
+                           post_media_keys=[("photo", k) for k in o.photos] + ([("video", o.video)] if o.video else []))
+    try:
+        ref = notify.publish_post(post)
+    except Exception:  # noqa: BLE001
+        log.exception("notify.publish_post failed")
+        ref = None
+    dry_run = ref is None and not env.BOT_TOKEN and env.APP_ENV == "dev"
+    if ref is None and not dry_run:
+        raise DomainError("publish_failed", "Telegram не принял пост", 502)
+    if ref:
+        o.post_url = ref[1] or o.post_url
+    _changed(db, o, actor, "posted_tg", post_url=o.post_url, **({"dry_run": True} if dry_run else {}))
     return o

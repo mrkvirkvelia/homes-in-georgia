@@ -23,14 +23,15 @@ PHOTO_URL = "/api/public/site/photos/{id}/{n}"
 VIDEO_URL = "/api/public/site/video/{id}"
 EPOCH = datetime.min.replace(tzinfo=timezone.utc)
 
-# CRM post_fields tag <-> the site's word (rent objects keep the generator's tags; sale objects and cars store the words)
+# CRM post_fields tag <-> the site's word (rent and sale objects keep the generator's tags; cars store the words)
 KIND = {"apartment": "Apartment", "house": "House", "commercial": "Commercial", "land": "Land"}
-BUILDING = {"new": "NewBuilding", "old": "OldBuilding", "historical": "HistoricalBuilding"}
-HEATING = {"central": "CentralHeating", "gas": "GasHeating", "electric": "ElectricalHeating"}
+BUILDING = {"new": "NewBuilding", "old": "OldBuilding", "historical": "HistoricalBuilding", "reconstruction": "Reconstruction"}
+HEATING = {"central": "CentralHeating", "gas": "GasHeating", "electric": "ElectricalHeating", "ac": "ACHeating",
+           "fireplace": "Fireplace"}
 PETS = {"allowed": "Allowed", "no": "NotAllowed", "agreement": "ByAgreement"}
 FRAME = {"white_frame": "WhiteFrame", "green_frame": "GreenFrame", "black_frame": "BlackFrame"}
 DESIGN = {"renovated": "New", "mixed": "Mixed", "old": "Old"}
-AMENITY = {"balcony": "Balcony", "terrace": "Terrace", "courtyard": "Courtyard", "wifi": "WiFi", "tv": "TV",
+AMENITY = {"smart_tv": "SmartTV", "balcony": "Balcony", "terrace": "Terrace", "courtyard": "Courtyard", "wifi": "WiFi", "tv": "TV",
            "dishwasher": "Dishwasher", "stove": "Stove", "microwave": "Microwave", "washer": "WashingMachine",
            "vacuum": "VacuumCleaner", "fireplace": "Fireplace", "elevator": "Elevator", "oven": "Oven",
            "parking": "ParkingPlace", "conditioner": "Conditioner", "bath": "Bath", "shower": "Shower"}
@@ -97,29 +98,38 @@ def _final(d: dict) -> dict:
     return {k: v for k, v in d.items() if not _clear(v)}
 
 
-def item(p: Property, n_photos: int, agent: User | None, fx: dict) -> dict:
-    """A rent object (rent, daily, commercial for rent)."""
-    f = p.post_fields or {}
+def tag_words(f: dict) -> dict:
+    """post_fields (the generator's tags, rent and sale objects alike) -> the site's words; post_fields.site_extra keeps
+    the words of imported objects that have no tag."""
     extra = f.get("site_extra") or {}
-    service = f.get("service") or "rent"
-    price = float(p.price) if p.price is not None else None
     cond = next((k for k, v in FRAME.items() if v == f.get("condition")), None) or \
         ("renovated" if f.get("condition") == "FullyRenovated" else None) or \
         inv(DESIGN).get(f.get("design"), "old" if f.get("design") else None) or extra.get("condition")
+    t = f.get("prop_type")
+    return {
+        "kind": inv(KIND).get(t, "apartment" if not t else "house" if t in ("Duplex", "Townhouse") else "commercial"),
+        "type": t.lower() if t and t not in KIND.values() else None,  # cafe / retail / duplex …: the exact type
+        "headline": f.get("headline"), "metro": inv(METRO).get(f.get("metro")) or extra.get("metro"), "approx": f.get("approx"),
+        "building": inv(BUILDING).get(f.get("building")) or extra.get("building"), "condition": cond,
+        "heating": inv(HEATING).get(f.get("heating")) or extra.get("heating"),
+        "bathrooms": int(f["bathrooms"][0]) if f.get("bathrooms") else None,
+        "amenities": [inv(AMENITY).get(a, a.lower()) for a in f.get("amenities") or []] + (extra.get("amenities") or []),
+    }
+
+
+def item(p: Property, n_photos: int, agent: User | None, fx: dict) -> dict:
+    """A rent object (rent, daily, commercial for rent)."""
+    f = p.post_fields or {}
+    service = f.get("service") or "rent"
+    price = float(p.price) if p.price is not None else None
     months = f.get("months") or [int(x[:-5]) for x in f.get("periods") or [] if x.endswith("Month")]
-    amenities = [inv(AMENITY).get(a, a.lower()) for a in f.get("amenities") or []] + (extra.get("amenities") or [])
     iid = f"o{p.id}"
     return _final({
         "id": iid, "legacy_id": f.get("site_id"), "service": service, "source": service, "deal": "rent",
-        "period": f.get("period"),
-        "kind": inv(KIND).get(f.get("prop_type"), "apartment" if not f.get("prop_type") else "commercial"),
-        "title": p.address, "headline": f.get("headline"), "district": p.district,
-        "metro": inv(METRO).get(f.get("metro")) or extra.get("metro"),
-        "lat": p.lat, "lon": p.lng, "approx": f.get("approx"),
+        "period": f.get("period"), **tag_words(f),
+        "title": p.address, "district": p.district, "lat": p.lat, "lon": p.lng,
         "price": price, "currency": p.currency, "price_usd": _usd(price, p.currency, fx), "deposit": f.get("deposit"),
         "rooms": p.bedrooms, "area": float(p.area) if p.area is not None else None, "floor": p.floor, "floors": p.total_floors,
-        "building": inv(BUILDING).get(f.get("building")) or extra.get("building"), "condition": cond,
-        "heating": inv(HEATING).get(f.get("heating")) or extra.get("heating"), "amenities": amenities,
         "pets": inv(PETS).get(f.get("pets")), "months": months, "tenants": f.get("tenants"),
         "exclusive": p.is_exclusive, "description": p.description,
         "agent": _agent(agent), "photos": [PHOTO_URL.format(id=iid, n=n) for n in range(n_photos)],
@@ -131,12 +141,12 @@ def sale_item(s: SaleObject, agent: User | None, fx: dict) -> dict:
     iid, price = f"s{s.id}", float(s.price) if s.price is not None else None
     usd, area = _usd(price, s.currency, fx), float(s.area) if s.area is not None else None
     return _final({
-        "id": iid, "legacy_id": s.site_id, "service": s.service, "source": s.service, "deal": "sale", "kind": s.kind,
-        "title": s.title, "headline": s.headline, "district": s.district, "metro": s.metro, "lat": s.lat, "lon": s.lng,
-        "approx": s.approx, "price": price, "currency": s.currency, "price_usd": usd,
+        "id": iid, "legacy_id": s.site_id, "service": s.service, "source": s.service, "deal": "sale",
+        **tag_words(s.post_fields or {}),
+        "title": s.title, "district": s.district, "lat": s.lat, "lon": s.lng,
+        "price": price, "currency": s.currency, "price_usd": usd,
         "ppsqm_usd": round(usd / area) if usd and area else None, "rooms": s.rooms, "area": area, "floor": s.floor,
-        "floors": s.floors, "building": s.building, "condition": s.condition, "heating": s.heating,
-        "amenities": s.amenities, "exclusive": s.is_exclusive, "completion": s.completion, "description": s.description,
+        "floors": s.floors, "exclusive": s.is_exclusive, "completion": s.completion, "description": s.description,
         "agent": _agent(agent), "photos": [PHOTO_URL.format(id=iid, n=n) for n in range(len(s.photos))],
         "post_url": s.post_url, "published_at": _iso(s.published_at), "updated_at": _iso(s.updated_at),
     })
@@ -165,7 +175,7 @@ def photo_keys(db: Session, pid: int) -> list[str]:
 def public_filter():
     has_photo = exists().where(PropertyMedia.property_id == Property.id, PropertyMedia.kind == "photo",
                                ~PropertyMedia.path.startswith(P.PRIVATE_PREFIX))
-    return (Property.status == "published", has_photo)
+    return (Property.status == "published", ~Property.site_hidden, has_photo)
 
 
 def _offer_filter(m):

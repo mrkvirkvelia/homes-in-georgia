@@ -9,16 +9,17 @@ import { Avatar, Badge, Button, Card, Drawer, Empty, ErrorBox, Input, KV, Loadin
 import { GROWTH_LADDER, KNOWLEDGE_ITEMS, LADDER_VIEWS, PRINCIPLES, QUIZ_ALL } from '../features/team/content';
 import { ROLE_LABEL, fmtDate, lastMonths, money, monthKey, monthLabel, nextLevelAt } from '../lib/format';
 import { useUserNames } from '../lib/useUserNames';
+import { t } from '../lib/i18n';
 
 export function LevelProgress({ deals, level }: { deals: number; level?: number | null }) {
   const lvl = level || (deals < 11 ? 50 : deals < 101 ? 70 : 90);
   const next = nextLevelAt(deals);
   const prev = lvl === 50 ? 0 : lvl === 70 ? 11 : 101;
-  if (!next) return <div className="muted" style={{ fontSize: 12 }}>Максимальный уровень 90%</div>;
+  if (!next) return <div className="muted" style={{ fontSize: 12 }}>{t('Максимальный уровень 90%')}</div>;
   return (
     <div className="col gap-sm">
       <Progress value={deals - prev} max={next - prev} />
-      <div className="muted" style={{ fontSize: 12 }}>до уровня {lvl === 50 ? 70 : 90}%: <b>{next - deals}</b> сделок</div>
+      <div className="muted" style={{ fontSize: 12 }}>{t('до уровня {p}%:', { p: lvl === 50 ? 70 : 90 })} <b>{next - deals}</b> {t('сделок')}</div>
     </div>
   );
 }

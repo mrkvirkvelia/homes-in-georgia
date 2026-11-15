@@ -11,6 +11,7 @@ import { http } from '../../api/client';
 import { errText } from '../../components/toast';
 import { Button, Input } from '../../components/ui';
 import { REG_RU, RegistryApps, day } from '../../components/RegistryApps';
+import { t } from '../../lib/i18n';
 
 export interface KnownObject {
   cadastral: string; address: string | null; floor: string | null; apartment_number: string | null; area: string | null;
@@ -37,20 +38,20 @@ interface UrlOut extends ExtractOut { file: string; url: string }
  * the link and the file go into the contract's data (onSaved). go resolves to the note, rejects with the error. */
 function useExtractLink(saved: string | undefined, onFields: (f: ExtractFields) => string[], onSaved: (url: string, file: string) => void) {
   const [url, setUrl] = useState(saved || '');
-  const [note, setNote] = useState<{ text: string; bad?: boolean } | null>(saved ? { text: 'Выписка сохранена с договором' } : null);
+  const [note, setNote] = useState<{ text: string; bad?: boolean } | null>(saved ? { text: t('Выписка сохранена с договором') } : null);
   const load = useMutation({ mutationFn: (u: string) => http.post<UrlOut>('/registry/extract-from-url', { url: u }) });
   const go = async (u: string) => {
-    const t = u.trim();
-    if (!t) return '';
-    setUrl(t);
+    const s = u.trim();
+    if (!s) return '';
+    setUrl(s);
     setNote(null);
     let text: string;
     try {
-      const r = await load.mutateAsync(t);
+      const r = await load.mutateAsync(s);
       onSaved(r.url, r.file);
       const names = Object.keys(r.fields).length ? onFields(r.fields) : null;
-      text = !names ? 'Скан без текста — выписка сохранена, заполните поля вручную'
-        : names.length ? `Заполнено из выписки: ${names.join(', ')}` : 'Выписка сохранена; поля уже были заполнены — ничего не изменено';
+      text = !names ? t('Скан без текста — выписка сохранена, заполните поля вручную')
+        : names.length ? t('Заполнено из выписки: {list}', { list: names.join(', ') }) : t('Выписка сохранена; поля уже были заполнены — ничего не изменено');
       setNote({ text, bad: !names });
     } catch (e) {
       setNote({ text: errText(e), bad: true });
@@ -65,12 +66,12 @@ function ExtractLink({ x: { url, setUrl, note, load, go } }: { x: ReturnType<typ
   const run = (u: string) => void go(u).catch(() => undefined);  // the error is in note
   return (
     <div className="col gap-sm">
-      <span className="label"><Link2 size={14} style={{ verticalAlign: -2, marginRight: 4 }} />Ссылка на выписку</span>
+      <span className="label"><Link2 size={14} style={{ verticalAlign: -2, marginRight: 4 }} />{t('Ссылка на выписку')}</span>
       <div className="row gap-sm">
         <Input style={{ flex: 1, minWidth: 0 }} inputMode="url" value={url} placeholder="https://bs.napr.gov.ge/GetBlob?…" onChange={(e) => setUrl(e.target.value)}
           onPaste={(e) => { const t = e.clipboardData.getData('text').trim(); if (t) { e.preventDefault(); run(t); } }}
           onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); run(url); } }} />
-        <Button loading={load.isPending} disabled={!url.trim()} onClick={() => run(url)}>Загрузить</Button>
+        <Button loading={load.isPending} disabled={!url.trim()} onClick={() => run(url)}>{t('Загрузить')}</Button>
       </div>
       {note && <span style={{ fontSize: 13, color: note.bad ? 'var(--danger, #c0392b)' : 'var(--ok, #1a7f4b)' }}>{note.text}</span>}
     </div>
@@ -90,7 +91,7 @@ export function OwnerLookup({ personalId, current, onKnown, onClear, onFields, o
     return (
       <div className="col gap">
         {link}
-        <span className="faint" style={{ fontSize: 12 }}>Или введите личный номер собственника на вкладке «Стороны» — кадастровый код подставится из базы CRM или из Публичного реестра.</span>
+        <span className="faint" style={{ fontSize: 12 }}>{t('Или введите личный номер собственника на вкладке «Стороны» — кадастровый код подставится из базы CRM или из Публичного реестра.')}</span>
       </div>
     );
   }
@@ -100,7 +101,7 @@ export function OwnerLookup({ personalId, current, onKnown, onClear, onFields, o
       {link}
       {items.length > 0 && (
         <div className="col gap-sm">
-          <span className="label"><Database size={14} style={{ verticalAlign: -2, marginRight: 4 }} />Уже есть в базе CRM</span>
+          <span className="label"><Database size={14} style={{ verticalAlign: -2, marginRight: 4 }} />{t('Уже есть в базе CRM')}</span>
           {items.map((o) => {
             const on = o.cadastral === current;
             return (
@@ -108,20 +109,20 @@ export function OwnerLookup({ personalId, current, onKnown, onClear, onFields, o
                 style={{ padding: 12, border: `1.5px solid ${on ? 'var(--ok, #1a7f4b)' : 'var(--line, #e3e8f0)'}` }}>
                 <span className="col" style={{ gap: 2, minWidth: 0 }}>
                   <b>{o.cadastral}</b>
-                  <span style={{ fontSize: 13 }}>{[o.address, o.floor && `этаж ${o.floor}`, o.apartment_number && `кв. ${o.apartment_number}`, o.area && `${o.area} м²`].filter(Boolean).join(' · ') || '—'}</span>
+                  <span style={{ fontSize: 13 }}>{[o.address, o.floor && t('этаж {n}', { n: o.floor }), o.apartment_number && t('кв. {n}', { n: o.apartment_number }), o.area && `${o.area} м²`].filter(Boolean).join(' · ') || '—'}</span>
                   <span className="faint" style={{ fontSize: 12 }}>{o.owner_name ? `${o.owner_name} · ` : ''}{o.source}{o.date ? `, ${day(o.date)}` : ''}</span>
                 </span>
                 {/* «Стереть» undoes a wrong «Подставить» (Irakli 11-13) */}
-                {on ? <span className="row gap-sm" style={{ fontSize: 13, color: 'var(--ok, #1a7f4b)', alignItems: 'center' }}><CheckCircle2 size={14} />Подставлен
-                    <Button size="sm" variant="ghost" onClick={onClear}><Eraser size={14} />Стереть</Button></span>
-                  : <Button size="sm" variant="secondary" onClick={() => onKnown(o)}>Подставить</Button>}
+                {on ? <span className="row gap-sm" style={{ fontSize: 13, color: 'var(--ok, #1a7f4b)', alignItems: 'center' }}><CheckCircle2 size={14} />{t('Подставлен')}
+                    <Button size="sm" variant="ghost" onClick={onClear}><Eraser size={14} />{t('Стереть')}</Button></span>
+                  : <Button size="sm" variant="secondary" onClick={() => onKnown(o)}>{t('Подставить')}</Button>}
               </div>
             );
           })}
         </div>
       )}
-      <RegistryApps base="/registry/applications" personalId={personalId} onCode={onCode} onLink={x.go} t={{ ...REG_RU, listTitle: items.length ? 'Другие объекты — заявки в Публичном реестре' : REG_RU.listTitle,
-        listHint: 'Откройте заявку по этому объекту и на сайте реестра отметьте «Я не робот». Скопируйте ссылку на выписку (кнопка скачивания: долгое нажатие → «Скопировать ссылку») и вернитесь сюда — выписка загрузится сама, или нажмите «Вставить ссылку на выписку». Подставятся код, адрес, этаж, квартира, площадь и собственник.' }} />
+      <RegistryApps base="/registry/applications" personalId={personalId} onCode={onCode} onLink={x.go} t={{ ...REG_RU, listTitle: items.length ? t('Другие объекты — заявки в Публичном реестре') : REG_RU.listTitle,
+        listHint: t('Откройте заявку по этому объекту и на сайте реестра отметьте «Я не робот». Скопируйте ссылку на выписку (кнопка скачивания: долгое нажатие → «Скопировать ссылку») и вернитесь сюда — выписка загрузится сама, или нажмите «Вставить ссылку на выписку». Подставятся код, адрес, этаж, квартира, площадь и собственник.') }} />
     </div>
   );
 }

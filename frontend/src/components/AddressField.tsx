@@ -3,6 +3,7 @@
 // A pasted Google Maps link / «lat, lng» is the point itself; OSM only names the address there.
 import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { t } from '../lib/i18n';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { addBaseLayer } from '../lib/mapTiles';
@@ -89,27 +90,27 @@ export function AddressField({ value, onChange, point, onPoint, onFacts, disable
   const showMap = !!point || manual || notFound;
   return (
     <div className="col" style={{ gap: 6 }}>
-      <Input value={value} disabled={disabled} placeholder="Улица и дом, или ссылка Google Maps"
+      <Input value={value} disabled={disabled} placeholder={t('Улица и дом, или ссылка Google Maps')}
         onChange={(e) => onChange(e.target.value)} onFocus={() => setOpen(true)} />
       {open && !data?.point && items.length > 0 && (
         <div className="card col" style={{ gap: 0, padding: 4 }}>
-          <span className="faint" style={{ fontSize: 11, padding: '2px 8px' }}>Это тот адрес? Выберите:</span>
+          <span className="faint" style={{ fontSize: 11, padding: '2px 8px' }}>{t('Это тот адрес? Выберите:')}</span>
           {items.map((h) => (
             <div key={`${h.lat},${h.lng}`} className="list-row row gap-sm" style={{ padding: '6px 8px' }}>
               <button type="button" className="grow" style={{ textAlign: 'left', background: 'none', border: 0, cursor: 'pointer', padding: 0, color: 'inherit' }}
                 onClick={() => pick(h)}>{h.label}</button>
-              <button type="button" className="chip" title="Точка с карты, адрес оставить как написали" onClick={() => pick(h, true)}>точка</button>
+              <button type="button" className="chip" title={t('Точка с карты, адрес оставить как написали')} onClick={() => pick(h, true)}>{t('точка')}</button>
             </div>
           ))}
           <button type="button" className="faint" style={{ textAlign: 'left', background: 'none', border: 0, cursor: 'pointer', padding: '6px 8px', fontSize: 13 }}
-            onClick={() => { setOpen(false); setManual(true); }}>Не тот — поставлю точку на карте сам</button>
+            onClick={() => { setOpen(false); setManual(true); }}>{t('Не тот — поставлю точку на карте сам')}</button>
         </div>
       )}
-      {point ? <span className="addr-state ok"><MapPin size={14} />Точка найдена — проверьте на карте</span>
-        : notFound ? <span className="addr-state warn">{data?.error ? 'Поиск адресов сейчас недоступен' : 'Не нашли'} — уточните адрес или поставьте точку на карте</span>
-          : manual ? <span className="addr-state">Нажмите на карте, где объект</span> : null}
+      {point ? <span className="addr-state ok"><MapPin size={14} />{t('Точка найдена — проверьте на карте')}</span>
+        : notFound ? <span className="addr-state warn">{data?.error ? t('Поиск адресов сейчас недоступен') : t('Не нашли')} — {t('уточните адрес или поставьте точку на карте')}</span>
+          : manual ? <span className="addr-state">{t('Нажмите на карте, где объект')}</span> : null}
       {showMap && <PointMap point={point} onPoint={setPoint} disabled={disabled} />}
-      {point && !disabled && <span className="faint" style={{ fontSize: 12 }}>Перетащите точку, если она стоит не там</span>}
+      {point && !disabled && <span className="faint" style={{ fontSize: 12 }}>{t('Перетащите точку, если она стоит не там')}</span>}
     </div>
   );
 }

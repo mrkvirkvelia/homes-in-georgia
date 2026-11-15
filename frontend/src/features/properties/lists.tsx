@@ -16,6 +16,7 @@ import { ListingsMap } from './ListingsMap';
 import { metroLabel } from './PropertyDetail';
 import { usePageState } from '../../layout/back';
 import { ARCHIVE_REASON, PLATFORM, PROPERTY_BOARD, PROPERTY_STATUS, SOURCE_LABEL, ago, bedroomsLabel, demandLabel, districtLabel, fmtDateTime, formatPhone, money, phoneBlur, phoneFocus, phoneInput } from '../../lib/format';
+import { LOCALE, lx, t } from '../../lib/i18n';
 
 /** "fb:Some group" -> "Facebook · Some group"; site sources stay as they are. */
 const PREFIX_LABEL: Record<string, string> = { fb: 'Facebook', ig: 'Instagram', th: 'Threads', tg: 'Telegram' };
@@ -23,9 +24,9 @@ const PREFIX_LABEL: Record<string, string> = { fb: 'Facebook', ig: 'Instagram', 
 const sourceName = (s: string, label?: string) => {
   const [k, ...rest] = s.split(':'), key = rest.join(':');
   if (!PREFIX_LABEL[k] || !rest.length) return SOURCE_LABEL[s] || s;
-  return `${PREFIX_LABEL[k]} · ${label || (/^\d{8,}$/.test(key) ? `группа …${key.slice(-4)}` : key)}`;
+  return `${PREFIX_LABEL[k]} · ${label || (/^\d{8,}$/.test(key) ? t('группа …{id}', { id: key.slice(-4) }) : key)}`;
 };
-const BEDS = [{ value: '0', label: 'Студия' }, { value: '1', label: '1' }, { value: '2', label: '2' }, { value: '3', label: '3' }, { value: '4', label: '4+' }];
+const BEDS = [{ value: '0', label: t('Студия') }, { value: '1', label: '1' }, { value: '2', label: '2' }, { value: '3', label: '3' }, { value: '4', label: '4+' }];
 
 type Facet = { value: string; count: number; label?: string }[];
 /** the filter fields the feed and the base share (ListingFilter, PropertyList's URL) */
@@ -33,7 +34,7 @@ type CommonFilter = { q?: string; source?: string[]; district?: string[]; metro?
 
 /** The mock-up of 11-13: search + list/map, a full-width segment, a 2-column grid of labelled filters (+ `boxes`),
  * bedrooms, «Найдено · Сбросить». «Новые объявления» and the base tabs (Stanislav 11-13); children go under it. */
-function FeedFilters({ f, patch, view, onView, seg, facets, sourceLabel, metroLabel = (v) => v, boxes, found, filtered, onReset, actions, placeholder = 'Район, адрес', children }: {
+function FeedFilters({ f, patch, view, onView, seg, facets, sourceLabel, metroLabel = (v) => v, boxes, found, filtered, onReset, actions, placeholder = t('Район, адрес'), children }: {
   f: CommonFilter; patch: (p: CommonFilter) => void; view?: 'list' | 'map'; onView?: (v: 'list' | 'map') => void;
   seg?: { value: string; onChange: (v: string) => void; options: { value: string; label: string }[] };
   facets?: { sources?: Facet; districts?: Facet; metros?: Facet }; sourceLabel: (v: string, label?: string) => string; metroLabel?: (v: string) => string;
@@ -49,34 +50,34 @@ function FeedFilters({ f, patch, view, onView, seg, facets, sourceLabel, metroLa
           <input className="input" placeholder={placeholder} value={f.q || ''} onChange={(e) => patch({ q: e.target.value })} />
         </div>
         {view && onView && <Seg value={view} onChange={(v) => onView(v as 'list' | 'map')} options={[
-          { value: 'list', label: <List size={18} aria-label="Список" /> }, { value: 'map', label: <MapIcon size={18} aria-label="Карта" /> }]} />}
+          { value: 'list', label: <List size={18} aria-label={t('Список')} /> }, { value: 'map', label: <MapIcon size={18} aria-label={t('Карта')} /> }]} />}
       </div>
       {seg && <div className="seg-full"><Seg value={seg.value} onChange={seg.onChange} options={seg.options} /></div>}
       <div className="filter-grid">
-        <div className="fbox"><span className="flabel">Источник</span>
-          <MultiSelect label="Источник" value={f.source || []} onChange={(v) => patch({ source: v })} placeholder="Все"
+        <div className="fbox"><span className="flabel">{t('Источник')}</span>
+          <MultiSelect label={t('Источник')} value={f.source || []} onChange={(v) => patch({ source: v })} placeholder={t('Все')}
             options={(facets?.sources || []).map((x) => ({ value: x.value, label: sourceLabel(x.value, x.label), count: x.count }))} /></div>
-        <div className="fbox"><span className="flabel">Район</span>
-          <MultiSelect label="Район" value={f.district || []} onChange={(v) => patch({ district: v })} placeholder="Все" many={['район', 'района', 'районов']}
+        <div className="fbox"><span className="flabel">{t('Район')}</span>
+          <MultiSelect label={t('Район')} value={f.district || []} onChange={(v) => patch({ district: v })} placeholder={t('Все')} many={lx<[string, string, string]>(['район', 'района', 'районов'], ['უბანი', 'უბანი', 'უბანი'], ['district', 'districts', 'districts'])}
             options={(facets?.districts || []).map((x) => ({ value: x.value, label: districtLabel(x.value), count: x.count }))} /></div>
-        <div className="fbox"><span className="flabel">Метро</span>
-          <Select aria-label="Метро" value={f.metro || ''} onChange={(e) => patch({ metro: e.target.value })} placeholder="Любое"
+        <div className="fbox"><span className="flabel">{t('Метро')}</span>
+          <Select aria-label={t('Метро')} value={f.metro || ''} onChange={(e) => patch({ metro: e.target.value })} placeholder={t('Любое')}
             options={(facets?.metros || []).map((x) => ({ value: x.value, label: `${metroLabel(x.value)} (${x.count})` }))} /></div>
-        <div className="fbox fbox-price"><span className="flabel">Цена, $</span>
-          <input className="input" type="number" inputMode="numeric" min={0} placeholder="от" aria-label="Цена от" value={f.price_min || ''} onChange={(e) => patch({ price_min: e.target.value })} />
+        <div className="fbox fbox-price"><span className="flabel">{t('Цена, $')}</span>
+          <input className="input" type="number" inputMode="numeric" min={0} placeholder={t('от')} aria-label={t('Цена от')} value={f.price_min || ''} onChange={(e) => patch({ price_min: e.target.value })} />
           <span className="faint">—</span>
-          <input className="input" type="number" inputMode="numeric" min={0} placeholder="до" aria-label="Цена до" value={f.price_max || ''} onChange={(e) => patch({ price_max: e.target.value })} />
+          <input className="input" type="number" inputMode="numeric" min={0} placeholder={t('до')} aria-label={t('Цена до')} value={f.price_max || ''} onChange={(e) => patch({ price_max: e.target.value })} />
           <DollarSign size={16} className="faint" /></div>
         {boxes}
       </div>
-      <div className="beds-row" role="group" aria-label="Спальни">
+      <div className="beds-row" role="group" aria-label={t('Спальни')}>
         {BEDS.map((b) => <button key={b.value} type="button" className={beds.has(b.value) ? 'active' : ''} aria-pressed={beds.has(b.value)} onClick={() => toggleBed(b.value)}>{b.label}</button>)}
       </div>
       <div className="row row-between row-wrap" style={{ gap: 8 }}>
         <span className="faint" style={{ fontSize: 13 }}>{found}</span>
         <div className="row gap-sm">
           {actions}
-          {filtered && <button type="button" className="link-btn link-red" onClick={onReset}>Сбросить фильтры</button>}
+          {filtered && <button type="button" className="link-btn link-red" onClick={onReset}>{t('Сбросить фильтры')}</button>}
         </div>
       </div>
       {children}
@@ -96,7 +97,7 @@ const isSale = (p: Property) => p.post_fields?.deal === 'Sale';
 const priceOf = (p: Property) => (isSale(p) ? money(p.post_fields?.sale_price ?? p.price, p.currency || 'USD') : money(p.price, p.currency || 'USD'));
 
 export function NewListings({ base = '' }: { base?: string }) {
-  if (useDeal() === 'sale') return <Empty text="Объявления о продаже пока не собираем: объект продажи добавляется кнопкой «Объект вручную»" />;
+  if (useDeal() === 'sale') return <Empty text={t('Объявления о продаже пока не собираем: объект продажи добавляется кнопкой «Объект вручную»')} />;
   return <RentListings base={base} />;
 }
 
@@ -122,7 +123,7 @@ function RentListings({ base = '' }: { base?: string }) {
     onSuccess: (p) => {
       qc.invalidateQueries({ queryKey: ['listings'] });
       qc.invalidateQueries({ queryKey: ['properties'] });
-      toast('Объект закреплён за вами');
+      toast(t('Объект закреплён за вами'));
       navigate(base === '/m' ? `/m/properties/${p.id}` : `/objects/${p.id}`);
     },
     onError: (e) => { toast(errText(e), true); qc.invalidateQueries({ queryKey: ['listings'] }); },
@@ -135,13 +136,13 @@ function RentListings({ base = '' }: { base?: string }) {
       qc.invalidateQueries({ queryKey: ['listings'] });
       qc.invalidateQueries({ queryKey: ['properties'] });
       setAgentFor(null); setAgentC({ owner_name: '', owner_phone: '' });
-      toast('Отмечено как агент, контакт сохранён в базе');
+      toast(t('Отмечено как агент, контакт сохранён в базе'));
     },
     onError: (e) => toast(errText(e), true),
   });
   const dismiss = useMutation({
     mutationFn: (id: string) => api.listings.dismiss(id),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['listings'] }); toast('Убрано из ленты как неактуальное'); },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['listings'] }); toast(t('Убрано из ленты как неактуальное')); },
     onError: (e) => toast(errText(e), true),
   });
   const items = itemsOf(data);
@@ -151,29 +152,29 @@ function RentListings({ base = '' }: { base?: string }) {
               <>
                 {l.known_object && (
                   <ChipButton tone="ok" onClick={() => setPeek({ id: l.known_object!.id, listing: l })}>
-                    Уже в базе · #{l.known_object.id}{l.known_object.address ? ` · ${l.known_object.address}` : ''}
+                    {t('Уже в базе · #{id}', { id: l.known_object.id })}{l.known_object.address ? ` · ${l.known_object.address}` : ''}
                   </ChipButton>
                 )}
                 {(l.matches || []).map((m) => (
                   <ChipButton key={m.property_id} tone="redsoft" onClick={() => setPeek({ id: m.property_id, listing: l, reasons: m.reasons })}>
-                    Похож на #{m.property_id}{m.address ? ` · ${m.address}` : ''}
+                    {t('Похож на #{id}', { id: m.property_id })}{m.address ? ` · ${m.address}` : ''}
                   </ChipButton>
                 ))}
               </>
             );
             return (
-              <ListingCard key={l.id} listing={l} locked={lockedByOther ? `Взял ${l.taken_by?.name}` : undefined} chips={chips || undefined}
+              <ListingCard key={l.id} listing={l} locked={lockedByOther ? t('Взял {name}', { name: l.taken_by?.name ?? '' }) : undefined} chips={chips || undefined}
                 footer={
                   <div className="col gap-sm">
                     {!!l.demand && <div className="alert alert-info row gap-sm" style={{ fontSize: 12, fontWeight: 700 }}><Users size={14} />{demandLabel(l.demand)}</div>}
                     <div className="row">
-                      <Button block disabled={lockedByOther} loading={take.isPending && take.variables === l.id} onClick={() => take.mutate(l.id)}>Беру в работу</Button>
-                      {l.url && <a className="btn btn-secondary icon-btn" href={l.url} target="_blank" rel="noreferrer" title="Открыть источник"><ExternalLink size={16} /></a>}
+                      <Button block disabled={lockedByOther} loading={take.isPending && take.variables === l.id} onClick={() => take.mutate(l.id)}>{t('Беру в работу')}</Button>
+                      {l.url && <a className="btn btn-secondary icon-btn" href={l.url} target="_blank" rel="noreferrer" title={t('Открыть источник')}><ExternalLink size={16} /></a>}
                     </div>
                     <div className="row">
-                      <Button size="sm" variant="secondary" block disabled={lockedByOther} onClick={() => setAgentFor(l.id)}>Агент</Button>
+                      <Button size="sm" variant="secondary" block disabled={lockedByOther} onClick={() => setAgentFor(l.id)}>{t('Агент')}</Button>
                       <Button size="sm" variant="secondary" block disabled={lockedByOther} loading={dismiss.isPending && dismiss.variables === l.id}
-                        onClick={() => { if (window.confirm('Объявление удалено или неактуально? Оно уйдёт из ленты.')) dismiss.mutate(l.id); }}>Неактуально</Button>
+                        onClick={() => { if (window.confirm(t('Объявление удалено или неактуально? Оно уйдёт из ленты.'))) dismiss.mutate(l.id); }}>{t('Неактуально')}</Button>
                     </div>
                   </div>
                 } />
@@ -183,29 +184,29 @@ function RentListings({ base = '' }: { base?: string }) {
   return (
     <>
       {peek && <PropertyModal id={peek.id} listing={peek.listing} reasons={peek.reasons} base={base} onClose={() => setPeek(null)} />}
-      <Modal open={!!agentFor} onClose={() => setAgentFor(null)} title="Это агент">
+      <Modal open={!!agentFor} onClose={() => setAgentFor(null)} title={t('Это агент')}>
         <form className="col gap-lg" onSubmit={(e) => { e.preventDefault(); markAgent.mutate(); }}>
-          <Field label="Имя"><input className="input" value={agentC.owner_name} onChange={(e) => setAgentC((c) => ({ ...c, owner_name: e.target.value }))} autoFocus /></Field>
-          <Field label="Телефон" hint="Номер попадёт в базу агентов: его объявления дальше будут помечаться автоматически">
+          <Field label={t('Имя')}><input className="input" value={agentC.owner_name} onChange={(e) => setAgentC((c) => ({ ...c, owner_name: e.target.value }))} autoFocus /></Field>
+          <Field label={t('Телефон')} hint={t('Номер попадёт в базу агентов: его объявления дальше будут помечаться автоматически')}>
             <input className="input" type="tel" inputMode="tel" onFocus={phoneFocus} onBlur={phoneBlur} value={agentC.owner_phone} onChange={(e) => { const v = phoneInput(e); setAgentC((c) => ({ ...c, owner_phone: v })); }} />
           </Field>
-          <Button type="submit" block loading={markAgent.isPending} disabled={!agentC.owner_name.trim() && !agentC.owner_phone.trim()}>Сохранить</Button>
+          <Button type="submit" block loading={markAgent.isPending} disabled={!agentC.owner_name.trim() && !agentC.owner_phone.trim()}>{t('Сохранить')}</Button>
         </form>
       </Modal>
       <FeedFilters f={f} patch={(p) => setF((o) => ({ ...o, ...p }))} view={view} onView={setView} facets={facets} sourceLabel={sourceName}
         seg={{ value: f.flag || '', onChange: set('flag'), options: [
-          { value: '', label: 'Все' }, { value: 'owner', label: 'Собственник' }, { value: 'agent_suspect', label: 'Агент?' },
+          { value: '', label: t('Все') }, { value: 'owner', label: t('Собственник') }, { value: 'agent_suspect', label: t('Агент?') },
           // the card's red label «В базе / В архиве по этому адресу» (11-13; the old «Дубль» = agency channel matched nothing)
-          { value: 'in_base', label: 'В базе' }, { value: 'in_archive', label: 'В архиве' }] }}
-        found={data ? `Найдено: ${data.total ?? itemsOf(data).length}` : ''} filtered={filtered} onReset={() => setF({ q: f.q, flag: '', known: f.known })}
+          { value: 'in_base', label: t('В базе') }, { value: 'in_archive', label: t('В архиве') }] }}
+        found={data ? t('Найдено: {n}', { n: data.total ?? itemsOf(data).length }) : ''} filtered={filtered} onReset={() => setF({ q: f.q, flag: '', known: f.known })}
         actions={(!!data?.known_total || f.known) && (
           <Button size="sm" variant={f.known ? 'primary' : 'secondary'} aria-pressed={!!f.known} onClick={() => set('known')(f.known ? '' : '1')} title={KNOWN_HINT}>
-            Уже в базе ({data?.known_total ?? 0})
+            {t('Уже в базе ({n})', { n: data?.known_total ?? 0 })}
           </Button>
         )}>
         {f.known && <div className="muted" style={{ fontSize: 12 }}>{KNOWN_HINT}</div>}
       </FeedFilters>
-      {isLoading ? <Loading /> : error ? <ErrorBox error={error} /> : items.length === 0 ? <Empty text="Новых объявлений нет" /> : view === 'map' ? (
+      {isLoading ? <Loading /> : error ? <ErrorBox error={error} /> : items.length === 0 ? <Empty text={t('Новых объявлений нет')} /> : view === 'map' ? (
         <>
           <ListingsMap items={items} card={card} onPick={(l) => openAd(l.id)} />
           {/* the picked ad's card stays hidden: it renders its full window (with its buttons) from ?ad= */}
@@ -218,14 +219,14 @@ function RentListings({ base = '' }: { base?: string }) {
       )}
       {view === 'list' && (data?.total ?? 0) > items.length && (
         <div className="row" style={{ justifyContent: 'center', marginTop: 16 }}>
-          <Button variant="secondary" loading={isFetching} onClick={() => setLimit((n) => n + PAGE)}>Показать ещё ({(data?.total ?? 0) - items.length})</Button>
+          <Button variant="secondary" loading={isFetching} onClick={() => setLimit((n) => n + PAGE)}>{t('Показать ещё ({n})', { n: (data?.total ?? 0) - items.length })}</Button>
         </div>
       )}
     </>
   );
 }
 
-const KNOWN_HINT = 'Объявления, которые система узнала как уже существующий объект: они прикреплены к нему автоматически';
+const KNOWN_HINT = t('Объявления, которые система узнала как уже существующий объект: они прикреплены к нему автоматически');
 const propLink = (base: string, id: number) => (base === '/m' ? `/m/properties/${id}` : `/objects/${id}`);
 
 /** The object in a modal (no page change): photos, parameters, owner if visible, «Открыть объект полностью».
@@ -238,41 +239,41 @@ export function PropertyModal({ id, listing, reasons, base = '', onClose }: { id
   const { data: p, isLoading, error } = useQuery({ queryKey: ['property', id], queryFn: () => api.properties.get(id) });
   const decide = useMutation({
     mutationFn: (same: boolean) => api.listings.decideMatch(listing!.id, id, same),
-    onSuccess: (_, same) => { qc.invalidateQueries({ queryKey: ['listings'] }); toast(same ? `Объявление привязано к объекту #${id}` : 'Отмечено: другой объект'); onClose(); },
+    onSuccess: (_, same) => { qc.invalidateQueries({ queryKey: ['listings'] }); toast(same ? t('Объявление привязано к объекту #{id}', { id }) : t('Отмечено: другой объект')); onClose(); },
     onError: (e) => toast(errText(e), true),
   });
   const own = (p?.media || []).filter((m) => m.kind === 'photo').map((m) => m.url || m.path);
   const phone = p?.owner?.phone;
   const side = p && (
-    <CompareSide label={`Объект #${p.id} в базе`} photos={own.length ? own : p.photos || []} address={p.address} rows={[
-      ['Цена', money(p.price, p.currency || 'USD')], ['Район', districtLabel(p.district) || '—'], ['Спальни', bedroomsLabel(p.bedrooms) || '—'],
-      ['Площадь', p.area ? `${p.area} м²` : '—'], ['Этаж', p.floor ? `${p.floor}${p.total_floors ? ` из ${p.total_floors}` : ''}` : '—'],
-      ['Агент собственника', (p.owner?.agent || p.agent)?.name || PLATFORM],
-      ...(p.owner ? [['Собственник', <>{p.owner.name || '—'}{phone && <> · <a href={`tel:${phone.replace(/[^+\d]/g, '')}`}>{formatPhone(phone)}</a> <CopyPhone phone={phone} /></>}</>] as [string, React.ReactNode]] : []),
+    <CompareSide label={t('Объект #{id} в базе', { id: p.id })} photos={own.length ? own : p.photos || []} address={p.address} rows={[
+      [t('Цена'), money(p.price, p.currency || 'USD')], [t('Район'), districtLabel(p.district) || '—'], [t('Спальни'), bedroomsLabel(p.bedrooms) || '—'],
+      [t('Площадь'), p.area ? `${p.area} ${t('м²')}` : '—'], [t('Этаж'), p.floor ? `${p.floor}${p.total_floors ? t(' из {n}', { n: p.total_floors }) : ''}` : '—'],
+      [t('Агент собственника'), (p.owner?.agent || p.agent)?.name || PLATFORM],
+      ...(p.owner ? [[t('Собственник'), <>{p.owner.name || '—'}{phone && <> · <a href={`tel:${phone.replace(/[^+\d]/g, '')}`}>{formatPhone(phone)}</a> <CopyPhone phone={phone} /></>}</>] as [string, React.ReactNode]] : []),
     ]}>
       <div className="row row-wrap gap-sm">
         <PropertyStatusBadge status={p.status} />
-        {p.is_exclusive && <Badge tone="solid">эксклюзив</Badge>}<ExclusiveConflictBadge p={p} />
+        {p.is_exclusive && <Badge tone="solid">{t('эксклюзив')}</Badge>}<ExclusiveConflictBadge p={p} />
       </div>
     </CompareSide>
   );
   return (
-    <Modal open wide={!!listing} onClose={onClose} title={listing ? (reasons ? `Похож на объект #${id}?` : `Уже в базе · объект #${id}`) : p?.address || `Объект #${id}`}>
+    <Modal open wide={!!listing} onClose={onClose} title={listing ? (reasons ? t('Похож на объект #{id}?', { id }) : t('Уже в базе · объект #{id}', { id })) : p?.address || t('Объект #{id}', { id })}>
       {isLoading ? <Loading /> : error ? <ErrorBox error={error} /> : p && (
         <div className="col gap-lg">
           {listing && (
             <div className={`alert ${reasons ? 'alert-warn' : 'alert-ok'}`} style={{ fontSize: 13 }}>
-              {reasons ? `Почему похож: ${reasons.join('; ') || 'параметры совпадают'}. Это та же квартира?` : 'Система узнала это объявление как объект из базы: оно прикреплено к нему автоматически.'}
+              {reasons ? t('Почему похож: {why}. Это та же квартира?', { why: reasons.join('; ') || t('параметры совпадают') }) : t('Система узнала это объявление как объект из базы: оно прикреплено к нему автоматически.')}
             </div>
           )}
           {listing ? <div className="cmp"><ListingSide l={listing} />{side}</div> : side}
           {listing && reasons && isStaff && (
             <div className="row">
-              <Button block loading={decide.isPending && decide.variables} onClick={() => decide.mutate(true)}>Тот же объект</Button>
-              <Button variant="secondary" block loading={decide.isPending && !decide.variables} onClick={() => decide.mutate(false)}>Другой</Button>
+              <Button block loading={decide.isPending && decide.variables} onClick={() => decide.mutate(true)}>{t('Тот же объект')}</Button>
+              <Button variant="secondary" block loading={decide.isPending && !decide.variables} onClick={() => decide.mutate(false)}>{t('Другой')}</Button>
             </div>
           )}
-          <Link to={propLink(base, id)} className="btn btn-secondary">Открыть объект полностью</Link>
+          <Link to={propLink(base, id)} className="btn btn-secondary">{t('Открыть объект полностью')}</Link>
         </div>
       )}
     </Modal>
@@ -285,12 +286,12 @@ function PropertyCard({ p, to, note }: { p: Property; to: string; note?: React.R
     <Link to={to} className="card lcard" style={{ color: 'inherit', textDecoration: 'none' }}>
       <div className="lcard-photo">
         {p.photo ? <img src={thumbUrl(p.photo)} alt="" loading="lazy" /> : null}
-        <div className="badges"><PropertyStatusBadge status={p.status} />{p.is_exclusive && <Badge tone="solid">эксклюзив</Badge>}<ExclusiveConflictBadge p={p} /></div>
+        <div className="badges"><PropertyStatusBadge status={p.status} />{p.is_exclusive && <Badge tone="solid">{t('эксклюзив')}</Badge>}<ExclusiveConflictBadge p={p} /></div>
         {p.address && <span className="plaque">{p.address}</span>}
       </div>
       <div className="lcard-body">
-        <span className="label">{[districtLabel(p.district), bedroomsLabel(p.bedrooms), p.area ? `${p.area} м²` : null].filter(Boolean).join(' · ') || '—'}</span>
-        <div className="price">{priceOf(p)}{!isSale(p) && <span className="muted" style={{ fontSize: 12, fontWeight: 600 }}>/мес</span>}</div>
+        <span className="label">{[districtLabel(p.district), bedroomsLabel(p.bedrooms), p.area ? `${p.area} ${t('м²')}` : null].filter(Boolean).join(' · ') || '—'}</span>
+        <div className="price">{priceOf(p)}{!isSale(p) && <span className="muted" style={{ fontSize: 12, fontWeight: 600 }}>{t('/мес')}</span>}</div>
         {note}
         <div className="row row-between gap-sm faint" style={{ fontSize: 12, marginTop: 'auto' }}>
           <span className="ellipsis">#{p.id} · {p.agent?.name || PLATFORM}</span>
@@ -308,20 +309,20 @@ export function PropertyMiniCard({ p, to, onMove }: { p: Property; to: string; o
       <div className="row" style={{ alignItems: 'flex-start' }}>
         {ph && <img src={thumbUrl(ph)} alt="" loading="lazy" draggable={false} style={{ width: 52, height: 52, borderRadius: 8, objectFit: 'cover', flex: 'none' }} />}
         <div className="grow">
-          <div className="kcard-title ellipsis">{p.address || `Объект #${p.id}`}</div>
+          <div className="kcard-title ellipsis">{p.address || t('Объект #{id}', { id: p.id })}</div>
           <div className="kcard-meta">{[districtLabel(p.district), bedroomsLabel(p.bedrooms), money(p.price, p.currency || 'USD')].filter(Boolean).join(' · ')}</div>
           <ExclusiveConflictBadge p={p} />
         </div>
       </div>
       <div className="row row-between mt" style={{ marginTop: 8 }}>
         <span className="faint" style={{ fontSize: 11, fontWeight: 600 }}>{p.agent?.name || PLATFORM}</span>
-        {p.status === 'call_failed' && p.next_call_at ? <span className="badge badge-redsoft">звонок {fmtDateTime(p.next_call_at)}</span>
-          : p.shoot_at && p.status === 'shoot_scheduled' ? <span className="badge">съёмка {fmtDateTime(p.shoot_at)}</span>
+        {p.status === 'call_failed' && p.next_call_at ? <span className="badge badge-redsoft">{t('звонок')} {fmtDateTime(p.next_call_at)}</span>
+          : p.shoot_at && p.status === 'shoot_scheduled' ? <span className="badge">{t('съёмка')} {fmtDateTime(p.shoot_at)}</span>
           : <span className="faint" style={{ fontSize: 11 }}>{ago(p.updated_at || p.created_at)}</span>}
       </div>
       {onMove && (
         <button type="button" className="btn btn-secondary btn-sm mt" style={{ marginTop: 8 }}
-          onClick={(e) => { e.preventDefault(); e.stopPropagation(); onMove(); }}><ArrowRightLeft size={14} />Перенести</button>
+          onClick={(e) => { e.preventDefault(); e.stopPropagation(); onMove(); }}><ArrowRightLeft size={14} />{t('Перенести')}</button>
       )}
     </Link>
   );
@@ -353,12 +354,12 @@ export function PropertyBoard({ base = '', statusBar }: { base?: string; statusB
       if (to === 'taken') return;
       return api.properties.owner(p.id, { is_owner: to === 'owner_confirmed', owner_name: p.owner?.name || undefined, owner_phone: p.owner?.phone || undefined });
     },
-    onSuccess: (_, { to }) => { qc.invalidateQueries({ queryKey: ['properties'] }); qc.invalidateQueries({ queryKey: ['property'] }); toast(`Объект перенесён: ${PROPERTY_STATUS[to]}`); },
+    onSuccess: (_, { to }) => { qc.invalidateQueries({ queryKey: ['properties'] }); qc.invalidateQueries({ queryKey: ['property'] }); toast(t('Объект перенесён: {s}', { s: PROPERTY_STATUS[to] })); },
     onError: (e) => { toast(errText(e), true); qc.invalidateQueries({ queryKey: ['properties'] }); },
   });
   const hide = useMutation({
     mutationFn: (s: 'published' | 'rented') => api.properties.boardHide(s),
-    onSuccess: (r) => { qc.invalidateQueries({ queryKey: ['properties', 'board'] }); toast(`Убрано с доски: ${r.hidden}`); },
+    onSuccess: (r) => { qc.invalidateQueries({ queryKey: ['properties', 'board'] }); toast(t('Убрано с доски: {n}', { n: r.hidden })); },
     onError: (e) => toast(errText(e), true),
   });
   if (isLoading) return <Loading />;
@@ -375,17 +376,17 @@ export function PropertyBoard({ base = '', statusBar }: { base?: string; statusB
     if (CALL.includes(from) && CALL.includes(to)) act.mutate({ p, to });
     else if (WHO.includes(to) && [...CALL, ...WHO].includes(from)) {
       if (contact) act.mutate({ p, to });
-      else open('Укажите, кто ответил, и его контакт');
-    } else if (to === 'shoot_scheduled' && from === 'owner_confirmed') open('Выберите дату съёмки');
-    else if (to === 'media_uploaded' && ['owner_confirmed', 'shoot_scheduled', 'returned'].includes(from)) open('Загрузите фото и видео');
+      else open(t('Укажите, кто ответил, и его контакт'));
+    } else if (to === 'shoot_scheduled' && from === 'owner_confirmed') open(t('Выберите дату съёмки'));
+    else if (to === 'media_uploaded' && ['owner_confirmed', 'shoot_scheduled', 'returned'].includes(from)) open(t('Загрузите фото и видео'));
     else if (to === 'review' && ['shoot_scheduled', 'media_uploaded', 'returned'].includes(from)) {
       if (p.media_count) act.mutate({ p, to });
-      else open('Сначала загрузите фото и видео');
+      else open(t('Сначала загрузите фото и видео'));
     } else if (from === 'review' && (to === 'returned' || to === 'published')) {
-      if (isStaff) open(to === 'published' ? 'Проверьте пост и опубликуйте' : 'Напишите агенту, что поправить');
-      else toast('Объект на проверке: решение за оператором', true);
-    } else if (to === 'rented') toast('«Сдан» ставится подтверждённой сделкой', true);
-    else toast(`Из «${PROPERTY_STATUS[from]}» в «${PROPERTY_STATUS[to]}» перенести нельзя`, true);
+      if (isStaff) open(to === 'published' ? t('Проверьте пост и опубликуйте') : t('Напишите агенту, что поправить'));
+      else toast(t('Объект на проверке: решение за оператором'), true);
+    } else if (to === 'rented') toast(t('«Сдан» ставится подтверждённой сделкой'), true);
+    else toast(t('Из «{from}» в «{to}» перенести нельзя', { from: PROPERTY_STATUS[from], to: PROPERTY_STATUS[to] }), true);
   };
   return (
     <>
@@ -400,16 +401,16 @@ export function PropertyBoard({ base = '', statusBar }: { base?: string; statusB
               <div className="kanban-col-head"><span className="label">{PROPERTY_STATUS[s]}</span><span className="tab-count">{items.length}</span></div>
               {(s === 'published' || s === 'rented') && items.length > 0 && (!collapsed) && (
                 <Button size="sm" variant="ghost" block disabled={hide.isPending}
-                  title="Объекты остаются в канале, боте и списках; карточка вернётся на доску при смене статуса"
-                  onClick={() => { if (confirm(`Убрать с доски все карточки «${PROPERTY_STATUS[s]}» (${items.length})? Объекты останутся в канале, боте и списках.`)) hide.mutate(s); }}>
-                  <Archive size={14} />Убрать с доски
+                  title={t('Объекты остаются в канале, боте и списках; карточка вернётся на доску при смене статуса')}
+                  onClick={() => { if (confirm(t('Убрать с доски все карточки «{s}» ({n})? Объекты останутся в канале, боте и списках.', { s: PROPERTY_STATUS[s], n: items.length }))) hide.mutate(s); }}>
+                  <Archive size={14} />{t('Убрать с доски')}
                 </Button>
               )}
               <div className="kanban-col-body">
-                {collapsed ? <Button size="sm" variant="secondary" block onClick={() => setShowPublished(true)}>Показать</Button>
-                  : items.length === 0 ? <div className="faint" style={{ fontSize: 12, padding: 6 }}>Пусто</div>
+                {collapsed ? <Button size="sm" variant="secondary" block onClick={() => setShowPublished(true)}>{t('Показать')}</Button>
+                  : items.length === 0 ? <div className="faint" style={{ fontSize: 12, padding: 6 }}>{t('Пусто')}</div>
                   : items.map((p) => <PropertyMiniCard key={p.id} p={p} to={propLink(base, p.id)} onMove={base ? () => setMoving(p) : undefined} />)}
-                {s === 'published' && showPublished && !isStaff && items.length > 0 && <Button size="sm" variant="ghost" block onClick={() => setShowPublished(false)}>Свернуть</Button>}
+                {s === 'published' && showPublished && !isStaff && items.length > 0 && <Button size="sm" variant="ghost" block onClick={() => setShowPublished(false)}>{t('Свернуть')}</Button>}
               </div>
             </div>
           );
@@ -417,7 +418,7 @@ export function PropertyBoard({ base = '', statusBar }: { base?: string; statusB
       </div>
       {statusBar && <StatusBar board={boardRef} stages={cols} labels={PROPERTY_STATUS} count={(s) => data?.[s]?.length ?? 0} />}
       {/* touch (Mini App) has no HTML drag & drop: the same moves from a menu, like the lead board */}
-      <Modal open={!!moving} onClose={() => setMoving(null)} title={`Перенести объект #${moving?.id}`}>
+      <Modal open={!!moving} onClose={() => setMoving(null)} title={t('Перенести объект #{id}', { id: moving?.id ?? '' })}>
         <div className="col">
           {PROPERTY_BOARD.filter((st) => st !== moving?.status).map((st) => (
             <Button key={st} variant="secondary" block onClick={() => { const p = moving!; setMoving(null); drop(st, p.id); }}>{PROPERTY_STATUS[st]}</Button>
@@ -433,7 +434,7 @@ export function MyProperties({ base = '' }: { base?: string }) {
   const [view, setView] = useState<'board' | 'list'>('board');
   return (
     <div className="col">
-      <Seg value={view} onChange={setView} options={[{ value: 'board', label: 'Доска' }, { value: 'list', label: 'Списком' }]} />
+      <Seg value={view} onChange={setView} options={[{ value: 'board', label: t('Доска') }, { value: 'list', label: t('Списком') }]} />
       {view === 'board' ? <PropertyBoard base={base} /> : <PropertyList mine base={base} />}
     </div>
   );
@@ -451,7 +452,7 @@ export function WorkProperties() {
   return (
     <div className="col">
       <div className="row row-wrap">
-        <Seg value={view} onChange={setView} options={[{ value: 'board', label: 'Доска' }, { value: 'list', label: 'Списком' }]} />
+        <Seg value={view} onChange={setView} options={[{ value: 'board', label: t('Доска') }, { value: 'list', label: t('Списком') }]} />
         {/* the board has the «СТАТУСЫ» panel instead of the chips (Stanislav 11-13) */}
         {view === 'list' && <Seg value={stage} onChange={(s) => setStage(stage === s ? '' : s)}
           options={WORK.map((s) => ({ value: s, label: <>{PROPERTY_STATUS[s]} <span className="tab-count">{data?.[s]?.length ?? 0}</span></> }))} />}
@@ -517,34 +518,34 @@ export function PropertyList({ mine, archived, status: only, agentId, base = '' 
   return (
     <>
       <FeedFilters f={f} patch={(p) => set({ ...p, page: 0 })} view={only ? undefined : view} onView={(v) => set({ view: v === 'map' ? v : '', page: 0 })}
-        facets={facets.data} sourceLabel={(v) => SOURCE_LABEL[v] || v} metroLabel={metroLabel} placeholder="Адрес, агент, #тег"
-        seg={segOpts ? { value: status, onChange: (v) => set({ status: v, page: 0 }), options: segOpts.map((v) => ({ value: v, label: v === 'work' ? 'В работе' : v ? PROPERTY_STATUS[v as PS] : 'Все' })) } : undefined}
+        facets={facets.data} sourceLabel={(v) => SOURCE_LABEL[v] || v} metroLabel={metroLabel} placeholder={t('Адрес, агент, #тег')}
+        seg={segOpts ? { value: status, onChange: (v) => set({ status: v, page: 0 }), options: segOpts.map((v) => ({ value: v, label: v === 'work' ? t('В работе') : v ? PROPERTY_STATUS[v as PS] : t('Все') })) } : undefined}
         filtered={filtered} onReset={() => set({ ...Object.fromEntries(FILTER_KEYS.filter((k) => k !== 'q' && k !== 'view' && !(fixedAgent && k === 'agent')).map((k) => [k, ''])), status: '' })}
-        found={data ? `Найдено: ${total.toLocaleString('ru')}${view === 'list' && total > PAGE ? ` · показаны ${(page * PAGE + 1).toLocaleString('ru')}–${Math.min(total, (page + 1) * PAGE).toLocaleString('ru')}` : ''}` : ''}
+        found={data ? `${t('Найдено: {n}', { n: total.toLocaleString(LOCALE) })}${view === 'list' && total > PAGE ? t(' · показаны {a}–{b}', { a: (page * PAGE + 1).toLocaleString(LOCALE), b: Math.min(total, (page + 1) * PAGE).toLocaleString(LOCALE) }) : ''}` : ''}
         boxes={<>
           {isStaff && !mine && !fixedAgent && (
-            <div className="fbox"><span className="flabel">Агент</span>
-              <select className="select" value={agent} aria-label="Агент" onChange={(e) => set({ agent: e.target.value, page: 0 })}>
-                <option value="">Все</option>
-                <option value="0">{PLATFORM} (без агента)</option>
+            <div className="fbox"><span className="flabel">{t('Агент')}</span>
+              <select className="select" value={agent} aria-label={t('Агент')} onChange={(e) => set({ agent: e.target.value, page: 0 })}>
+                <option value="">{t('Все')}</option>
+                <option value="0">{PLATFORM} {t('(без агента)')}</option>
                 {itemsOf(agents.data).slice().sort((a, b) => Number(b.is_active !== false) - Number(a.is_active !== false) || (a.name || '').localeCompare(b.name || '')).map((u) => (
-                  <option key={u.id} value={u.id}>{u.name}{u.agent_tag ? ` · #${u.agent_tag}` : ''}{u.is_active === false ? ' (не работает)' : ''}</option>
+                  <option key={u.id} value={u.id}>{u.name}{u.agent_tag ? ` · #${u.agent_tag}` : ''}{u.is_active === false ? t(' (не работает)') : ''}</option>
                 ))}
               </select></div>
           )}
           {archived && (
-            <div className="fbox"><span className="flabel">Причина</span>
-              <Select aria-label="Причина" value={reason} onChange={(e) => set({ reason: e.target.value, page: 0 })} placeholder="Любая"
+            <div className="fbox"><span className="flabel">{t('Причина')}</span>
+              <Select aria-label={t('Причина')} value={reason} onChange={(e) => set({ reason: e.target.value, page: 0 })} placeholder={t('Любая')}
                 options={Object.entries(ARCHIVE_REASON).map(([value, label]) => ({ value, label }))} /></div>
           )}
         </>} />
       {counts.data && (
         <div className="muted" style={{ fontSize: 13, marginBottom: 6 }}>
-          Всего объектов: <b>{Object.values(counts.data).reduce((a, b) => a + b, 0).toLocaleString('ru')}</b>
-          {' · '}{(['published', 'rented', 'archived'] as PS[]).map((k) => `${PROPERTY_STATUS[k]}: ${(counts.data[k] || 0).toLocaleString('ru')}`).join(' · ')}
+          {t('Всего объектов:')} <b>{Object.values(counts.data).reduce((a, b) => a + b, 0).toLocaleString(LOCALE)}</b>
+          {' · '}{(['published', 'rented', 'archived'] as PS[]).map((k) => `${PROPERTY_STATUS[k]}: ${(counts.data[k] || 0).toLocaleString(LOCALE)}`).join(' · ')}
         </div>
       )}
-      {isLoading ? <Loading /> : error ? <ErrorBox error={error} /> : items.length === 0 ? <Empty text={filtered ? 'Ничего не найдено' : archived ? 'Архив пуст' : only === 'review' ? 'Очередь пуста: всё опубликовано' : 'Объектов нет'} /> : view === 'map' ? (
+      {isLoading ? <Loading /> : error ? <ErrorBox error={error} /> : items.length === 0 ? <Empty text={filtered ? t('Ничего не найдено') : archived ? t('Архив пуст') : only === 'review' ? t('Очередь пуста: всё опубликовано') : t('Объектов нет')} /> : view === 'map' ? (
         <ListingsMap items={items} card={(p) => <PropertyCard key={p.id} p={p} to={link(p.id)} />} onPick={(p) => navigate(link(p.id))} />
       ) : scope === 'all' || archived ? (
         // «Архив» as «База объектов»: cards with the photo (Stanislav 11-15), the reason under the price
@@ -557,7 +558,7 @@ export function PropertyList({ mine, archived, status: only, agentId, base = '' 
           <div className="card hide-mobile">
             <div className="table-wrap">
               <table className="table">
-                <thead><tr><th>#</th><th>Адрес</th><th>Цена</th><th>Агент</th><th>Статус</th>{(archived || only === 'archived') && <th>Причина</th>}<th>Обновлён</th></tr></thead>
+                <thead><tr><th>#</th><th>{t('Адрес')}</th><th>{t('Цена')}</th><th>{t('Агент')}</th><th>{t('Статус')}</th>{(archived || only === 'archived') && <th>{t('Причина')}</th>}<th>{t('Обновлён')}</th></tr></thead>
                 <tbody>
                   {items.map((p) => (
                     <tr key={p.id} className="clickable" onClick={() => navigate(link(p.id))}>
@@ -578,7 +579,7 @@ export function PropertyList({ mine, archived, status: only, agentId, base = '' 
             {items.map((p) => (
               <div key={p.id}>
                 <PropertyMiniCard p={p} to={link(p.id)} />
-                {archived && p.archive_reason && <div className="muted" style={{ fontSize: 12, padding: '4px 6px' }}>Причина: {ARCHIVE_REASON[p.archive_reason] || p.archive_reason}{p.archive_comment ? ` · ${p.archive_comment}` : ''}</div>}
+                {archived && p.archive_reason && <div className="muted" style={{ fontSize: 12, padding: '4px 6px' }}>{t('Причина:')} {ARCHIVE_REASON[p.archive_reason] || p.archive_reason}{p.archive_comment ? ` · ${p.archive_comment}` : ''}</div>}
               </div>
             ))}
           </div>
@@ -586,11 +587,11 @@ export function PropertyList({ mine, archived, status: only, agentId, base = '' 
       )}
       {pages > 1 && (
         <div className="row gap-sm" style={{ justifyContent: 'center', marginTop: 16 }}>
-          <Button variant="secondary" disabled={page === 0} onClick={() => { setPage(0); pageScroller().scrollTo(0, 0); }}>« Первая</Button>
-          <Button variant="secondary" disabled={page === 0} onClick={() => { setPage(page - 1); pageScroller().scrollTo(0, 0); }}>‹ Назад</Button>
-          <span className="muted" style={{ alignSelf: 'center', padding: '0 8px' }}>Стр. {page + 1} из {pages}{isFetching ? ' …' : ''}</span>
-          <Button variant="secondary" disabled={page + 1 >= pages} onClick={() => { setPage(page + 1); pageScroller().scrollTo(0, 0); }}>Вперёд ›</Button>
-          <Button variant="secondary" disabled={page + 1 >= pages} onClick={() => { setPage(pages - 1); pageScroller().scrollTo(0, 0); }}>Последняя »</Button>
+          <Button variant="secondary" disabled={page === 0} onClick={() => { setPage(0); pageScroller().scrollTo(0, 0); }}>{t('« Первая')}</Button>
+          <Button variant="secondary" disabled={page === 0} onClick={() => { setPage(page - 1); pageScroller().scrollTo(0, 0); }}>{t('‹ Назад')}</Button>
+          <span className="muted" style={{ alignSelf: 'center', padding: '0 8px' }}>{t('Стр. {p} из {n}', { p: page + 1, n: pages })}{isFetching ? ' …' : ''}</span>
+          <Button variant="secondary" disabled={page + 1 >= pages} onClick={() => { setPage(page + 1); pageScroller().scrollTo(0, 0); }}>{t('Вперёд ›')}</Button>
+          <Button variant="secondary" disabled={page + 1 >= pages} onClick={() => { setPage(pages - 1); pageScroller().scrollTo(0, 0); }}>{t('Последняя »')}</Button>
         </div>
       )}
     </>

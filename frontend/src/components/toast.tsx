@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useState, type ReactNode } from 'react';
+import { t } from '../lib/i18n';
 
 interface Toast { id: number; text: string; error?: boolean }
 const Ctx = createContext<(text: string, error?: boolean) => void>(() => undefined);
@@ -24,5 +25,5 @@ export const useToast = () => useContext(Ctx);
 
 /** Helper: toast error message from a thrown value. */
 export function errText(e: unknown): string {
-  return e instanceof Error ? e.message : 'Что-то пошло не так';
+  return e instanceof Error ? e.message : t('Что-то пошло не так');
 }

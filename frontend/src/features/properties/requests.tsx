@@ -11,10 +11,11 @@ import { useAuth } from '../../auth/AuthContext';
 import { errText, useToast } from '../../components/toast';
 import { Badge, Button, Empty, ErrorBox, Input, Loading } from '../../components/ui';
 import { ARCHIVE_REASON, CR_FIELD, CR_KIND, ago, fmtDateTime, money } from '../../lib/format';
+import { t } from '../../lib/i18n';
 
 function val(field: string, v: unknown) {
   if (v === null || v === undefined || v === '') return '—';
-  if (typeof v === 'boolean') return v ? 'да' : 'нет';
+  if (typeof v === 'boolean') return v ? t('да') : t('нет');
   if (field === 'archive_reason') return ARCHIVE_REASON[String(v)] || String(v);
   if (['price', 'deposit', 'sale_price'].includes(field)) return money(Number(v));
   if (field === 'duplicate_of') return `#${v}`;
@@ -30,7 +31,7 @@ export function RequestRow({ r, link = (id: number) => `/objects/${id}`, showObj
     mutationFn: (approve: boolean) => api.changeRequests.decide(r.id, approve, comment),
     onSuccess: (x) => {
       ['change-requests', 'property', 'property-history', 'properties'].forEach((k) => qc.invalidateQueries({ queryKey: [k] }));
-      toast(x.status === 'approved' ? 'Одобрено: изменение применено' : 'Отклонено: агенту ушёл комментарий');
+      toast(x.status === 'approved' ? t('Одобрено: изменение применено') : t('Отклонено: агенту ушёл комментарий'));
     },
     onError: (e) => toast(errText(e), true),
   });
@@ -39,7 +40,7 @@ export function RequestRow({ r, link = (id: number) => `/objects/${id}`, showObj
       <div className="row row-between row-wrap gap-sm">
         <div className="row row-wrap gap-sm" style={{ fontWeight: 700 }}>
           <Badge tone="warn">{CR_KIND[r.kind] || r.kind}</Badge>
-          {showObject && r.property && <Link to={link(r.property.id)}>Объект #{r.property.id}{r.property.address ? ` · ${r.property.address}` : ''}</Link>}
+          {showObject && r.property && <Link to={link(r.property.id)}>{t('Объект #{id}', { id: r.property.id })}{r.property.address ? ` · ${r.property.address}` : ''}</Link>}
         </div>
         <span className="muted" style={{ fontSize: 12 }} title={fmtDateTime(r.created_at)}>{r.requested_by?.name || '—'} · {ago(r.created_at)}</span>
       </div>
@@ -50,15 +51,15 @@ export function RequestRow({ r, link = (id: number) => `/objects/${id}`, showObj
             <s className="muted">{val(c.field, c.old)}</s><span>→</span><b>{val(c.field, c.new)}</b>
           </div>
         ))}
-        {r.reason && <div className="muted">Причина: {r.reason}</div>}
+        {r.reason && <div className="muted">{t('Причина:')} {r.reason}</div>}
       </div>
       {isStaff && r.status === 'pending' ? (
         <div className="row row-wrap gap-sm">
-          <Button size="sm" variant="ok" loading={decide.isPending && decide.variables} onClick={() => decide.mutate(true)}><Check size={14} />Одобрить</Button>
-          <Input value={comment} placeholder="Комментарий агенту (нужен для отказа)" onChange={(e) => setComment(e.target.value)} style={{ maxWidth: 320 }} />
-          <Button size="sm" variant="danger" disabled={!comment.trim()} loading={decide.isPending && !decide.variables} onClick={() => decide.mutate(false)}><X size={14} />Отклонить</Button>
+          <Button size="sm" variant="ok" loading={decide.isPending && decide.variables} onClick={() => decide.mutate(true)}><Check size={14} />{t('Одобрить')}</Button>
+          <Input value={comment} placeholder={t('Комментарий агенту (нужен для отказа)')} onChange={(e) => setComment(e.target.value)} style={{ maxWidth: 320 }} />
+          <Button size="sm" variant="danger" disabled={!comment.trim()} loading={decide.isPending && !decide.variables} onClick={() => decide.mutate(false)}><X size={14} />{t('Отклонить')}</Button>
         </div>
-      ) : r.status === 'pending' ? <div className="muted" style={{ fontSize: 12 }}>Ждёт решения оператора</div> : null}
+      ) : r.status === 'pending' ? <div className="muted" style={{ fontSize: 12 }}>{t('Ждёт решения оператора')}</div> : null}
     </div>
   );
 }
@@ -69,6 +70,6 @@ export function ChangeRequestQueue() {
   const items = itemsOf(data);
   if (isLoading) return <Loading />;
   if (error) return <ErrorBox error={error} />;
-  if (!items.length) return <Empty text="Запросов нет" />;
+  if (!items.length) return <Empty text={t('Запросов нет')} />;
   return <div className="card card-pad col" style={{ maxWidth: 860 }}>{items.map((r) => <RequestRow key={r.id} r={r} />)}</div>;
 }

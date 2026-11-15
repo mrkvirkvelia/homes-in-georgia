@@ -4,6 +4,7 @@ import type { Role } from './api/types';
 import { ADMIN_ROLES, DAILY_RENT_ROLES, STAFF_ROLES, SUPER_ROLES } from './api/types';
 import { useAuth } from './auth/AuthContext';
 import { Empty, Loading } from './components/ui';
+import { t } from './lib/i18n';
 import { OfferCardPage, OffersPage } from './features/offers/Offers';
 import { AppLayout } from './layout/AppLayout';
 import { AdminPage } from './pages/Admin';
@@ -34,7 +35,7 @@ function RequireAuth({ children, roles }: { children: ReactNode; roles?: Role[] 
     const next = encodeURIComponent(loc.pathname + loc.search);
     return <Navigate to={`/login?next=${next}`} replace state={{ error }} />;
   }
-  if (roles && !roles.includes(user.role)) return <Empty text={roles.includes('admin') || roles.includes('operator') ? 'Раздел доступен только администраторам' : 'Раздел доступен только суперадминам'} />;
+  if (roles && !roles.includes(user.role)) return <Empty text={roles.includes('admin') || roles.includes('operator') ? t('Раздел доступен только администраторам') : t('Раздел доступен только суперадминам')} />;
   return <>{children}</>;
 }
 
@@ -65,8 +66,8 @@ function MRedirect() {
 function NotFound() {
   return (
     <div className="col" style={{ alignItems: 'center' }}>
-      <Empty text="Страница не найдена" />
-      <Link to="/" className="btn btn-secondary">На главную</Link>
+      <Empty text={t('Страница не найдена')} />
+      <Link to="/" className="btn btn-secondary">{t('На главную')}</Link>
     </div>
   );
 }

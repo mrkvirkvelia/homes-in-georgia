@@ -1283,7 +1283,7 @@ SALE_AMENITIES = ("Balcony", "Terrace", "Courtyard", "ParkingPlace", "Conditione
                   "Shower", "Elevator", "Fireplace")
 # facts of rent objects imported from the site (oneoff_import_hge.py, read by services/site_feed.py): not in the agent's
 # generator, so a save of the generator's fields keeps them and never rejects them
-SITE_KEYS = ("service", "site_id", "period", "approx", "months", "site_extra")
+SITE_KEYS = ("service", "site_id", "period", "approx", "months", "site_extra", "offer_ident", "completion")
 POST_NUM = ("tenants", "deposit", "sale_price")  # tenants max (1-N); deposit $ (default = price, 0 = none); sale price $
 
 
@@ -1638,13 +1638,18 @@ def hashtags(text: str) -> list[str]:
 
 
 def publish(db: Session, pid: int, actor: User, text: str | None = None, media_ids: list[int] | None = None,
-            channel: str = "tg", comment: str | None = None) -> Property:
-    """B7: the operator publishes from the object card: the caption as edited (default post_text), the picked media in
-    the picked order (default all), to a channel of PUBLICATION_CHANNELS. Publishing an object in review approves it.
-    Without BOT_TOKEN in dev the post is a dry run (recorded without a link); a Telegram failure leaves it unpublished."""
+            channel: str = "tg", comment: str | None = None, tg: bool = True, site: bool = True) -> Property:
+    """B7: the operator publishes from the object card to the checked targets (Stanislav 11-15: one «Опубликовать», two
+    checkboxes): «В Telegram» — the caption as edited (default post_text), the picked media in the picked order (default
+    all), to a channel of PUBLICATION_CHANNELS; «На сайт» — hge.ge shows it (site_hidden off). The first publication
+    without «На сайт» keeps it off the site; a later one without it leaves the site as it is. Publishing an object in
+    review approves it. Without BOT_TOKEN in dev the post is a dry run (recorded without a link); a Telegram failure
+    leaves it unpublished."""
     p = _prop(db, pid, lock=True)
     if not at_least(actor, "operator"):
         raise forbidden("only operators publish")
+    if not (tg or site):
+        raise DomainError("no_target", "Отметьте, куда публиковать: сайт или Telegram")
     if channel not in PUBLICATION_CHANNELS:
         raise DomainError("bad_channel", f"unknown channel {channel}")
     _require_status(p, "review", "published")
@@ -1653,30 +1658,40 @@ def publish(db: Session, pid: int, actor: User, text: str | None = None, media_i
         own = {m.id for m in media(db, p.id)}
         if not set(media_ids) <= own:
             raise DomainError("not_found", "media not found")
-    auto = post_text(db, p)
-    p.post_text = (text or "").strip() or auto  # transient attributes read by notify.publish_post
-    # the rich post is built from the fields: a caption the operator rewrote by hand goes out as the plain album
-    p.post_rich = (lambda ids: post_rich(db, p, ids)) if p.post_text == auto else None
-    p.post_media_ids = media_ids
-    ref = _notify("publish_post", p)
-    dry_run = ref is None and not env.BOT_TOKEN and env.APP_ENV == "dev"
-    if ref is None and not dry_run:
-        raise DomainError("publish_failed", "Telegram did not accept the post", 502)
-    if ref:
-        p.post_message_id, p.post_url = str(ref[0]), ref[1]
+    first = p.status != "published"
+    ref, dry_run = None, False
+    if tg:
+        auto = post_text(db, p)
+        p.post_text = (text or "").strip() or auto  # transient attributes read by notify.publish_post
+        # the rich post is built from the fields: a caption the operator rewrote by hand goes out as the plain album
+        p.post_rich = (lambda ids: post_rich(db, p, ids)) if p.post_text == auto and not is_sale(p) else None
+        p.post_media_ids = media_ids
+        ref = _notify("publish_post", p)
+        dry_run = ref is None and not env.BOT_TOKEN and env.APP_ENV == "dev"
+        if ref is None and not dry_run:
+            raise DomainError("publish_failed", "Telegram did not accept the post", 502)
+        if ref:
+            p.post_message_id, p.post_url = str(ref[0]), ref[1]
+    if site:
+        p.site_hidden = False
+    elif first:
+        p.site_hidden = True
     p.published_at = now()
     p.verified_at = p.verified_at or p.published_at
     if p.status == "review":
         p.review_comment, p.reviewed_by, p.reviewed_at = comment, actor.id, now()
         log_event(db, "property", p.id, "approved", actor, comment=comment)
-    record_publication(db, p, channel, p.post_url if ref else None, p.post_message_id if ref else None)
-    _status(db, p, "published", actor, post_url=p.post_url if ref else None, channel=channel,
-            **({"dry_run": True} if dry_run else {}))
+    if tg:
+        record_publication(db, p, channel, p.post_url if ref else None, p.post_message_id if ref else None)
+    _status(db, p, "published", actor, post_url=p.post_url if ref else None, channel=channel if tg else None,
+            site=not p.site_hidden, **({"dry_run": True} if dry_run else {}))
     db.commit()
-    from app.services import catalog
+    from app.services import catalog, site_feed
+    site_feed.clear_cache()
     if catalog.sync(db, p):  # clients find it in the bot at once
         db.commit()
-    _notify("property_published", p)
+    if tg:
+        _notify("property_published", p)
     return p
 
 
@@ -1987,9 +2002,12 @@ def query(db: Session, user: User, status: str | None = None, agent_id: int | No
           mine: bool = False, everyone: bool = False, base: bool = False, rented: bool = False,
           source: list[str] | None = None, district: list[str] | None = None, metro: str | None = None,
           bedrooms: str | None = None, price_min: int | None = None, price_max: int | None = None,
-          archive_reason: str | None = None):
-    """source / district: any of the values; metro: the post's tag (post_fields.metro); the base's filter block (11-13)."""
+          archive_reason: str | None = None, deal: str | None = None):
+    """source / district: any of the values; metro: the post's tag (post_fields.metro); the base's filter block (11-13).
+    deal: rent | sale — «Объекты» shows rent and sale apart (Stanislav 11-15); None = both."""
     stmt = select(Property)
+    if deal:
+        stmt = stmt.where(deal_cond(deal))
     if source := [x for x in source or [] if x]:
         stmt = stmt.where(Property.source_type.in_(source))
     if district := [x for x in district or [] if x]:
@@ -2047,8 +2065,19 @@ def facets(db: Session, user: User, **scope) -> dict:
     return {"sources": facet(sub.c.source_type), "districts": facet(sub.c.district), "metros": facet(sub.c.post_fields["metro"].astext)}
 
 
-def status_counts(db: Session) -> dict[str, int]:
-    return dict(db.execute(select(Property.status, func.count()).group_by(Property.status)).all())
+def status_counts(db: Session, deal: str | None = None) -> dict[str, int]:
+    stmt = select(Property.status, func.count()).group_by(Property.status)
+    return dict(db.execute(stmt.where(deal_cond(deal)) if deal else stmt).all())
+
+
+def is_sale(p) -> bool:
+    return (p.post_fields or {}).get("deal") == "Sale"
+
+
+def deal_cond(deal: str):
+    """A sale object is a property with post_fields.deal = Sale; everything else is rent."""
+    sale = Property.post_fields["deal"].astext == "Sale"
+    return sale if deal == "sale" else or_(Property.post_fields["deal"].astext.is_(None), ~sale)
 
 
 # ---------------------------------------------------------------- deals (stage 7)
@@ -2115,10 +2144,12 @@ def verify(db: Session, pid: int, actor: User) -> Property:
     return p
 
 
-def board(db: Session, user: User, per_column: int = 100) -> dict[str, list[dict]]:
+def board(db: Session, user: User, per_column: int = 100, deal: str | None = None) -> dict[str, list[dict]]:
     columns = {}
     for st in BOARD:
         stmt = select(Property).where(Property.status == st, Property.board_hidden_at.is_(None))
+        if deal:
+            stmt = stmt.where(deal_cond(deal))
         if not at_least(user, "operator"):
             stmt = stmt.where(Property.agent_id == user.id)
         columns[st] = list(db.scalars(stmt.order_by(Property.updated_at.desc()).limit(per_column)))

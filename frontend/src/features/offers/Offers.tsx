@@ -1,72 +1,61 @@
-// «Продажа» and «Авто»: hge.ge's own objects besides rent (backend api/offers.py, services/offers.py), a menu item each.
-// The form is the rent objects' generator (address on the map, chips of the old post generator's tags); photos and video
-// sort and open as on a rent object (MediaGrid + Lightbox). Two publications: the site (status) and Telegram (the post).
+// «Авто»: hge.ge's cars (backend api/offers.py, services/offers.py). Sales are objects now («Объекты» → Продажа).
+// The form follows the rent objects' generator (chips, the place on the map); photos and video sort and open as on an
+// object (MediaGrid + Lightbox); one «Опубликовать» to the checked targets: the site and / or Telegram (Stanislav 11-15).
 import { useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { CheckCircle2, ExternalLink, Globe, Plus, RotateCcw, Send, Upload } from 'lucide-react';
+import { ExternalLink, Plus, RotateCcw, Send, Upload } from 'lucide-react';
 import { api } from '../../api';
 import { itemsOf, thumbUrl } from '../../api/client';
-import type { Offer, OfferKind, OfferStatus, PostFields } from '../../api/types';
+import type { Offer, OfferStatus } from '../../api/types';
 import { useAuth } from '../../auth/AuthContext';
 import { AddressField } from '../../components/AddressField';
 import { errText, useToast } from '../../components/toast';
-import { Badge, Button, Card, DistrictSelect, Empty, ErrorBox, Field, Input, Lightbox, Loading, PageHead, Seg, Select, Switch, Tabs, Textarea } from '../../components/ui';
-import { distLabel, money } from '../../lib/format';
+import { Badge, Button, Card, Empty, ErrorBox, Field, Input, Lightbox, Loading, PageHead, Seg, Select, Switch, Tabs, Textarea } from '../../components/ui';
+import { money } from '../../lib/format';
 import { pool, shrinkPhoto } from '../../lib/upload';
-import { Chips, MediaGrid, POST_ONE, POST_MANY, SALE_AMENITIES, SALE_BEDROOM_CHIPS, SALE_TYPES, type Shot } from '../properties/PropertyDetail';
+import { Chips, MediaGrid, PublishTargets, type Shot } from '../properties/PropertyDetail';
 
+const KIND = 'car' as const;
+const PATH = '/cars';
 const SITE: Record<OfferStatus, [string, 'ok' | 'grey' | 'warn']> = { draft: ['не на сайте', 'grey'], published: ['на сайте', 'ok'], archived: ['архив', 'warn'] };
 const CURRENCY = [{ value: 'USD', label: '$ USD' }, { value: 'GEL', label: '₾ GEL' }, { value: 'EUR', label: '€ EUR' }];
-const SERVICE: Record<string, string> = { sale: 'Вторичка', new: 'Новостройка', commercial: 'Коммерция' };
 const GEARBOX: Record<string, string> = { auto: 'Автомат', manual: 'Механика' };
 const FUEL: Record<string, string> = { petrol: 'Бензин', diesel: 'Дизель', hybrid: 'Гибрид', electric: 'Электро', gas: 'Газ' };
 const BODY: Record<string, string> = { sedan: 'Седан', suv: 'Внедорожник', hatchback: 'Хэтчбек', wagon: 'Универсал', coupe: 'Купе', minivan: 'Минивэн', business: 'Бизнес', pickup: 'Пикап', convertible: 'Кабриолет' };
-const MAX_PHOTO = 9;
-const META = {
-  sale: { path: '/sale', label: 'Объекты сайта', title: 'Продажа', add: 'Новый объект', what: 'Адрес' },
-  car: { path: '/cars', label: 'Объекты сайта', title: 'Авто', add: 'Новое авто', what: 'Модель' },
-};
+const MAX_PHOTO = 9, ALBUM_MAX = 10;
 const TABS: { value: OfferStatus | 'all'; label: string }[] = [{ value: 'all', label: 'Все' }, { value: 'draft', label: 'Не на сайте' }, { value: 'published', label: 'На сайте' }, { value: 'archived', label: 'Архив' }];
-const one = (k: string) => POST_ONE[k][1];
-const pfOf = (o: Offer | Draft) => (o.post_fields || {}) as PostFields;
 const siteUrl = (o: Offer) => `https://hge.ge/listing/${o.item_id}`;
 const shots = (o: Offer): Shot[] => [...o.photos.map((k) => ({ id: k, kind: 'photo' as const, room: null, src: k })), ...(o.video ? [{ id: o.video, kind: 'video' as const, room: null, src: o.video }] : [])];
-
-function what(kind: OfferKind, o: Offer | Draft): string {
-  if (kind === 'car') return [o.deal === 'sale' ? 'Продажа' : 'Аренда', BODY[String(o.body)]].filter(Boolean).join(' · ');
-  const t = pfOf(o).prop_type;
-  return [SERVICE[String(o.service)], t && one('prop_type')[t]].filter(Boolean).join(' · ');
-}
+const what = (o: Offer | Draft) => [o.deal === 'sale' ? 'Продажа' : 'Аренда', BODY[String(o.body)]].filter(Boolean).join(' · ');
 const priceOf = (o: Offer) => (o.price != null ? `${money(o.price, o.currency)}${o.deal === 'rent' ? ` / ${o.period === 'month' ? 'мес' : 'день'}` : ''}` : '—');
 
-export function OffersPage({ kind }: { kind: OfferKind }) {
-  const m = META[kind];
+export function OffersPage() {
   const nav = useNavigate();
   const [tab, setTab] = useState<OfferStatus | 'all'>('all');
   const [q, setQ] = useState('');
   const [view, setView] = useState<{ o: Offer; i: number } | null>(null);
-  const list = useQuery({ queryKey: ['offers', kind, tab, q], queryFn: () => api.offers.list(kind, { status: tab === 'all' ? undefined : tab, q: q || undefined }) });
+  const list = useQuery({ queryKey: ['offers', KIND, tab, q], queryFn: () => api.offers.list(KIND, { status: tab === 'all' ? undefined : tab, q: q || undefined }) });
   const rows = itemsOf(list.data);
   return (
     <div className="col gap-lg">
-      <PageHead label={m.label} title={m.title} actions={<Button onClick={() => nav(`${m.path}/new`)}><Plus size={16} />{m.add}</Button>} />
+      <PageHead label="Объекты сайта" title="Авто" actions={<Button onClick={() => nav(`${PATH}/new`)}><Plus size={16} />Новое авто</Button>} />
       <Card>
         <div className="col gap">
           <Tabs value={tab} onChange={setTab} tabs={TABS} />
-          <Input placeholder={kind === 'car' ? 'Поиск по модели' : 'Поиск по адресу'} value={q} onChange={(e) => setQ(e.target.value)} />
+          <Input placeholder="Поиск по модели" value={q} onChange={(e) => setQ(e.target.value)} />
           {list.isLoading ? <Loading /> : list.error ? <ErrorBox error={list.error} /> : rows.length === 0 ? <Empty text="Пока пусто" /> : (
             <div className="table-wrap">
               <table className="table">
-                <thead><tr><th /><th>{m.what}</th><th>Тип</th><th>Цена</th><th>Сайт</th><th>Telegram</th></tr></thead>
+                <thead><tr><th /><th>Модель</th><th>Тип</th><th>Цена</th><th>Сайт</th><th>Telegram</th></tr></thead>
                 <tbody>
                   {rows.map((o) => (
-                    <tr key={o.id} style={{ cursor: 'pointer' }} onClick={() => nav(`${m.path}/${o.id}`)}>
+                    <tr key={o.id} style={{ cursor: 'pointer' }} onClick={() => nav(`${PATH}/${o.id}`)}>
                       <td style={{ width: 56 }}>{o.photos[0] ? (
                         <img src={thumbUrl(o.photos[0])} alt="" width={48} height={48} style={{ objectFit: 'cover', borderRadius: 6, cursor: 'zoom-in' }}
                           onClick={(e) => { e.stopPropagation(); setView({ o, i: 0 }); }} />) : null}</td>
-                      <td><b>{o.title}</b>{o.district ? <small className="muted"> · {String(o.district)}</small> : null}</td>
-                      <td>{what(kind, o)}</td>
+                      <td><b>{o.title}</b>{o.year ? <small className="muted"> · {String(o.year)}</small> : null}</td>
+                      <td>{what(o)}</td>
                       <td>{priceOf(o)}</td>
                       <td>{o.public ? <a href={siteUrl(o)} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}><Badge tone="ok">на сайте</Badge></a> : <Badge tone={SITE[o.status][1]}>{SITE[o.status][0]}</Badge>}</td>
                       <td>{o.post_url ? <a href={o.post_url} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}>пост <ExternalLink size={12} /></a> : <span className="faint">—</span>}</td>
@@ -83,88 +72,22 @@ export function OffersPage({ kind }: { kind: OfferKind }) {
   );
 }
 
-type Draft = Record<string, unknown> & { post_fields?: PostFields };
-const NEW: Record<OfferKind, Draft> = { sale: { service: 'sale', currency: 'USD', post_fields: { prop_type: 'Apartment' } }, car: { deal: 'rent', period: 'day', currency: 'USD' } };
-const KEYS: Record<OfferKind, string[]> = {
-  sale: ['service', 'title', 'district', 'lat', 'lng', 'price', 'currency', 'rooms', 'area', 'floor', 'floors', 'completion', 'post_fields', 'description', 'is_exclusive'],
-  car: ['deal', 'title', 'period', 'deposit', 'year', 'gearbox', 'fuel', 'body', 'seats', 'mileage', 'pickup', 'lat', 'lng', 'price', 'currency', 'description', 'is_exclusive'],
-};
-const NUM = new Set(['price', 'deposit', 'rooms', 'area', 'floor', 'floors', 'year', 'seats', 'mileage']);
-
-/** the form's values -> the request body (empty string = cleared field) */
-function body(kind: OfferKind, d: Draft): Record<string, unknown> {
-  const out: Record<string, unknown> = {};
-  for (const k of KEYS[kind]) {
-    const v = d[k];
-    out[k] = k === 'is_exclusive' ? !!v : k === 'post_fields' ? (v || {}) : v === '' || v == null ? null : NUM.has(k) ? Number(v) : v;
-  }
-  if (kind === 'car' && d.deal === 'sale') Object.assign(out, { period: null, deposit: null });
-  if (kind === 'car' && d.deal === 'rent') out.mileage = null;
-  if (kind === 'sale' && d.service !== 'new') out.completion = null;
-  return out;
-}
-
+type Draft = Record<string, unknown>;
+const NEW: Draft = { deal: 'rent', period: 'day', currency: 'USD' };
+const KEYS = ['deal', 'title', 'period', 'deposit', 'year', 'gearbox', 'fuel', 'body', 'seats', 'mileage', 'pickup', 'lat', 'lng', 'price', 'currency', 'description', 'is_exclusive'];
+const NUM = new Set(['price', 'deposit', 'year', 'seats', 'mileage']);
 const s = (v: unknown) => (v == null ? '' : String(v));
 
-/** The sale form: the rent generator's blocks with the old generator's sale block (types, beds up to 6+, condition). */
-function SaleForm({ d, set }: { d: Draft; set: (patch: Draft) => void }) {
-  const pf = pfOf(d);
-  const [metroM, setMetroM] = useState<number | null>(null);
-  const setPf = (k: string, v: unknown) => set({ post_fields: { ...pf, [k]: v === '' ? undefined : v } });
-  const toggle = (a: string) => { const cur = pf.amenities || []; setPf('amenities', cur.includes(a) ? cur.filter((x) => x !== a) : [...cur, a]); };
-  const point = d.lat != null && d.lng != null ? { lat: Number(d.lat), lng: Number(d.lng) } : null;
-  return (
-    <>
-      <div className="gen-block">
-        <span className="gen-title">1 · Основное</span>
-        <Seg value={s(d.service) || 'sale'} onChange={(v) => set({ service: v })} options={Object.entries(SERVICE).map(([value, label]) => ({ value, label }))} />
-        <Switch checked={!!d.is_exclusive} onChange={(v) => set({ is_exclusive: v })} label="❗️ Exclusive listing" />
-        <Field label="Заголовок (необязательно)" hint="В посте: 🌟 заголовок 🌟"><Input value={pf.headline || ''} placeholder="Например: Вид на старый город" onChange={(e) => setPf('headline', e.target.value)} /></Field>
-        <div className="field"><span className="label">Адрес *</span>
-          <AddressField value={s(d.title)} onChange={(v) => set({ title: v })} point={point} onPoint={(p) => set({ lat: p?.lat ?? null, lng: p?.lng ?? null })}
-            onFacts={(r) => { setMetroM(r.metro_m); set({ district: r.district || d.district, post_fields: { ...pf, metro: r.metro || pf.metro } }); }} /></div>
-        <Field label="Район"><DistrictSelect value={s(d.district)} onChange={(v) => set({ district: v })} /></Field>
-        <Field label="🚇 Метро" hint={metroM != null && pf.metro ? `≈ ${distLabel(metroM)} от точки на карте` : undefined}>
-          <Select value={pf.metro || ''} placeholder="—" onChange={(e) => { setMetroM(null); setPf('metro', e.target.value); }} options={Object.entries(one('metro')).map(([value, label]) => ({ value, label }))} /></Field>
-      </div>
-      <div className="gen-block">
-        <span className="gen-title">2 · Объект</span>
-        <Field label="Тип"><Chips options={Object.fromEntries(SALE_TYPES.map((t) => [t, one('prop_type')[t]]))} value={pf.prop_type} onChange={(v) => setPf('prop_type', v)} /></Field>
-        <Field label="Спальни"><Chips options={SALE_BEDROOM_CHIPS} value={s(d.rooms)} onChange={(v) => set({ rooms: v ?? '' })} /></Field>
-        <Field label="Здание"><Chips options={one('building')} value={pf.building} onChange={(v) => setPf('building', v)} /></Field>
-        <Field label="Состояние"><Chips options={one('condition')} value={pf.condition} onChange={(v) => setPf('condition', v)} /></Field>
-        <div className="form-grid">
-          <Field label="Площадь (м²)"><Input type="number" inputMode="decimal" value={s(d.area)} onChange={(e) => set({ area: e.target.value })} /></Field>
-          <Field label="Этаж / Всего">
-            <div className="row gap-sm" style={{ flexWrap: 'nowrap' }}>
-              <Input type="number" inputMode="numeric" aria-label="Этаж" value={s(d.floor)} onChange={(e) => set({ floor: e.target.value })} />
-              <span className="muted">/</span>
-              <Input type="number" inputMode="numeric" aria-label="Всего этажей" value={s(d.floors)} onChange={(e) => set({ floors: e.target.value })} />
-            </div>
-          </Field>
-          {d.service === 'new' && <Field label="Сдача дома" hint="Например: Q4 2027"><Input value={s(d.completion)} onChange={(e) => set({ completion: e.target.value })} /></Field>}
-        </div>
-        <Field label="Дизайн"><Chips options={one('design')} value={pf.design} onChange={(v) => setPf('design', v)} /></Field>
-        <Field label="Ванные комнаты" hint="Одна — не отмечать"><Chips options={one('bathrooms')} value={pf.bathrooms} onChange={(v) => setPf('bathrooms', v)} /></Field>
-        <Field label="Отопление"><Chips options={one('heating')} value={pf.heating} onChange={(v) => setPf('heating', v)} /></Field>
-        <Field label="Удобства">
-          <div className="row row-wrap gap-sm">
-            {SALE_AMENITIES.map((a) => {
-              const on = (pf.amenities || []).includes(a);
-              return <button key={a} type="button" className={`chip ${on ? 'active' : ''}`} aria-pressed={on} onClick={() => toggle(a)}>{on ? <CheckCircle2 size={14} /> : null}{POST_MANY.amenities[1][a]}</button>;
-            })}
-          </div>
-        </Field>
-      </div>
-      <div className="gen-block">
-        <span className="gen-title">3 · Цена</span>
-        <div className="form-grid">
-          <Field label="Цена" hint="Диапазон цены (#Price…) ставится в пост сам"><Input type="number" inputMode="numeric" value={s(d.price)} onChange={(e) => set({ price: e.target.value })} /></Field>
-          <Field label="Валюта"><Select value={s(d.currency) || 'USD'} onChange={(e) => set({ currency: e.target.value })} options={CURRENCY} /></Field>
-        </div>
-      </div>
-    </>
-  );
+/** the form's values -> the request body (empty string = cleared field) */
+function body(d: Draft): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const k of KEYS) {
+    const v = d[k];
+    out[k] = k === 'is_exclusive' ? !!v : v === '' || v == null ? null : NUM.has(k) ? Number(v) : v;
+  }
+  if (d.deal === 'sale') Object.assign(out, { period: null, deposit: null });
+  else out.mileage = null;
+  return out;
 }
 
 function CarForm({ d, set }: { d: Draft; set: (patch: Draft) => void }) {
@@ -208,8 +131,8 @@ function CarForm({ d, set }: { d: Draft; set: (patch: Draft) => void }) {
   );
 }
 
-/** Photos and video as on a rent object: up to 9 photos + 1 video, drag to sort, a tap opens the Lightbox. */
-function Media({ kind, o, onChange }: { kind: OfferKind; o: Offer; onChange: (o: Offer) => void }) {
+/** Photos and video as on an object: up to 9 photos + 1 video, drag to sort, a tap opens the Lightbox. */
+function Media({ o, onChange }: { o: Offer; onChange: (o: Offer) => void }) {
   const toast = useToast();
   const file = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState<Record<number, number>>({});
@@ -222,7 +145,7 @@ function Media({ kind, o, onChange }: { kind: OfferKind; o: Offer; onChange: (o:
     await pool(fit, 3, async (f, i) => {
       try {
         const small = await shrinkPhoto(f);
-        onChange(await api.offers.upload(kind, o.id, small, (p) => setBusy((b) => ({ ...b, [i]: Math.round(p * 100) }))));
+        onChange(await api.offers.upload(KIND, o.id, small, (p) => setBusy((b) => ({ ...b, [i]: Math.round(p * 100) }))));
       } catch (e) { toast(errText(e), true); }
       setBusy((b) => { const { [i]: _, ...rest } = b; return rest; });
     });
@@ -236,82 +159,95 @@ function Media({ kind, o, onChange }: { kind: OfferKind; o: Offer; onChange: (o:
         <Button block loading={pending.length > 0} disabled={full} onClick={() => file.current?.click()}><Upload size={16} />{full ? 'Загружено максимум файлов' : 'Загрузить фото и видео'}</Button>
         {pending.length > 0 && <div className="muted" style={{ fontSize: 12 }}>Загружаем: {pending.map((p) => `${p}%`).join(' · ')}</div>}
         <MediaGrid items={shots(o)} grouped
-          onOrder={(ids) => run(api.offers.order(kind, o.id, ids.map(String).filter((k) => k !== o.video)))}
-          onDelete={(k) => { if (confirm('Удалить файл?')) run(api.offers.deleteFile(kind, o.id, String(k))); }} />
+          onOrder={(ids) => run(api.offers.order(KIND, o.id, ids.map(String).filter((k) => k !== o.video)))}
+          onDelete={(k) => { if (confirm('Удалить файл?')) run(api.offers.deleteFile(KIND, o.id, String(k))); }} />
       </div>
     </Card>
   );
 }
 
-/** The two publications: the site hge.ge (status) and the Telegram post (operators, as for rent objects). */
-function Publish({ kind, o, dirty, onChange }: { kind: OfferKind; o: Offer; dirty: boolean; onChange: (o: Offer) => void }) {
+/** Where the car is (site / Telegram) and one «Опубликовать» to the checked targets; the post text and its files picked
+ * as on an object (drag, the checkbox, a tap opens it). Telegram: operators, as for objects. */
+function Publish({ o, dirty, onChange }: { o: Offer; dirty: boolean; onChange: (o: Offer) => void }) {
   const toast = useToast();
   const { isStaff } = useAuth();
-  const post = useQuery({ queryKey: ['offer-post', kind, o.id, o.updated_at], queryFn: () => api.offers.post(kind, o.id) });
+  const post = useQuery({ queryKey: ['offer-post', KIND, o.id, o.updated_at], queryFn: () => api.offers.post(KIND, o.id) });
   const [edited, setEdited] = useState<string | null>(null);
+  const [toSite, setToSite] = useState(o.status !== 'published');
+  const [toTg, setToTg] = useState(!o.post_url);
+  const [order, setOrder] = useState<string[] | null>(null);
+  const [off, setOff] = useState<Set<string>>(() => new Set());
+  const own = shots(o);
+  const known = new Set(own.map((m) => String(m.id)));
+  const ordered = [...(order || []).filter((k) => known.has(k)), ...own.map((m) => String(m.id)).filter((k) => !(order || []).includes(k))];
+  const items = ordered.map((k) => own.find((m) => m.id === k)!);
+  const picked = ordered.filter((k) => !off.has(k)).slice(0, ALBUM_MAX);
   const text = edited ?? post.data?.text ?? '';
-  const status = useMutation({
-    mutationFn: (st: OfferStatus) => api.offers.setStatus(kind, o.id, st),
-    onSuccess: (x) => { onChange(x); toast(x.status === 'published' ? 'Опубликовано на сайте' : x.status === 'draft' ? 'Снято с сайта' : 'В архиве'); },
+  const tg = toTg && isStaff;
+  const publish = useMutation({
+    mutationFn: () => api.offers.publish(KIND, o.id, { text: edited ?? undefined, tg, site: toSite, keys: tg ? picked : undefined }),
+    onSuccess: (x) => { onChange(x); setToSite(x.status !== 'published'); setToTg(!x.post_url); toast('Опубликовано'); },
     onError: (e) => toast(errText(e), true),
   });
-  const tg = useMutation({
-    mutationFn: () => api.offers.telegram(kind, o.id, edited ?? undefined),
-    onSuccess: (x) => { onChange(x); toast(x.post_url ? 'Опубликовано в Telegram' : 'Пост собран (dev: без отправки)'); },
+  const status = useMutation({
+    mutationFn: (st: OfferStatus) => api.offers.setStatus(KIND, o.id, st),
+    onSuccess: (x) => { onChange(x); setToSite(x.status !== 'published'); toast(x.status === 'draft' ? 'Снято с сайта' : 'В архиве'); },
     onError: (e) => toast(errText(e), true),
   });
   const noPhoto = !o.photos.length;
   return (
     <Card title="Публикация">
       <div className="col gap-lg">
+        <div className="row row-wrap gap-sm">
+          <span className="label">Где опубликовано</span>
+          {o.public ? <a href={siteUrl(o)} target="_blank" rel="noreferrer"><Badge tone="ok">на сайте hge.ge</Badge></a> : <Badge tone={SITE[o.status][1]}>{SITE[o.status][0]}</Badge>}
+          {o.post_url ? <a href={o.post_url} target="_blank" rel="noreferrer"><Badge tone="ok">в Telegram</Badge></a> : <Badge tone="grey">нет поста в Telegram</Badge>}
+          {o.status === 'published' && <Button size="sm" variant="ghost" loading={status.isPending} onClick={() => status.mutate('draft')}>Снять с сайта</Button>}
+          {o.status !== 'archived' && <Button size="sm" variant="ghost" loading={status.isPending} onClick={() => { if (confirm('Убрать в архив? С сайта пропадёт.')) status.mutate('archived'); }}>В архив</Button>}
+        </div>
         {dirty && <div className="alert alert-warn">Есть несохранённые правки — сначала «Сохранить».</div>}
         {noPhoto && <div className="alert alert-warn">Чтобы опубликовать, добавьте хотя бы одно фото.</div>}
-        <div className="gen-block">
-          <div className="row row-between row-wrap gap-sm"><span className="gen-title">Сайт hge.ge</span><Badge tone={SITE[o.status][1]}>{SITE[o.status][0]}</Badge></div>
-          <div className="row row-wrap gap-sm">
-            {o.status !== 'published'
-              ? <Button variant="ok" loading={status.isPending} disabled={dirty || noPhoto} onClick={() => status.mutate('published')}><Globe size={16} />Опубликовать на сайте</Button>
-              : <>
-                <a className="btn btn-secondary" href={siteUrl(o)} target="_blank" rel="noreferrer"><ExternalLink size={16} />Открыть на сайте</a>
-                <Button variant="ghost" loading={status.isPending} onClick={() => status.mutate('draft')}>Снять с сайта</Button>
-              </>}
-            {o.status !== 'archived' && <Button variant="ghost" loading={status.isPending} onClick={() => { if (confirm('Убрать в архив? С сайта пропадёт.')) status.mutate('archived'); }}>В архив</Button>}
-          </div>
-        </div>
-        <div className="gen-block">
-          <div className="row row-between row-wrap gap-sm"><span className="gen-title">Telegram</span>{o.post_url ? <a href={o.post_url} target="_blank" rel="noreferrer">пост в канале <ExternalLink size={12} /></a> : <span className="faint" style={{ fontSize: 12 }}>ещё не опубликован</span>}</div>
-          {post.isLoading ? <Loading /> : (
-            <Field label="Текст поста" hint="Собран из полей выше, как в генераторе постов. 📍[адрес](ссылка) станет ссылкой на карту.">
-              <Textarea value={text} rows={14} readOnly={!isStaff} onChange={(e) => setEdited(e.target.value)} style={{ fontFamily: 'inherit', lineHeight: 1.45 }} />
-            </Field>
-          )}
-          {edited !== null && <Button size="sm" variant="ghost" onClick={() => setEdited(null)}><RotateCcw size={14} />Исходный текст</Button>}
-          {isStaff
-            ? <Button variant="ok" loading={tg.isPending} disabled={dirty || noPhoto || !text.trim()} onClick={() => { if (confirm(o.post_url ? 'Опубликовать ещё раз? Старый пост останется в канале.' : 'Опубликовать пост в Telegram?')) tg.mutate(); }}>
-              <Send size={16} />{o.post_url ? 'Опубликовать в Telegram ещё раз' : 'Опубликовать в Telegram'}</Button>
-            : <div className="muted" style={{ fontSize: 12 }}>В Telegram публикует оператор.</div>}
-        </div>
+        {tg && (
+          <>
+            {post.isLoading ? <Loading /> : (
+              <Field label="Текст поста" hint="Собран из полей выше, как в генераторе постов.">
+                <Textarea value={text} rows={12} onChange={(e) => setEdited(e.target.value)} style={{ fontFamily: 'inherit', lineHeight: 1.45 }} />
+              </Field>
+            )}
+            {edited !== null && <Button size="sm" variant="ghost" onClick={() => setEdited(null)}><RotateCcw size={14} />Исходный текст</Button>}
+            <div>
+              <div className="row row-between"><span className="label">Фото и видео в посте</span><span className="muted num" style={{ fontWeight: 700 }}>{picked.length}/{Math.min(items.length, ALBUM_MAX)}</span></div>
+              <div className="muted" style={{ fontSize: 12, margin: '4px 0 8px' }}>Перетащите, чтобы поменять порядок; галочка — файл в посте; нажмите, чтобы открыть. Первый файл — обложка.</div>
+              <MediaGrid items={items} grouped off={off as Set<Shot['id']>} onOrder={(ids) => setOrder(ids.map(String))}
+                onToggle={(k) => setOff((x) => { const n = new Set(x); if (n.has(String(k))) n.delete(String(k)); else n.add(String(k)); return n; })} />
+            </div>
+          </>
+        )}
+        <PublishTargets site={toSite} tg={tg} onSite={setToSite} onTg={setToTg} tgLocked={isStaff ? undefined : 'В Telegram публикует оператор'} />
+        <Button variant="ok" size="lg" loading={publish.isPending} disabled={dirty || noPhoto || (!toSite && !tg) || (tg && !picked.length)}
+          onClick={() => { if (!tg || !o.post_url || confirm('Пост уже есть в канале. Опубликовать ещё раз?')) publish.mutate(); }}>
+          <Send size={18} />Опубликовать
+        </Button>
       </div>
     </Card>
   );
 }
 
-export function OfferCardPage({ kind }: { kind: OfferKind }) {
-  const m = META[kind];
+export function OfferCardPage() {
   const { id } = useParams();
   const isNew = id === 'new';
   const nav = useNavigate();
   const toast = useToast();
   const qc = useQueryClient();
-  const q = useQuery({ queryKey: ['offer', kind, id], queryFn: () => api.offers.get(kind, Number(id)), enabled: !isNew });
+  const q = useQuery({ queryKey: ['offer', KIND, id], queryFn: () => api.offers.get(KIND, Number(id)), enabled: !isNew });
   const [draft, setDraft] = useState<Draft | null>(null);
   const o = q.data;
-  const d: Draft = draft ?? (isNew ? NEW[kind] : (o as Draft) ?? {});
+  const d: Draft = draft ?? (isNew ? NEW : (o as Draft) ?? {});
   const set = (patch: Draft) => setDraft((x) => ({ ...(x ?? d), ...patch }));
-  const fresh = (x: Offer) => { qc.setQueryData(['offer', kind, String(x.id)], x); qc.invalidateQueries({ queryKey: ['offers', kind] }); };
+  const fresh = (x: Offer) => { qc.setQueryData(['offer', KIND, String(x.id)], x); qc.invalidateQueries({ queryKey: ['offers', KIND] }); };
   const save = useMutation({
-    mutationFn: () => (isNew ? api.offers.create(kind, body(kind, d)) : api.offers.update(kind, Number(id), body(kind, d))),
-    onSuccess: (x) => { setDraft(null); fresh(x); toast('Сохранено'); if (isNew) nav(`${m.path}/${x.id}`, { replace: true }); },
+    mutationFn: () => (isNew ? api.offers.create(KIND, body(d)) : api.offers.update(KIND, Number(id), body(d))),
+    onSuccess: (x) => { setDraft(null); fresh(x); toast('Сохранено'); if (isNew) nav(`${PATH}/${x.id}`, { replace: true }); },
     onError: (e) => toast(errText(e), true),
   });
   if (!isNew && q.isLoading) return <Loading />;
@@ -319,22 +255,22 @@ export function OfferCardPage({ kind }: { kind: OfferKind }) {
   const ready = !!s(d.title).trim();
   return (
     <div className="col gap-lg">
-      <div><Link to={m.path} className="muted" style={{ fontSize: 13 }}>← {m.title}</Link></div>
-      <PageHead label={[m.title, what(kind, d)].filter(Boolean).join(' · ')} title={isNew ? m.add : String(o!.title)}
+      <div><Link to={PATH} className="muted" style={{ fontSize: 13 }}>← Авто</Link></div>
+      <PageHead label={['Авто', what(d)].filter(Boolean).join(' · ')} title={isNew ? 'Новое авто' : String(o!.title)}
         actions={o && <><Badge tone={SITE[o.status][1]}>{SITE[o.status][0]}</Badge>{o.post_url && <Badge tone="blue">в Telegram</Badge>}</>} />
       <Card>
         <div className="col gap-lg">
-          {kind === 'sale' ? <SaleForm d={d} set={set} /> : <CarForm d={d} set={set} />}
+          <CarForm d={d} set={set} />
           <Field label="Описание"><Textarea rows={5} value={s(d.description)} onChange={(e) => set({ description: e.target.value })} /></Field>
           <div className="row gap-sm row-wrap">
             <Button size="lg" loading={save.isPending} disabled={!ready || (!isNew && !draft)} onClick={() => save.mutate()}>Сохранить</Button>
-            {!ready && <span className="faint" style={{ fontSize: 12, alignSelf: 'center' }}>Укажите {kind === 'car' ? 'модель' : 'адрес'}</span>}
+            {!ready && <span className="faint" style={{ fontSize: 12, alignSelf: 'center' }}>Укажите модель</span>}
           </div>
         </div>
       </Card>
       {isNew ? <Empty text="Фото, видео и публикация — после сохранения" /> : o && <>
-        <Media kind={kind} o={o} onChange={fresh} />
-        <Publish kind={kind} o={o} dirty={!!draft} onChange={fresh} />
+        <Media o={o} onChange={fresh} />
+        <Publish o={o} dirty={!!draft} onChange={fresh} />
       </>}
     </div>
   );

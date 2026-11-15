@@ -1,7 +1,8 @@
 """Public read-only feed for the agency site hge.ge (served by app/api/site.py, no login).
 
-Three sources, one item shape (the site's own listings.json item: empty values are left out, like the old builder did):
-rent objects (properties, id "o<id>"), sale objects (sale_objects, "s<id>") and cars (cars, "c<id>"). STRICT whitelist:
+Two sources, one item shape (the site's own listings.json item: empty values are left out, like the old builder did):
+properties, rent and sale alike (id "o<id>"; a sale object copied from the old sale_objects table still answers to its
+"s<id>", post_fields.offer_ident), and cars (cars, "c<id>"). STRICT whitelist:
 an item is built key by key from the public fields; nothing is copied wholesale (no owner / tenant / lease / cadastral /
 checklist / ai_flags / archive / review fields, no private media). Public = published AND at least one photo."""
 import re
@@ -12,7 +13,7 @@ import httpx
 from sqlalchemy import exists, func, select
 from sqlalchemy.orm import Session
 
-from app.models import Car, Property, PropertyMedia, SaleObject, User
+from app.models import Car, Property, PropertyMedia, User
 from app.services import properties as P
 
 NBG_URL = "https://nbg.gov.ge/gw/api/ct/monetarypolicy/currencies/en/json/?currencies=USD&currencies=EUR"
@@ -118,37 +119,25 @@ def tag_words(f: dict) -> dict:
 
 
 def item(p: Property, n_photos: int, agent: User | None, fx: dict) -> dict:
-    """A rent object (rent, daily, commercial for rent)."""
+    """A property: rent (rent, daily, commercial for rent) or sale (post_fields.deal = Sale: resale, new, commercial)."""
     f = p.post_fields or {}
-    service = f.get("service") or "rent"
-    price = float(p.price) if p.price is not None else None
+    sale = f.get("deal") == "Sale"
+    service = f.get("service") or ("sale" if sale else "rent")
+    price = float(f.get("sale_price") or p.price or 0) or None if sale else float(p.price) if p.price is not None else None
+    usd, area = _usd(price, p.currency, fx), float(p.area) if p.area is not None else None
     months = f.get("months") or [int(x[:-5]) for x in f.get("periods") or [] if x.endswith("Month")]
     iid = f"o{p.id}"
     return _final({
-        "id": iid, "legacy_id": f.get("site_id"), "service": service, "source": service, "deal": "rent",
+        "id": iid, "legacy_id": f.get("site_id"), "service": service, "source": service, "deal": "sale" if sale else "rent",
         "period": f.get("period"), **tag_words(f),
         "title": p.address, "district": p.district, "lat": p.lat, "lon": p.lng,
-        "price": price, "currency": p.currency, "price_usd": _usd(price, p.currency, fx), "deposit": f.get("deposit"),
-        "rooms": p.bedrooms, "area": float(p.area) if p.area is not None else None, "floor": p.floor, "floors": p.total_floors,
+        "price": price, "currency": p.currency, "price_usd": usd, "deposit": None if sale else f.get("deposit"),
+        "ppsqm_usd": round(usd / area) if sale and usd and area else None, "completion": f.get("completion"),
+        "rooms": p.bedrooms, "area": area, "floor": p.floor, "floors": p.total_floors,
         "pets": inv(PETS).get(f.get("pets")), "months": months, "tenants": f.get("tenants"),
         "exclusive": p.is_exclusive, "description": p.description,
         "agent": _agent(agent), "photos": [PHOTO_URL.format(id=iid, n=n) for n in range(n_photos)],
         "post_url": p.post_url, "published_at": _iso(p.published_at), "updated_at": _iso(p.updated_at),
-    })
-
-
-def sale_item(s: SaleObject, agent: User | None, fx: dict) -> dict:
-    iid, price = f"s{s.id}", float(s.price) if s.price is not None else None
-    usd, area = _usd(price, s.currency, fx), float(s.area) if s.area is not None else None
-    return _final({
-        "id": iid, "legacy_id": s.site_id, "service": s.service, "source": s.service, "deal": "sale",
-        **tag_words(s.post_fields or {}),
-        "title": s.title, "district": s.district, "lat": s.lat, "lon": s.lng,
-        "price": price, "currency": s.currency, "price_usd": usd,
-        "ppsqm_usd": round(usd / area) if usd and area else None, "rooms": s.rooms, "area": area, "floor": s.floor,
-        "floors": s.floors, "exclusive": s.is_exclusive, "completion": s.completion, "description": s.description,
-        "agent": _agent(agent), "photos": [PHOTO_URL.format(id=iid, n=n) for n in range(len(s.photos))],
-        "post_url": s.post_url, "published_at": _iso(s.published_at), "updated_at": _iso(s.updated_at),
     })
 
 
@@ -182,15 +171,18 @@ def _offer_filter(m):
     return (m.status == "published", func.jsonb_array_length(m.photos) > 0)
 
 
-def find(db: Session, ident: str) -> Property | SaleObject | Car | None:
-    """A public object by "o<id>" / "s<id>" / "c<id>" or its old site id ("rent-551776"); None when it is not public."""
-    if m := re.fullmatch(r"([osc])(\d+)", ident):
-        model = {"o": Property, "s": SaleObject, "c": Car}[m[1]]
-        q = select(model).where(*(public_filter() if model is Property else _offer_filter(model)), model.id == int(m[2]))
-        return db.scalars(q).first()
-    for model in (Property, SaleObject, Car):
+def find(db: Session, ident: str) -> Property | Car | None:
+    """A public object by "o<id>" / "c<id>", a copied sale object's "s<id>", or its old site id ("rent-551776");
+    None when it is not public."""
+    pub = lambda model: public_filter() if model is Property else _offer_filter(model)  # noqa: E731
+    if m := re.fullmatch(r"([oc])(\d+)", ident):
+        model = Property if m[1] == "o" else Car
+        return db.scalars(select(model).where(*pub(model), model.id == int(m[2]))).first()
+    if re.fullmatch(r"s\d+", ident):
+        return db.scalars(select(Property).where(*pub(Property), Property.post_fields["offer_ident"].astext == ident)).first()
+    for model in (Property, Car):
         by_site = Property.post_fields["site_id"].astext == ident if model is Property else model.site_id == ident
-        if o := db.scalars(select(model).where(*(public_filter() if model is Property else _offer_filter(model)), by_site)).first():
+        if o := db.scalars(select(model).where(*pub(model), by_site)).first():
             return o
     return None
 
@@ -208,23 +200,21 @@ def video_key(db: Session, o) -> str | None:
 
 
 def ident_of(o) -> str:
-    return f"{'o' if isinstance(o, Property) else 's' if isinstance(o, SaleObject) else 'c'}{o.id}"
+    return f"{'o' if isinstance(o, Property) else 'c'}{o.id}"
 
 
 def feed(db: Session) -> dict:
     props = db.scalars(select(Property).where(*public_filter())).all()
-    sales = db.scalars(select(SaleObject).where(*_offer_filter(SaleObject))).all()
     cars = db.scalars(select(Car).where(*_offer_filter(Car))).all()
     counts: dict[int, int] = {}
     for pid, in db.execute(select(PropertyMedia.property_id).where(
             PropertyMedia.kind == "photo", ~PropertyMedia.path.startswith(P.PRIVATE_PREFIX),
             PropertyMedia.property_id.in_([p.id for p in props]))):
         counts[pid] = counts.get(pid, 0) + 1
-    aids = {o.agent_id for o in (*props, *sales, *cars) if o.agent_id}
+    aids = {o.agent_id for o in (*props, *cars) if o.agent_id}
     agents = {u.id: u for u in db.scalars(select(User).where(User.id.in_(aids)))}
     fx = rates()
     rows = ([(p.published_at, p.id, item(p, counts.get(p.id, 0), agents.get(p.agent_id), fx)) for p in props]
-            + [(s.published_at, s.id, sale_item(s, agents.get(s.agent_id), fx)) for s in sales]
             + [(c.published_at, c.id, car_item(c, agents.get(c.agent_id), fx)) for c in cars])
     rows.sort(key=lambda r: (r[0] or EPOCH, r[1]), reverse=True)  # newest first, undated last
     items = [r[2] for r in rows]
@@ -254,7 +244,6 @@ def detail(db: Session, ident: str) -> dict | None:
     if o is None:
         return None
     agent, fx = db.get(User, o.agent_id) if o.agent_id else None, rates()
-    d = (item(o, len(photo_keys(db, o.id)), agent, fx) if isinstance(o, Property)
-         else sale_item(o, agent, fx) if isinstance(o, SaleObject) else car_item(o, agent, fx))
+    d = item(o, len(photo_keys(db, o.id)), agent, fx) if isinstance(o, Property) else car_item(o, agent, fx)
     d["video"] = VIDEO_URL.format(id=ident_of(o)) if video_key(db, o) else None
     return d

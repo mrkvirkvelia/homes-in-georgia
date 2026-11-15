@@ -12,7 +12,7 @@ import { Button, Field, Input, Modal, PageHead, Tabs, DistrictSelect } from '../
 import type { ReactNode } from 'react';
 import { ArchivedLeads, LeadStages } from '../features/leads/LeadBoard';
 import { LeadDetail } from '../features/leads/LeadDetail';
-import { MyProperties, NewListings, PropertyList, WorkProperties } from '../features/properties/lists';
+import { DealContext, MyProperties, NewListings, PropertyList, WorkProperties, type Deal } from '../features/properties/lists';
 import { metroLabel, PropertyDetail } from '../features/properties/PropertyDetail';
 import { ChangeRequestQueue } from '../features/properties/requests';
 import { distLabel, phoneInput } from '../lib/format';
@@ -22,19 +22,19 @@ type ObjTab = 'new' | 'board' | 'review' | 'requests' | 'mine' | 'all' | 'archiv
 
 /** «Объект вручную»: the owner came to the office himself. His contact makes the object «Собственник» at once (no call
  * step); the card then opens the post generator, where the agent fills everything (address, price, photos...). */
-export function ManualProperty({ open, onClose, base = '' }: { open: boolean; onClose: () => void; base?: string }) {
+export function ManualProperty({ open, onClose, base = '', deal = 'rent' }: { open: boolean; onClose: () => void; base?: string; deal?: Deal }) {
   const empty = { owner_name: '', owner_phone: '', address: '', district: '', point: null as Point | null, facts: null as PointFacts | null };
   const [f, setF] = useState(empty);
   const qc = useQueryClient();
   const toast = useToast();
   const navigate = useNavigate();
   const m = useMutation({
-    mutationFn: () => api.properties.create({ address: f.address || null, district: f.district || null, lat: f.point?.lat ?? null, lng: f.point?.lng ?? null, ...(f.facts?.metro ? { post_fields: { metro: f.facts.metro } } : {}), source_type: 'direct', owner_name: f.owner_name, owner_phone: f.owner_phone }),
+    mutationFn: () => api.properties.create({ address: f.address || null, district: f.district || null, lat: f.point?.lat ?? null, lng: f.point?.lng ?? null, post_fields: { ...(f.facts?.metro ? { metro: f.facts.metro } : {}), ...(deal === 'sale' ? { deal: 'Sale', prop_type: 'Apartment' } : {}) }, source_type: 'direct', owner_name: f.owner_name, owner_phone: f.owner_phone }),
     onSuccess: (p) => { qc.invalidateQueries({ queryKey: ['properties'] }); onClose(); setF(empty); navigate(`${base}/objects/${p.id}`); },
     onError: (e) => toast(errText(e), true),
   });
   return (
-    <Modal open={open} onClose={onClose} title="Объект вручную">
+    <Modal open={open} onClose={onClose} title={deal === 'sale' ? 'Объект на продажу' : 'Объект вручную'}>
       <div className="muted" style={{ fontSize: 13, marginBottom: 12 }}>Собственник пришёл сам: объект сразу в статусе «Собственник», дальше откроется пост-генератор — там цена, параметры и фото.</div>
       <div className="form-grid">
         <Field label="Имя собственника"><Input value={f.owner_name} onChange={(e) => setF({ ...f, owner_name: e.target.value })} /></Field>
@@ -66,23 +66,33 @@ export function ObjectsPage() {
   // «На публикацию» / «Запросы» are the operators' queues: an agent's ?tab=requests falls back to his default tab
   const allowed = (t: ObjTab) => isStaff || !['review', 'requests'].includes(t);
   const tab = asked && OBJ_TAB[asked] && allowed(asked) ? asked : isStaff ? 'board' : 'new';
-  const setTab = (t: ObjTab) => setParams({ tab: t }, { replace: true });
+  // Аренда / Продажа (Stanislav 11-15): each with its own feed, board, base and archive; kept in the URL (?deal=sale)
+  const deal: Deal = params.get('deal') === 'sale' ? 'sale' : 'rent';
+  const setTab = (t: ObjTab) => setParams({ tab: t, ...(deal === 'sale' ? { deal } : {}) }, { replace: true });
+  const setDeal = (d: Deal) => setParams({ tab, ...(d === 'sale' ? { deal: d } : {}) }, { replace: true });
   const [manual, setManual] = useState(params.get('new') === '1');
   // «На публикацию»: objects the agents sent («Готово — отправить оператору»); same query as the dashboard's tasks
-  const queue = useQuery({ queryKey: ['properties', 'list', 'review'], queryFn: () => api.properties.list({ status: 'review' }), enabled: isStaff });
+  const queue = useQuery({ queryKey: ['properties', 'list', 'review', deal], queryFn: () => api.properties.list({ status: 'review', deal }), enabled: isStaff });
   const requests = useQuery({ queryKey: ['change-requests', 'pending'], queryFn: () => api.changeRequests.list('pending'), enabled: isStaff });
   const fresh = useQuery({ queryKey: ['listings', 'new', 'count'], queryFn: () => api.listings.new({}, 1), staleTime: 60_000 });
   const count: Partial<Record<ObjTab, number | undefined>> = {
-    new: fresh.data?.total, review: queue.data ? itemsOf(queue.data).length : undefined, requests: requests.data?.total,
+    new: deal === 'sale' ? undefined : fresh.data?.total, review: queue.data ? itemsOf(queue.data).length : undefined, requests: requests.data?.total,
   };
   const groups = OBJ_GROUPS.map((g) => ({ ...g, tabs: g.tabs.filter(allowed) }));
   const group = groups.find((g) => g.tabs.includes(tab))!;
   const badge = (t: ObjTab) => count[t] !== undefined && <span className={`tab-count${t === 'new' && count[t] ? ' hot' : ''}`}>{count[t]}</span>;
   return (
-    <>
+    <DealContext.Provider value={deal}>
       <div className="obj-head">
-        <div className="row row-between">
-          <h1>Объекты</h1>
+        <div className="row row-between row-wrap gap-sm">
+          <div className="row gap row-wrap">
+            <h1>Объекты</h1>
+            <div className="obj-deal" role="tablist" aria-label="Аренда или продажа">
+              {([['rent', 'Аренда'], ['sale', 'Продажа']] as [Deal, string][]).map(([d, l]) => (
+                <button key={d} type="button" role="tab" aria-selected={deal === d} className={deal === d ? 'active' : ''} onClick={() => setDeal(d)}>{l}</button>
+              ))}
+            </div>
+          </div>
           <button type="button" className="btn obj-head-btn" onClick={() => setManual(true)}><Plus size={16} />Объект вручную</button>
         </div>
         <div className="obj-groups" role="tablist">
@@ -102,13 +112,13 @@ export function ObjectsPage() {
       </div>
       {tab === 'new' && <NewListings />}
       {tab === 'board' && <WorkProperties />}
-      {tab === 'review' && <PropertyList key="review" status="review" />}
+      {tab === 'review' && <PropertyList key={`review-${deal}`} status="review" />}
       {tab === 'requests' && <ChangeRequestQueue />}
-      {tab === 'mine' && (isStaff ? <PropertyList mine /> : <MyProperties />)}
-      {tab === 'all' && <PropertyList key="all" />}
-      {tab === 'archive' && <PropertyList key="archive" archived />}
-      <ManualProperty open={manual} onClose={() => setManual(false)} />
-    </>
+      {tab === 'mine' && (isStaff ? <PropertyList key={`mine-${deal}`} mine /> : <MyProperties key={deal} />)}
+      {tab === 'all' && <PropertyList key={`all-${deal}`} />}
+      {tab === 'archive' && <PropertyList key={`archive-${deal}`} archived />}
+      <ManualProperty open={manual} onClose={() => setManual(false)} deal={deal} />
+    </DealContext.Provider>
   );
 }
 

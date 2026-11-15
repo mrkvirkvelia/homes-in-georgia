@@ -1,5 +1,5 @@
 // Funnel 1 lists: new listings (C1), kanban (by status), my objects. Shared by desktop and /m.
-import { useRef, useState } from 'react';
+import { createContext, useContext, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Archive, ArrowRightLeft, DollarSign, ExternalLink, List, Map as MapIcon, Search, Users } from 'lucide-react';
@@ -87,7 +87,20 @@ function FeedFilters({ f, patch, view, onView, seg, facets, sourceLabel, metroLa
 const PAGE = 50;
 const MAP_LIMIT = 500;  // ponytail: the map loads the first 500 filtered ads; a bbox query when the feed grows past it
 
+/** «Объекты» → Аренда / Продажа (Stanislav 11-15): every list, board and count of the page shows one deal. Outside
+ * «Объекты» (cabinet, dashboard) there is no provider: both deals. */
+export type Deal = 'rent' | 'sale';
+export const DealContext = createContext<Deal | undefined>(undefined);
+export const useDeal = () => useContext(DealContext);
+const isSale = (p: Property) => p.post_fields?.deal === 'Sale';
+const priceOf = (p: Property) => (isSale(p) ? money(p.post_fields?.sale_price ?? p.price, p.currency || 'USD') : money(p.price, p.currency || 'USD'));
+
 export function NewListings({ base = '' }: { base?: string }) {
+  if (useDeal() === 'sale') return <Empty text="Объявления о продаже пока не собираем: объект продажи добавляется кнопкой «Объект вручную»" />;
+  return <RentListings base={base} />;
+}
+
+function RentListings({ base = '' }: { base?: string }) {
   const [f, setF0] = usePageState<ListingFilter>('feed-filter', { q: '', flag: '' });
   const [limit, setLimit] = usePageState('feed-limit', PAGE);
   const [view, setView] = usePageState<'list' | 'map'>('feed-view', 'list');
@@ -267,7 +280,7 @@ export function PropertyModal({ id, listing, reasons, base = '', onClose }: { id
 }
 
 /** «База объектов»: the same card as «Новые объявления»; a tap opens the full object (Stanislav 11-13: no modal step). */
-function PropertyCard({ p, to }: { p: Property; to: string }) {
+function PropertyCard({ p, to, note }: { p: Property; to: string; note?: React.ReactNode }) {
   return (
     <Link to={to} className="card lcard" style={{ color: 'inherit', textDecoration: 'none' }}>
       <div className="lcard-photo">
@@ -277,7 +290,8 @@ function PropertyCard({ p, to }: { p: Property; to: string }) {
       </div>
       <div className="lcard-body">
         <span className="label">{[districtLabel(p.district), bedroomsLabel(p.bedrooms), p.area ? `${p.area} м²` : null].filter(Boolean).join(' · ') || '—'}</span>
-        <div className="price">{money(p.price, p.currency || 'USD')}<span className="muted" style={{ fontSize: 12, fontWeight: 600 }}>/мес</span></div>
+        <div className="price">{priceOf(p)}{!isSale(p) && <span className="muted" style={{ fontSize: 12, fontWeight: 600 }}>/мес</span>}</div>
+        {note}
         <div className="row row-between gap-sm faint" style={{ fontSize: 12, marginTop: 'auto' }}>
           <span className="ellipsis">#{p.id} · {p.agent?.name || PLATFORM}</span>
           <span style={{ flex: 'none' }}>{ago(p.updated_at || p.created_at)}</span>
@@ -321,7 +335,8 @@ const WHO: PropertyStatus[] = ['owner_confirmed', 'agent_marked'];
  * shoot date, photos, operator's review) open the object card; any other move is refused with a toast.
  * Agents: «Опубликован» is collapsed until «Показать» (it only grows and clutters the working columns). */
 export function PropertyBoard({ base = '', statusBar }: { base?: string; statusBar?: boolean }) {
-  const { data, isLoading, error } = useQuery({ queryKey: ['properties', 'board'], queryFn: api.properties.board, refetchInterval: 30_000 });
+  const deal = useDeal();
+  const { data, isLoading, error } = useQuery({ queryKey: ['properties', 'board', deal], queryFn: () => api.properties.board(deal), refetchInterval: 30_000 });
   const { isStaff } = useAuth();
   const qc = useQueryClient();
   const toast = useToast();
@@ -431,7 +446,8 @@ const WORK = PROPERTY_BOARD.filter((s) => s !== 'published' && s !== 'rented');
 export function WorkProperties() {
   const [view, setView] = useState<'board' | 'list'>('board');
   const [stage, setStage] = useState<PropertyStatus | ''>('');
-  const { data } = useQuery({ queryKey: ['properties', 'board'], queryFn: api.properties.board, refetchInterval: 30_000 });
+  const deal = useDeal();
+  const { data } = useQuery({ queryKey: ['properties', 'board', deal], queryFn: () => api.properties.board(deal), refetchInterval: 30_000 });
   return (
     <div className="col">
       <div className="row row-wrap">
@@ -479,17 +495,18 @@ export function PropertyList({ mine, archived, status: only, agentId, base = '' 
   // staff pick an agent instead of typing his #tag; agents only ever get their own objects (backend properties.query)
   const agents = useQuery({ queryKey: ['users', 'agents-all'], queryFn: () => api.users.list({ role: FIELD_FILTER }), enabled: isStaff && !mine && !fixedAgent });
   // the tab's scope (what the segment narrows, what the facets count over); «В работе» in the segment = every work stage
-  const scoped: PropertyScope = { mine: mine ? 1 : undefined, base: scope === 'all' ? 1 : undefined, agent_id: agentId ?? (agent ? Number(agent) : undefined),
+  const deal = useDeal();
+  const scoped: PropertyScope = { deal, mine: mine ? 1 : undefined, base: scope === 'all' ? 1 : undefined, agent_id: agentId ?? (agent ? Number(agent) : undefined),
     status: archived ? 'archived' : only || (mine ? '' : BASE.join(',')) };
   const statusQ = status === 'work' ? WORK.join(',') : status || scoped.status;
   const { data, isLoading, isFetching, error } = useQuery({
-    queryKey: ['properties', 'list', scope, f, statusQ, scoped.agent_id, reason, view === 'map' ? -1 : page],
+    queryKey: ['properties', 'list', scope, f, statusQ, scoped.agent_id, reason, deal, view === 'map' ? -1 : page],
     queryFn: () => api.properties.list({ ...scoped, ...f, status: statusQ, archive_reason: reason || undefined,
       limit: view === 'map' ? MAP_LIMIT : PAGE, offset: view === 'map' ? 0 : page * PAGE }),
     placeholderData: (p, prev) => (prev?.queryKey[2] === scope ? p : undefined), // keep the list while a filter reloads, never across tabs
   });
   const facets = useQuery({ queryKey: ['properties', 'facets', scope, scoped], queryFn: () => api.properties.facets(scoped), staleTime: 60_000 });
-  const counts = useQuery({ queryKey: ['properties', 'counts'], queryFn: api.properties.counts, enabled: isStaff && (scope === 'all' || scope === 'archive') }); // whole-base totals: staff only
+  const counts = useQuery({ queryKey: ['properties', 'counts', deal], queryFn: () => api.properties.counts(deal), enabled: isStaff && (scope === 'all' || scope === 'archive') }); // whole-base totals: staff only
   const total = data?.total ?? 0;
   const pages = view === 'map' ? 1 : Math.max(1, Math.ceil(total / PAGE));
   const items = itemsOf(data);
@@ -529,9 +546,11 @@ export function PropertyList({ mine, archived, status: only, agentId, base = '' 
       )}
       {isLoading ? <Loading /> : error ? <ErrorBox error={error} /> : items.length === 0 ? <Empty text={filtered ? 'Ничего не найдено' : archived ? 'Архив пуст' : only === 'review' ? 'Очередь пуста: всё опубликовано' : 'Объектов нет'} /> : view === 'map' ? (
         <ListingsMap items={items} card={(p) => <PropertyCard key={p.id} p={p} to={link(p.id)} />} onPick={(p) => navigate(link(p.id))} />
-      ) : scope === 'all' ? (
+      ) : scope === 'all' || archived ? (
+        // «Архив» as «База объектов»: cards with the photo (Stanislav 11-15), the reason under the price
         <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))' }}>
-          {items.map((p) => <PropertyCard key={p.id} p={p} to={link(p.id)} />)}
+          {items.map((p) => <PropertyCard key={p.id} p={p} to={link(p.id)} note={archived && p.archive_reason ? (
+            <div className="muted" style={{ fontSize: 12 }}>{ARCHIVE_REASON[p.archive_reason] || p.archive_reason}{p.archive_comment ? ` · ${p.archive_comment}` : ''}</div>) : undefined} />)}
         </div>
       ) : (
         <>
@@ -544,7 +563,7 @@ export function PropertyList({ mine, archived, status: only, agentId, base = '' 
                     <tr key={p.id} className="clickable" onClick={() => navigate(link(p.id))}>
                       <td className="muted num">{p.id}</td>
                       <td><Link to={link(p.id)} style={{ fontWeight: 700, color: 'inherit' }}>{p.address || '—'}</Link><div><Place district={p.district} /></div></td>
-                      <td className="num" style={{ fontWeight: 700 }}>{money(p.price, p.currency || 'USD')}</td>
+                      <td className="num" style={{ fontWeight: 700 }}>{priceOf(p)}</td>
                       <td>{p.agent?.name || PLATFORM}</td>
                       <td><div className="row row-wrap gap-sm"><PropertyStatusBadge status={p.status} /><ExclusiveConflictBadge p={p} /></div></td>
                       {(archived || only === 'archived') && <td>{ARCHIVE_REASON[p.archive_reason || ''] || '—'}{p.archive_comment && <div className="muted" style={{ fontSize: 12 }}>{p.archive_comment}</div>}</td>}

@@ -1,5 +1,6 @@
 """Funnel 1: new listings, properties, owners."""
 from datetime import datetime
+from typing import Literal
 
 from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile
 from pydantic import BaseModel, Field
@@ -148,12 +149,13 @@ def properties_list(status: str | None = None, agent_id: int | None = None, q: s
                     base: int = 0, rented: int = 0, limit: int = 50, offset: int = 0,
                     source: list[str] | None = Query(None), district: list[str] | None = Query(None), metro: str | None = None,
                     bedrooms: str | None = None, price_min: int | None = Query(None, ge=0), price_max: int | None = Query(None, ge=0),
-                    archive_reason: str | None = None, db: Session = Depends(get_db, scope="function"),
-                    user: User = Depends(current_user)):
-    """base=1: «База объектов» — only objects shot and verified by the operator (P.BASE_STATUSES, published at least once)."""
+                    archive_reason: str | None = None, deal: Literal["rent", "sale"] | None = None,
+                    db: Session = Depends(get_db, scope="function"), user: User = Depends(current_user)):
+    """base=1: «База объектов» — only objects shot and verified by the operator (P.BASE_STATUSES, published at least once).
+    deal: rent | sale (post_fields.deal), the «Аренда / Продажа» switch of «Объекты»."""
     stmt = P.query(db, user, status, agent_id, q, bool(mine), base=bool(base), rented=bool(rented), source=source,
                    district=district, metro=metro, bedrooms=bedrooms, price_min=price_min, price_max=price_max,
-                   archive_reason=archive_reason)
+                   archive_reason=archive_reason, deal=deal)
     total = db.scalar(select(func.count()).select_from(stmt.order_by(None).subquery()))
     rows = db.scalars(stmt.limit(max(1, min(limit, 500))).offset(max(0, offset)))
     return {"items": P.outs(db, rows, user), "total": total}
@@ -161,20 +163,23 @@ def properties_list(status: str | None = None, agent_id: int | None = None, q: s
 
 @router.get("/properties/facets")
 def properties_facets(status: str | None = None, agent_id: int | None = None, mine: int = 0, base: int = 0,
+                      deal: Literal["rent", "sale"] | None = None,
                       db: Session = Depends(get_db, scope="function"), user: User = Depends(current_user)):
     """the base tabs' filter options with counts (same scope params as /properties)"""
-    return P.facets(db, user, status=status, agent_id=agent_id, mine=bool(mine), base=bool(base))
+    return P.facets(db, user, status=status, agent_id=agent_id, mine=bool(mine), base=bool(base), deal=deal)
 
 
 @router.get("/properties/counts")
-def properties_counts(db: Session = Depends(get_db, scope="function"), user: User = Depends(current_user)):
+def properties_counts(deal: Literal["rent", "sale"] | None = None, db: Session = Depends(get_db, scope="function"),
+                      user: User = Depends(current_user)):
     """objects per status, for «В базе N объектов» (counts only, nothing personal)"""
-    return P.status_counts(db)
+    return P.status_counts(db, deal)
 
 
 @router.get("/properties/board")
-def properties_board(db: Session = Depends(get_db, scope="function"), user: User = Depends(current_user)):
-    return P.board(db, user)
+def properties_board(deal: Literal["rent", "sale"] | None = None, db: Session = Depends(get_db, scope="function"),
+                     user: User = Depends(current_user)):
+    return P.board(db, user, deal=deal)
 
 
 @router.post("/properties/board/hide")
@@ -472,13 +477,15 @@ class PublishIn(BaseModel):
     media_ids: list[int] | None = None  # picked files in album order; None = all
     channel: str = "tg"
     comment: str | None = None
+    tg: bool = True  # «В Telegram»
+    site: bool = True  # «На сайт»
 
 
 @router.post("/properties/{pid}/publish")
 def properties_publish(pid: int, body: PublishIn | None = None, db: Session = Depends(get_db, scope="function"),
                        user: User = Depends(require_level("operator"))):
     b = body or PublishIn()
-    return P.out(db, P.publish(db, pid, user, b.text, b.media_ids, b.channel, b.comment), user, full=True)
+    return P.out(db, P.publish(db, pid, user, b.text, b.media_ids, b.channel, b.comment, b.tg, b.site), user, full=True)
 
 
 class SiteIn(BaseModel):

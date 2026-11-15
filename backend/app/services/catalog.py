@@ -45,7 +45,7 @@ def property_for(db: Session, listing_id: str | None) -> Property | None:
 def visible(p: Property) -> bool:
     """In the client catalog: published with its own channel post (the same rule the bot always had). Objects imported
     from the site (sale, commercial, cars... post_fields.service) never: the bot is a rental bot."""
-    if (p.post_fields or {}).get("service") not in (None, "rent"):
+    if (p.post_fields or {}).get("service") not in (None, "rent") or (p.post_fields or {}).get("deal") == "Sale":
         return False
     return p.status == "published" and bool((p.post_url or "").strip()) and bool((p.post_message_id or "").strip())
 

@@ -87,10 +87,10 @@ export function App() {
         <Route index element={<DashboardPage />} />
         <Route path="objects" element={<ObjectsPage />} />
         <Route path="objects/:id" element={<PropertyPage />} />
-        <Route path="sale" element={<RequireAuth roles={AGENT_UP}><OffersPage kind="sale" /></RequireAuth>} />
-        <Route path="sale/:id" element={<RequireAuth roles={AGENT_UP}><OfferCardPage kind="sale" /></RequireAuth>} />
-        <Route path="cars" element={<RequireAuth roles={AGENT_UP}><OffersPage kind="car" /></RequireAuth>} />
-        <Route path="cars/:id" element={<RequireAuth roles={AGENT_UP}><OfferCardPage kind="car" /></RequireAuth>} />
+        {/* sales are objects now (Stanislav 11-15): «Объекты» → Продажа */}
+        <Route path="sale/*" element={<Navigate to="/objects?deal=sale" replace />} />
+        <Route path="cars" element={<RequireAuth roles={AGENT_UP}><OffersPage /></RequireAuth>} />
+        <Route path="cars/:id" element={<RequireAuth roles={AGENT_UP}><OfferCardPage /></RequireAuth>} />
         <Route path="leads" element={<LeadsPage />} />
         <Route path="leads/:id" element={<LeadPage />} />
         <Route path="deals" element={<DealsPage />} />

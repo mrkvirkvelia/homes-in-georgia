@@ -7,7 +7,7 @@ import pytest
 from PIL import Image
 
 from tests import hge_import as imp
-from app.models import Car, Owner, Property, PropertyMedia, PropertyPublication, SaleObject
+from app.models import Car, Owner, Property, PropertyMedia, PropertyPublication
 from app.services import catalog, site_feed
 from tests.conftest import auth, make_user
 
@@ -68,14 +68,14 @@ def by_site(db, sid):
 
 
 def sale(db, sid):
-    return db.query(SaleObject).filter_by(site_id=sid).one()
+    return by_site(db, sid)
 
 
 def test_feed_only_public_three_sources(db, client):
     run(db, [*ITEMS, NEW, CAR_SALE])
     sale(db, "new-5").status = "archived"
     db.add(Property(status="published", address="No photo"))
-    db.add(SaleObject(service="sale", title="Draft", status="draft", photos=["offers/s1/x.jpg"]))
+    db.add(Property(status="media_uploaded", address="Draft sale", post_fields={"deal": "Sale"}))
     db.add(Car(deal="rent", title="No photo", status="published"))
     db.commit()
     site_feed.clear_cache()
@@ -91,7 +91,7 @@ def test_feed_only_public_three_sources(db, client):
     assert rent["condition"] == "renovated" and rent["pets"] == "agreement" and rent["months"] == [6, 12, 24]
     assert rent["amenities"] == ["conditioner", "washer", "parking", "pool"] and rent["agent"] == AGENT
     assert rent["price_usd"] == 800 and rent["kind"] == "apartment" and rent["exclusive"] is True
-    assert sl["id"].startswith("s") and sl["legacy_id"] == "sale-77" and sl["deal"] == "sale" and sl["ppsqm_usd"] == 2000
+    assert sl["id"].startswith("o") and sl["legacy_id"] == "sale-77" and sl["deal"] == "sale" and sl["ppsqm_usd"] == 2000
     assert sl["condition"] == "white_frame" and sl["photos"] == [f"/api/public/site/photos/{sl['id']}/0"]
     assert car["id"].startswith("c") and car["title"] == "Jeep Compass" and car["pickup"] == "8 Arakishvili St"
     assert car["seats"] == 5 and car["kind"] == "car" and car["period"] == "day" and car["deal"] == "rent"
@@ -140,12 +140,12 @@ def test_detail_legacy_ids_and_photos(db, client):
     p, s, c = by_site(db, "rent-551776"), sale(db, "new-5"), db.query(Car).one()
     d = client.get("/api/public/site/listings/rent-551776")
     assert d.status_code == 200 and d.json()["id"] == f"o{p.id}" and d.json()["video"] is None
-    assert client.get("/api/public/site/listings/sale-77").json()["id"].startswith("s")
+    assert client.get("/api/public/site/listings/sale-77").json()["id"].startswith("o")
     assert client.get("/api/public/site/listings/car-rent-9").json()["id"] == f"c{c.id}"
-    assert client.get(f"/api/public/site/listings/s{s.id}").json()["completion"] == "Q4 2027"
+    assert client.get(f"/api/public/site/listings/o{s.id}").json()["completion"] == "Q4 2027"
     assert client.get(f"/api/public/site/listings/o{p.id}").json()["description"] == "Nice flat"
     assert client.get("/api/public/site/listings/nope").status_code == 404
-    for ident, n in ((f"o{p.id}", 2), (f"s{s.id}", 1), (f"c{c.id}", 1)):
+    for ident, n in ((f"o{p.id}", 2), (f"o{s.id}", 1), (f"c{c.id}", 1)):
         r = client.get(f"/api/public/site/photos/{ident}/0")
         assert r.status_code == 200 and r.headers["cache-control"] == "public, max-age=86400"
         assert client.get(f"/api/public/site/photos/{ident}/0?p=1").headers["content-type"] == "image/webp"
@@ -163,52 +163,11 @@ def up(client, h, kind, oid, n=1, name="a.jpg"):
     return client.post(f"/api/offers/{kind}/{oid}/media", headers=h, files=[("files", (name, jpg(), "image/jpeg"))] * n)
 
 
-def test_crm_sale_flow_to_the_site(db, client):
-    agent = make_user(db, "agent", username="zaza", phone="+995 555 11 22 33")
-    h = auth(agent)
-    r = client.post("/api/offers/sale", headers=h, json={"service": "new", "title": "9 Test St", "price": 100000, "area": 50,
-                                                          "completion": "2027", "district": "Vake",
-                                                          "post_fields": {"prop_type": "Apartment", "building": "NewBuilding",
-                                                                          "amenities": ["Balcony"]}})
-    assert r.status_code == 200, r.text
-    o = r.json()
-    oid = o["id"]
-    assert o["status"] == "draft" and o["agent_id"] == agent.id and o["item_id"] == f"s{oid}" and o["public"] is False
-    assert client.post(f"/api/offers/sale/{oid}/status", headers=h, json={"status": "published"}).status_code == 400  # no photo
-    r = up(client, h, "sale", oid, 2)
-    assert r.status_code == 200 and len(r.json()["photos"]) == 2 and len(r.json()["uploaded_keys"]) == 2
-    r = client.post(f"/api/offers/sale/{oid}/status", headers=h, json={"status": "published"})
-    assert r.status_code == 200 and r.json()["published_at"] and r.json()["public"] is True
-    d = client.get("/api/public/site/listings").json()  # cache cleared by the CRM call, no waiting
-    it = d["items"][0]
-    assert d["counts"] == {"new": 1} and it["id"] == f"s{oid}" and it["agent"]["telegram"] == "zaza"
-    assert it["photos"] == [f"/api/public/site/photos/s{oid}/0", f"/api/public/site/photos/s{oid}/1"] and it["ppsqm_usd"] == 2000
-    assert client.get(f"/api/public/site/photos/s{oid}/1?p=1").status_code == 200
-    # edit shows up at once; the private fields of the row never do
-    assert client.patch(f"/api/offers/sale/{oid}", headers=h, json={"price": 120000}).json()["price"] == 120000
-    assert client.get("/api/public/site/listings").json()["items"][0]["price"] == 120000
-    assert "agent_id" not in json.dumps(client.get(f"/api/public/site/listings/s{oid}").json())
-    # reorder + delete a photo
-    k0, k1 = r.json()["photos"]
-    assert client.put(f"/api/offers/sale/{oid}/media/order", headers=h, json={"keys": [k1, k0]}).json()["photos"] == [k1, k0]
-    assert client.put(f"/api/offers/sale/{oid}/media/order", headers=h, json={"keys": [k1]}).status_code == 409
-    r = client.delete(f"/api/offers/sale/{oid}/media", headers=h, params={"key": k1})
-    assert r.json()["photos"] == [k0]
-    assert client.delete(f"/api/offers/sale/{oid}/media", headers=h, params={"key": k1}).status_code == 404
-    # unpublish: gone; the last photo gone: cannot publish again
-    assert client.post(f"/api/offers/sale/{oid}/status", headers=h, json={"status": "draft"}).json()["status"] == "draft"
-    assert client.get("/api/public/site/listings").json()["items"] == []
-    assert client.get(f"/api/public/site/listings/s{oid}").status_code == 404
-    assert client.get("/api/offers/sale", headers=h, params={"status": "draft"}).json()["total"] == 1
-    assert client.get("/api/offers/sale", headers=h, params={"status": "published"}).json()["total"] == 0
-
-
 def test_crm_car_and_validation(db, client):
     agent = make_user(db, "agent")
     h = auth(agent)
     assert client.post("/api/offers/car", headers=h, json={"title": "X"}).status_code == 422  # no deal
     assert client.post("/api/offers/car", headers=h, json={"deal": "lease", "title": "X"}).status_code == 422
-    assert client.post("/api/offers/sale", headers=h, json={"service": "sale", "title": "A", "post_fields": {"heating": "lava"}}).status_code == 400
     r = client.post("/api/offers/car", headers=h, json={"deal": "rent", "title": "Kia Rio", "price": 40, "period": "day",
                                                          "year": 2020, "gearbox": "auto", "pickup": "Airport"})
     cid = r.json()["id"]
@@ -217,7 +176,7 @@ def test_crm_car_and_validation(db, client):
     assert up(client, h, "car", cid).status_code == 200
     r = client.post(f"/api/offers/car/{cid}/media", headers=h, files=[("files", ("v.mp4", b"vid", "video/mp4"))])
     assert r.status_code == 200 and r.json()["video"].endswith(".mp4")
-    assert client.post(f"/api/offers/car/{cid}/status", headers=h, json={"status": "published"}).status_code == 200
+    assert client.post(f"/api/offers/car/{cid}/publish", headers=h, json={"tg": False}).status_code == 200  # the site only
     it = client.get(f"/api/public/site/listings/c{cid}").json()
     assert it["service"] == "car-rent" and it["video"] == f"/api/public/site/video/c{cid}" and it["pickup"] == "Airport"
     assert client.get(f"/api/public/site/video/c{cid}").status_code == 200
@@ -225,51 +184,79 @@ def test_crm_car_and_validation(db, client):
 
 
 def test_crm_access(db, client):
-    assert client.get("/api/offers/sale").status_code == 401
+    assert client.get("/api/offers/car").status_code == 401
+    assert client.get("/api/offers/sale", headers=auth(make_user(db, "admin"))).status_code == 422  # sales are properties now
     for role, code in (("recruit", 403), ("daily_rent_manager", 403), ("agent", 200), ("operator", 200), ("admin", 200)):
-        assert client.get("/api/offers/sale", headers=auth(make_user(db, role))).status_code == code, role
+        assert client.get("/api/offers/car", headers=auth(make_user(db, role))).status_code == code, role
     a = make_user(db, "agent")
     b = make_user(db, "operator")
-    o = client.post("/api/offers/sale", headers=auth(a), json={"service": "sale", "title": "A", "agent_id": b.id}).json()
+    o = client.post("/api/offers/car", headers=auth(a), json={"deal": "rent", "title": "A", "agent_id": b.id}).json()
     assert o["agent_id"] == a.id  # an agent cannot hand it to somebody else
-    assert client.patch(f"/api/offers/sale/{o['id']}", headers=auth(b), json={"agent_id": b.id}).json()["agent_id"] == b.id
+    assert client.patch(f"/api/offers/car/{o['id']}", headers=auth(b), json={"agent_id": b.id}).json()["agent_id"] == b.id
 
 
 # ---------------------------------------------------------------- the two publications: Telegram and the site
 
-def test_sale_params_reach_the_site_and_the_telegram_post(db, client, sent):
+def _sale(db, agent, status="review", **pf):
+    p = Property(source_type="direct", status=status, agent_id=agent.id, address="5 Rustaveli Ave", district="Vake",
+                 price=255000, area=85, floor=1, total_floors=5, bedrooms=2, lat=41.7, lng=44.78,
+                 post_fields={"deal": "Sale", "service": "commercial", **pf})
+    db.add(p)
+    db.flush()
+    db.add(PropertyMedia(property_id=p.id, kind="photo", path=f"properties/{p.id}/1.jpg", position=0))
+    db.commit()
+    return p
+
+
+def test_sale_object_is_a_property_with_its_own_lists_and_two_targets(db, client, sent):
     agent, op = make_user(db, "agent", name="Zaza"), make_user(db, "operator")
     pf = {"prop_type": "Cafe", "building": "OldBuilding", "design": "New", "condition": "WhiteFrame", "heating": "ACHeating",
-          "bathrooms": "2Bathroom", "amenities": ["Terrace", "Fireplace"], "metro": "Rustaveli", "headline": "Corner cafe"}
-    o = client.post("/api/offers/sale", headers=auth(agent), json={"service": "commercial", "title": "5 Rustaveli Ave",
-                    "district": "Vake", "price": 255000, "area": 85, "floor": 1, "floors": 5, "rooms": 2, "lat": 41.7, "lng": 44.78,
-                    "post_fields": pf}).json()
-    oid = o["id"]
-    assert o["post_fields"]["deal"] == "Sale" and o["post_fields"]["bathrooms"] == "2Bathroom"
-    text = client.get(f"/api/offers/sale/{oid}/post", headers=auth(agent)).json()["text"]
+          "bathrooms": "2Bathroom", "amenities": ["Terrace", "Fireplace"], "metro": "Rustaveli", "headline": "Corner cafe",
+          "sale_price": 255000}
+    s = _sale(db, agent, **pf)
+    rent = Property(source_type="direct", status="review", agent_id=agent.id, address="Rent St", price=900)
+    db.add(rent)
+    db.commit()
+    # «Объекты» → Аренда / Продажа: every list, the board and the counts apart
+    ids = lambda deal, **q: [x["id"] for x in client.get("/api/properties", headers=auth(op), params={"deal": deal, **q}).json()["items"]]  # noqa: E731
+    assert ids("sale") == [s.id] and ids("rent") == [rent.id]
+    board = client.get("/api/properties/board", headers=auth(op), params={"deal": "sale"}).json()
+    assert [x["id"] for x in board["review"]] == [s.id]
+    assert client.get("/api/properties/counts", headers=auth(op), params={"deal": "rent"}).json() == {"review": 1}
+    text = client.get(f"/api/properties/{s.id}/post", headers=auth(op)).json()["text"]
     assert "🌟 Corner cafe 🌟" in text and "🏢 #2Bed #Cafe for #Sale" in text and "💰255.000$" in text
     assert "#OldBuilding | #NewApartment | #WhiteFrame" in text and "85 Sq.m | 1/5 Floor | #ACHeating | #2Bathroom" in text
-    assert "#Price240000to270000" in text and text.endswith("SALE IN TBILISI🇬🇪") and "🚇 #Rustaveli" in text
-    # Telegram: operators only, a photo needed; the site stays as it was (draft)
-    assert client.post(f"/api/offers/sale/{oid}/telegram", headers=auth(agent), json={}).status_code == 403
-    assert client.post(f"/api/offers/sale/{oid}/telegram", headers=auth(op), json={}).status_code == 400  # no photo
-    up(client, auth(agent), "sale", oid, 2)
-    r = client.post(f"/api/offers/sale/{oid}/telegram", headers=auth(op), json={}).json()
-    assert r["post_url"] == "https://t.me/rent_tbilisi_ge/777" and r["status"] == "draft" and r["public"] is False
+    assert "#Price240000to270000" in text and text.endswith("SALE IN TBILISI🇬🇪")
+    # one «Опубликовать», two checkboxes: none = refused; the site only = no post, on hge.ge
+    assert client.post(f"/api/properties/{s.id}/publish", headers=auth(op), json={"tg": False, "site": False}).status_code == 400
+    r = client.post(f"/api/properties/{s.id}/publish", headers=auth(op), json={"tg": False, "site": True}).json()
+    assert r["status"] == "published" and r["site_hidden"] is False and not r.get("post_url") and not sent.of("publish_post")
+    it = client.get(f"/api/public/site/listings/o{s.id}").json()
+    assert it["deal"] == "sale" and it["service"] == "commercial" and it["kind"] == "commercial" and it["type"] == "cafe"
+    assert it["bathrooms"] == 2 and it["heating"] == "ac" and it["building"] == "old" and it["condition"] == "white_frame"
+    assert it["amenities"] == ["terrace", "fireplace"] and it["price"] == 255000 and it["ppsqm_usd"] == 3000
+    assert "deposit" not in it and catalog.visible(db.get(Property, s.id)) is False  # the bot is a rental bot
+    # later: Telegram only, the site stays as it is
+    r = client.post(f"/api/properties/{s.id}/publish", headers=auth(op), json={"tg": True, "site": False}).json()
+    assert r["post_url"] == "https://t.me/rent_tbilisi_ge/777" and r["site_hidden"] is False
     (post,), = sent.of("publish_post")
-    assert post.post_text == text and [k for k, _ in post.post_media_keys] == ["photo", "photo"]
-    assert client.get("/api/public/site/listings").json()["items"] == []
-    # the site: its own button
-    client.post(f"/api/offers/sale/{oid}/status", headers=auth(agent), json={"status": "published"})
-    it = client.get(f"/api/public/site/listings/s{oid}").json()
-    assert it["kind"] == "commercial" and it["type"] == "cafe" and it["bathrooms"] == 2 and it["heating"] == "ac"
-    assert it["building"] == "old" and it["condition"] == "white_frame" and it["metro"] == "Rustaveli"
-    assert it["amenities"] == ["terrace", "fireplace"] and it["headline"] == "Corner cafe" and it["lat"] == 41.7
-    # an edit keeps the imported words the form does not show
-    db.get(SaleObject, oid).post_fields = {**db.get(SaleObject, oid).post_fields, "site_extra": {"amenities": ["pool"]}}
+    assert post.post_text == text and post.post_rich is None  # the rich post is the rent one
+    # the first publication without «На сайт» keeps the object off the site
+    t = _sale(db, agent, prop_type="Apartment")
+    r = client.post(f"/api/properties/{t.id}/publish", headers=auth(op), json={"tg": True, "site": False}).json()
+    assert r["site_hidden"] is True and client.get(f"/api/public/site/listings/o{t.id}").status_code == 404
+
+
+def test_old_sale_ids_keep_resolving(db, client):
+    p = _sale(db, make_user(db, "agent"), status="published", offer_ident="s77", site_id="sale-77")
+    p.published_at = p.updated_at
     db.commit()
-    r = client.patch(f"/api/offers/sale/{oid}", headers=auth(agent), json={"post_fields": {**pf, "bathrooms": "3Bathroom"}}).json()
-    assert r["post_fields"]["site_extra"] == {"amenities": ["pool"]} and r["post_fields"]["bathrooms"] == "3Bathroom"
+    from app import storage
+    storage.put(f"properties/{p.id}/1.jpg", jpg())
+    for ident in ("s77", "sale-77", f"o{p.id}"):
+        assert client.get(f"/api/public/site/listings/{ident}").json()["id"] == f"o{p.id}", ident
+    assert client.get("/api/public/site/photos/s77/0").status_code == 200
+    assert client.get("/api/public/site/listings/s78").status_code == 404
 
 
 def test_car_telegram_post_and_failure(db, client, sent, monkeypatch):
@@ -286,13 +273,23 @@ def test_car_telegram_post_and_failure(db, client, sent, monkeypatch):
                        "deposit": 200, "pickup": "Airport"}).json()["id"]
     t2 = client.get(f"/api/offers/car/{rent}/post", headers=auth(op)).json()["text"]
     assert "💰 40$/day + Deposit 200$" in t2 and "📍 Airport" in t2 and "#CarRent" in t2
+    agent = make_user(db, "agent")
+    assert client.post(f"/api/offers/car/{cid}/publish", headers=auth(op), json={}).status_code == 400  # no photo
     up(client, auth(op), "car", cid)
-    monkeypatch.setattr(notify, "publish_post", lambda p: None)  # Telegram refused: nothing changes
-    assert client.post(f"/api/offers/car/{cid}/telegram", headers=auth(op), json={"text": "Мой текст"}).status_code == 502
-    assert db.get(Car, cid).post_url is None
+    assert client.post(f"/api/offers/car/{cid}/publish", headers=auth(op), json={"tg": False, "site": False}).status_code == 400
+    assert client.post(f"/api/offers/car/{cid}/publish", headers=auth(agent), json={}).status_code == 403  # Telegram: operators
+    assert client.post(f"/api/offers/car/{cid}/publish", headers=auth(op), json={"keys": ["offers/x.jpg"]}).status_code == 404
+    r = client.post(f"/api/offers/car/{cid}/publish", headers=auth(op), json={}).json()
+    assert r["status"] == "published" and r["post_url"] == "https://t.me/rent_tbilisi_ge/777" and r["public"] is True
+    (post,), = sent.of("publish_post")
+    assert post.post_text == text and [k for k, _ in post.post_media_keys] == ["photo"]
+    monkeypatch.setattr(notify, "publish_post", lambda p: None)  # Telegram refused: nothing changes, the site neither
+    client.post(f"/api/offers/car/{rent}/media", headers=auth(op), files=[("files", ("a.jpg", jpg(), "image/jpeg"))])
+    assert client.post(f"/api/offers/car/{rent}/publish", headers=auth(op), json={"text": "Мой текст"}).status_code == 502
+    assert db.get(Car, rent).post_url is None and db.get(Car, rent).status == "draft"
     monkeypatch.setattr(settings, "BOT_TOKEN", "")
     monkeypatch.setattr(settings, "APP_ENV", "dev")
-    assert client.post(f"/api/offers/car/{cid}/telegram", headers=auth(op), json={}).status_code == 200  # dev dry run
+    assert client.post(f"/api/offers/car/{rent}/publish", headers=auth(op), json={}).status_code == 200  # dev dry run
 
 
 def test_rent_object_site_button(db, client):

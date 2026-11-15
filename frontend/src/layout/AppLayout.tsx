@@ -3,7 +3,7 @@ import { Link, Navigate, NavLink, Outlet, useLocation, useNavigate } from 'react
 import { useQuery } from '@tanstack/react-query';
 import {
   BedDouble, Building2, CalendarDays, ChartLine, Handshake, CircleUser, ClipboardList, Eye, FileText, Home, Inbox, LogOut, Menu, Plus, Search,
-  Car, Settings, Tag, Trophy, UsersRound,
+  Car, Settings, Trophy, UsersRound,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { ADMIN_ROLES, DAILY_RENT_ONLY, DAILY_RENT_ROLES, STAFF_ROLES, SUPER_ROLES, atLeast } from '../api/types';
@@ -24,8 +24,7 @@ export const NAV: NavItem[] = [
   { to: '/leads', label: 'Заявки', icon: Inbox },
   { to: '/contracts', label: 'Договоры', icon: FileText, roles: AGENT_UP },
   { to: '/calendar', label: 'Календарь', icon: CalendarDays },
-  // hge.ge's own objects besides rent: sale (resale / new buildings / commercial) and cars, a section each (Stanislav 11-15)
-  { to: '/sale', label: 'Продажа', icon: Tag, roles: AGENT_UP },
+  // hge.ge's cars (sales are objects: «Объекты» → Продажа, Stanislav 11-15)
   { to: '/cars', label: 'Авто', icon: Car, roles: AGENT_UP },
   { to: '/clients', label: 'Люди', icon: UsersRound, roles: STAFF, also: ['/owners'] },
   { to: '/team', label: 'Команда', icon: Trophy },

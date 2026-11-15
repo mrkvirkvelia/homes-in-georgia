@@ -69,8 +69,8 @@ export const api = {
     list: (q?: PropertyScope & { q?: string; rented?: number; limit?: number; offset?: number; source?: string[]; district?: string[]; metro?: string; bedrooms?: string; price_min?: string; price_max?: string; archive_reason?: string }) => then(http.get<L<Property>>('/properties', { limit: LIMIT, ...q }), (d) => normPage(d, normProperty)),
     /** the base tabs' filter options with counts (Stanislav 11-13) */
     facets: (q: PropertyScope) => http.get<Record<'sources' | 'districts' | 'metros', { value: string; count: number }[]>>('/properties/facets', q),
-    counts: () => http.get<Record<string, number>>('/properties/counts'),
-    board: () => then(http.get<Record<string, Property[]>>('/properties/board'), (d) => normBoard(d, normProperty)),
+    counts: (deal?: 'rent' | 'sale') => http.get<Record<string, number>>('/properties/counts', { deal }),
+    board: (deal?: 'rent' | 'sale') => then(http.get<Record<string, Property[]>>('/properties/board', { deal }), (d) => normBoard(d, normProperty)),
     boardHide: (status: 'published' | 'rented') => http.post<{ hidden: number }>('/properties/board/hide', { status }),
     take: (listing_id: string) => http.post<Property>('/properties', { listing_id }),
     create: (b: Partial<Property> & { owner_name?: string }) => http.post<Property>('/properties', b),
@@ -110,7 +110,7 @@ export const api = {
     review: (id: number, approve: boolean, comment?: string) => http.post<Property>(`/properties/${id}/review`, { approve, comment }),
     post: (id: number) => http.get<PostDraft>(`/properties/${id}/post`),
     site: (id: number, on: boolean) => then(http.post<Property>(`/properties/${id}/site`, { on }), normProperty),
-    publish: (id: number, b?: { text?: string; media_ids?: number[]; channel?: string; comment?: string }) => then(http.post<Property>(`/properties/${id}/publish`, b), normProperty),
+    publish: (id: number, b?: { text?: string; media_ids?: number[]; channel?: string; comment?: string; tg?: boolean; site?: boolean }) => then(http.post<Property>(`/properties/${id}/publish`, b), normProperty),
     /** reason: ARCHIVE_REASON key; a verified object's agent gets change_request back instead */
     archive: (id: number, b: { reason: string; comment?: string; duplicate_of?: number | null }) => http.post<Property>(`/properties/${id}/archive`, b),
     /** agent's «Запрос оператору»: move the owner to another agent (staff: moved right away, change_request null) */
@@ -145,7 +145,7 @@ export const api = {
     order: (kind: OfferKind, id: number, keys: string[]) => http.put<Offer>(`/offers/${kind}/${id}/media/order`, { keys }),
     deleteFile: (kind: OfferKind, id: number, key: string) => http.del<Offer>(`/offers/${kind}/${id}/media?key=${encodeURIComponent(key)}`),
     post: (kind: OfferKind, id: number) => http.get<{ text: string }>(`/offers/${kind}/${id}/post`),
-    telegram: (kind: OfferKind, id: number, text?: string) => http.post<Offer>(`/offers/${kind}/${id}/telegram`, { text }),
+    publish: (kind: OfferKind, id: number, b: { text?: string; tg: boolean; site: boolean; keys?: string[] }) => http.post<Offer>(`/offers/${kind}/${id}/publish`, b),
   },
 
   changeRequests: {
@@ -282,5 +282,5 @@ export const api = {
   addresses: () => http.get<L<{ id: number; district: string; address: string; ad_link?: string }>>('/addresses'),
 };
 
-export type PropertyScope = { status?: string; agent_id?: number; mine?: number; base?: number };
+export type PropertyScope = { status?: string; agent_id?: number; mine?: number; base?: number; deal?: 'rent' | 'sale' };
 export type ListingFilter = { q?: string; source?: string[]; flag?: string; district?: string[]; metro?: string; bedrooms?: string; price_min?: string; price_max?: string; known?: string };

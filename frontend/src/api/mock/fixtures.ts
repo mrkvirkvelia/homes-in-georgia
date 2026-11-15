@@ -145,6 +145,23 @@ export const properties: Property[] = propSeeds.map(([district, address, price, 
   };
 });
 
+// «Объекты» → Продажа (Stanislav 11-15): sale objects are properties with post_fields.deal = Sale
+const saleSeeds: [string, string, number, number, number, Property['status'], Record<string, unknown>][] = [
+  ['Ваке', 'ул. Палиашвили 12', 255000, 2, 85, 'published', { prop_type: 'Apartment', building: 'NewBuilding', condition: 'FullyRenovated', design: 'New', heating: 'CentralHeating', bathrooms: '2Bathroom', amenities: ['Balcony', 'Elevator', 'ParkingPlace'], metro: 'Rustaveli', headline: 'Вид на старый город', service: 'sale' }],
+  ['Сабуртало', 'пр. Важа-Пшавела 45', 142000, 3, 110, 'review', { prop_type: 'Apartment', building: 'NewBuilding', condition: 'WhiteFrame', heating: 'GasHeating', service: 'new', completion: 'Q4 2027', metro: 'VazhaPshavela' }],
+  ['Чугурети', 'пр. Агмашенебели 40', 180000, 0, 120, 'archived', { prop_type: 'Cafe', building: 'OldBuilding', condition: 'WhiteFrame', service: 'commercial' }],
+];
+saleSeeds.forEach(([district, address, price, bedrooms, area, status, pf], i) => properties.push({
+  id: 200 + i, listing_id: null, source_type: 'direct', source_url: null, status, owner: { id: 1, name: 'Манана', phone: owners[0].phone, is_agent: false }, owner_id: 1,
+  agent: ref(3), agent_id: 3, taken_at: iso(-(i + 4) * day), call_attempts: 0, next_call_at: null, shoot_at: null,
+  address, district, price, currency: 'USD', bedrooms, rooms: bedrooms + 1, area, floor: 5, total_floors: 9, description: null, is_exclusive: i === 0,
+  checklist: {}, ai_flags: {}, dup_check: null, review_comment: null, archive_reason: status === 'archived' ? 'not_actual' : null,
+  published_at: status === 'review' ? null : iso(-3 * day), post_url: status === 'published' ? 'https://t.me/rent_tbilisi_ge/1500' : null,
+  post_fields: { deal: 'Sale', sale_price: price, ...pf },
+  media: [0, 1, 2].map((k) => ({ id: 20000 + i * 10 + k, kind: 'photo' as const, path: photo(i * 3 + k + 2, 'sale'), room: null, position: k })),
+  created_at: iso(-(i + 4) * day), updated_at: iso(-(i + 1) * hour),
+} as Property));
+
 export const clients: Client[] = [
   { id: 1, name: 'Анна', username: 'anna_tbs', phone: '+995 577 00 11 22', lang: 'ru', profile_done: 1, created_at: iso(-3 * day),
     profile: { residents: '2', pets: ['cat'], terms: ['6', '12'], budget_min: 600, budget_max: 900, bedrooms: [1, 2], districts: ['Ваке', 'Сабуртало'], pin: { lat: 41.7105, lng: 44.7591 }, radius_km: 2, move_in: dateOnly(10 * day), photos: 2 } },

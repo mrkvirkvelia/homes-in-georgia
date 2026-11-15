@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Archive, ArrowRightLeft, Camera, CheckCircle2, Copy, FileText, ChevronDown, ChevronLeft, ChevronRight, Clock, ExternalLink, Globe, Home, Pencil, Phone, PhoneOff, Play, RotateCcw, Send, Sparkles, Trash2, Upload, Wand2 } from 'lucide-react';
+import { Archive, ArrowRightLeft, Camera, CheckCircle2, Copy, FileText, ChevronDown, Clock, ExternalLink, Globe, Home, Pencil, Phone, PhoneOff, Play, RotateCcw, Send, Sparkles, Trash2, Upload, Wand2 } from 'lucide-react';
 import { api } from '../../api';
 import { itemsOf, mediaUrl, thumbUrl } from '../../api/client';
 import type { Media, PostFields, Property } from '../../api/types';
@@ -191,6 +191,8 @@ type GenForm = {
 const BEDROOM_CHIPS: Record<string, string> = { 0: 'Студия', 1: '1', 2: '2', 3: '3', 4: '4', 5: '5+' };
 // the old generator's sale block (backend SALE_AMENITIES): its own type order, beds up to 6+, only these amenities
 export const SALE_TYPES = ['Apartment', 'House', 'Land', 'Commercial', 'Retail', 'Business', 'Cafe', 'Restaurant', 'BeautySalon', 'Warehouses', 'Manufacture', 'Duplex', 'Townhouse'];
+// the site's sale sections (hge.ge services): resale, new buildings, commercial for sale
+const SALE_SERVICE: Record<string, string> = { sale: 'Вторичка', new: 'Новостройка', commercial: 'Коммерция' };
 export const SALE_BEDROOM_CHIPS: Record<string, string> = { ...BEDROOM_CHIPS, 5: '5', 6: '6+' };
 export const SALE_AMENITIES = ['Balcony', 'Terrace', 'Courtyard', 'ParkingPlace', 'Conditioner', 'Dishwasher', 'Oven', 'Stove', 'Bath', 'Shower', 'Elevator', 'Fireplace'];
 const AMENITY_FIXED = ['Elevator', 'Oven', 'ParkingPlace', 'Conditioner']; // backend FIXED_AMENITIES: ✖️ in a rent post when absent
@@ -371,6 +373,8 @@ function PostGeneratorStep({ p, canEdit }: { p: Property; canEdit: boolean }) {
           <Field label="Спальни"><Chips options={sale ? SALE_BEDROOM_CHIPS : BEDROOM_CHIPS} value={f.bedrooms} onChange={(v) => upd('bedrooms', v ?? '')} /></Field>
           <Field label="Здание"><Chips options={one('building')} value={pf.building} onChange={(v) => setPf('building', v)} /></Field>
           {sale && <Field label="Состояние"><Chips options={one('condition')} value={pf.condition} onChange={(v) => setPf('condition', v)} /></Field>}
+          {sale && <Field label="Раздел на сайте"><Chips options={SALE_SERVICE} value={pf.service || 'sale'} onChange={(v) => setPf('service', v ?? 'sale')} /></Field>}
+          {sale && pf.service === 'new' && <Field label="Сдача дома" hint="Например: Q4 2027"><Input value={pf.completion || ''} onChange={(e) => setPf('completion', e.target.value)} /></Field>}
           <div className="form-grid">
             <Field label="Площадь (м²)"><Input type="number" inputMode="decimal" value={f.area} onChange={(e) => upd('area', e.target.value)} /></Field>
             <Field label="Этаж / Всего">
@@ -400,7 +404,8 @@ function PostGeneratorStep({ p, canEdit }: { p: Property; canEdit: boolean }) {
 
         <div className="gen-block">
           <span className="gen-title">3 · Цена</span>
-          {sale ? <Field label="Цена ($)" hint="Диапазон цены (#Price…) ставится в пост сам по цене"><Input type="number" inputMode="numeric" value={pf.sale_price ?? ''} onChange={(e) => setPf('sale_price', e.target.value === '' ? undefined : Number(e.target.value))} /></Field> : <>
+          {sale ? <Field label="Цена ($)" hint="Диапазон цены (#Price…) ставится в пост сам по цене"><Input type="number" inputMode="numeric" value={pf.sale_price ?? ''}
+            onChange={(e) => { const v = e.target.value; setF((x) => ({ ...x, price: v, post_fields: { ...x.post_fields, sale_price: v === '' ? undefined : Number(v) } })); }} /></Field> : <>
             <div className="form-grid">
               <Field label="Цена ($)"><Input type="number" inputMode="numeric" value={f.price} onChange={(e) => setPrice(e.target.value)} /></Field>
               <Field label="Депозит ($)" hint="Равен цене, можно изменить. 0 — без депозита"><Input type="number" inputMode="numeric" min={0} value={pf.deposit ?? f.price} onChange={(e) => setPf('deposit', e.target.value === '' ? undefined : Number(e.target.value))} /></Field>
@@ -496,7 +501,8 @@ function PostGeneratorStep({ p, canEdit }: { p: Property; canEdit: boolean }) {
 export type Shot = Pick<Media, 'kind' | 'room'> & { id: number | string; src: string };
 const shotsOf = (p: Property): Shot[] => (p.media || []).map((m) => ({ id: m.id, kind: m.kind, room: m.room, src: m.url || m.path }));
 
-export function MediaGrid({ p, items, grouped, onDelete, onRoom, onOrder }: { p?: Property; items?: Shot[]; grouped?: boolean; onDelete?: (id: Shot['id']) => void; onRoom?: (id: number, room: string | null) => void; onOrder?: (ids: Shot['id'][]) => void }) {
+/** off / onToggle: the post picker — a checkbox per tile puts the file in the post or leaves it out (dimmed). */
+export function MediaGrid({ p, items, grouped, onDelete, onRoom, onOrder, off, onToggle }: { p?: Property; items?: Shot[]; grouped?: boolean; onDelete?: (id: Shot['id']) => void; onRoom?: (id: number, room: string | null) => void; onOrder?: (ids: Shot['id'][]) => void; off?: Set<Shot['id']>; onToggle?: (id: Shot['id']) => void }) {
   const all = items || (p ? shotsOf(p) : []);
   // photos first, then videos: the lightbox walks them in that order, and a saved order is this one (the album's)
   const [local, setLocal] = useState<Shot[] | null>(null); // the order just set, until the server's comes back
@@ -537,7 +543,7 @@ export function MediaGrid({ p, items, grouped, onDelete, onRoom, onOrder }: { p?
   const end = () => { if (press.current?.timer) clearTimeout(press.current.timer); press.current = null; };
   const handlers = (i: number) => !onOrder ? {} : {
     onPointerDown: (e: React.PointerEvent<HTMLDivElement>) => {
-      if (e.button !== 0 || (e.target as HTMLElement).closest('button, select')) return;
+      if (e.button !== 0 || (e.target as HTMLElement).closest('button, select, label, input')) return;
       dragged.current = false;
       const touch = e.pointerType !== 'mouse';
       press.current = { i, x: e.clientX, y: e.clientY, id: e.pointerId, touch, el: e.currentTarget };
@@ -574,7 +580,7 @@ export function MediaGrid({ p, items, grouped, onDelete, onRoom, onOrder }: { p?
   const tile = (m: Shot, i: number) => {
     const ghost = drag !== null && shown[i] === media[drag.from];
     return (
-    <div className={`ph ${ghost ? 'drop-slot' : ''} ${onOrder ? 'sortable' : ''}`} key={m.id} data-mi={i} tabIndex={onOrder ? 0 : undefined}
+    <div className={`ph ${ghost ? 'drop-slot' : ''} ${onOrder ? 'sortable' : ''} ${off?.has(m.id) ? 'ph-off' : ''}`} key={m.id} data-mi={i} tabIndex={onOrder ? 0 : undefined}
       aria-label={onOrder ? 'Файл: перетащите или ← → чтобы поменять порядок' : undefined}
       onClick={() => { if (dragged.current) { dragged.current = false; return; } setOpen(media.indexOf(m)); }} style={{ cursor: onOrder ? 'grab' : 'zoom-in' }}
       {...handlers(i)}>
@@ -592,6 +598,11 @@ export function MediaGrid({ p, items, grouped, onDelete, onRoom, onOrder }: { p?
           </select>
         </span>
       ) : m.room && m.kind !== 'video' && <span className="room badge badge-blue">{m.room}</span>}
+      {onToggle && (
+        <label className="pick-box" onClick={(e) => e.stopPropagation()} title={off?.has(m.id) ? 'Не в посте' : 'В посте'}>
+          <input type="checkbox" checked={!off?.has(m.id)} onChange={() => onToggle(m.id)} aria-label="В посте" />
+        </label>
+      )}
       {onDelete && <button className="del btn btn-danger icon-btn btn-sm" style={{ width: 28, height: 28 }} onClick={(e) => { e.stopPropagation(); onDelete(m.id); }} aria-label="Удалить"><Trash2 size={14} /></button>}
     </div>
     );
@@ -827,44 +838,45 @@ function Deals({ p, compact }: { p: Property; compact?: boolean }) {
   );
 }
 
-const CHANNEL_LABEL: Record<string, string> = { tg: 'Telegram-канал' };
 const ALBUM_MAX = 10; // Telegram album limit
 const CAPTION_MAX = 1024; // Telegram caption limit for a post with media
 
 /** The post generator in the card (replaces the agency's HTML generator): the caption built by the backend from the
- * object (post_text), editable; the files to post, picked and ordered; the channel (TG only for now). */
+ * object (post_text), editable; the files to post (drag to sort, the checkbox puts one in or out, a tap opens it); one
+ * «Опубликовать» to the checked targets — «На сайт» and / or «В Telegram» (Stanislav 11-15). */
 function PostComposer({ p }: { p: Property }) {
   const { toast, set } = useProp(p.id);
   const draft = useQuery({ queryKey: ['property-post', p.id], queryFn: () => api.properties.post(p.id) });
   const [edited, setEdited] = useState<string | null>(null); // null = the generated text
+  const first = p.status !== 'published';
+  // a published object: the target it is not on yet is checked; the first publication: both
+  const [toSite, setToSite] = useState(first || !!p.site_hidden);
+  const [toTg, setToTg] = useState(first || !p.post_url);
   const files = p.media || [];
   const [order, setOrder] = useState<number[]>(() => files.map((m) => m.id));
   const [off, setOff] = useState<Set<number>>(() => new Set());
   const byId = new Map(files.map((m) => [m.id, m]));
-  const ids = [...order.filter((id) => byId.has(id)), ...files.filter((m) => !order.includes(m.id)).map((m) => m.id)];
+  const all = [...order.filter((id) => byId.has(id)), ...files.filter((m) => !order.includes(m.id)).map((m) => m.id)];
+  const ids = [...all.filter((id) => byId.get(id)!.kind !== 'video'), ...all.filter((id) => byId.get(id)!.kind === 'video')];  // the grid's order
   const picked = ids.filter((id) => !off.has(id)).slice(0, ALBUM_MAX);
   const text = edited ?? draft.data?.text ?? '';
   const tags = [...new Set(text.match(/#[\p{L}\p{N}_]+/gu) || [])];
   const blocked = !!p.exclusive_conflict?.length;
   const publish = useMutation({
-    mutationFn: () => api.properties.publish(p.id, { text, media_ids: picked, channel: 'tg' }),
-    onSuccess: (r) => { set(r); toast('Опубликовано: агенту ушла ссылка на пост'); },
+    mutationFn: () => api.properties.publish(p.id, { text, media_ids: picked, channel: 'tg', tg: toTg, site: toSite }),
+    onSuccess: (r) => { set(r); toast(toTg ? 'Опубликовано: агенту ушла ссылка на пост' : 'Опубликовано на сайте'); },
     onError: (e) => toast(errText(e), true),
   });
-  const move = (i: number, d: number) => {
-    const next = [...ids];
-    [next[i], next[i + d]] = [next[i + d], next[i]];
-    setOrder(next);
-  };
-  const toggle = (id: number) => setOff((o) => { const n = new Set(o); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const toggle = (id: number) => setOff((o) => {
+    const n = new Set(o);
+    if (n.has(id)) { if (picked.length >= ALBUM_MAX) { toast(`В пост Telegram уходит до ${ALBUM_MAX} файлов`, true); return o; } n.delete(id); } else n.add(id);
+    return n;
+  });
+  const shots: Shot[] = ids.map((id) => { const m = byId.get(id)!; return { id, kind: m.kind, room: m.room, src: m.url || m.path }; });
   if (draft.isLoading) return <Loading />;
   if (draft.error) return <ErrorBox error={draft.error} />;
   return (
     <div className="col">
-      <div className="row row-wrap gap-sm">
-        <span className="label">Канал</span>
-        {(draft.data?.channels || ['tg']).map((c) => <span key={c} className="chip active"><Send size={14} />{CHANNEL_LABEL[c] || c}</span>)}
-      </div>
       <Field label="Текст поста" hint="Собран из полей объекта и полей поста (метро, удобства, животные, сроки — «Править» в «Параметрах»). 📍[адрес](ссылка) станет ссылкой на карту.">
         <Textarea value={text} onChange={(e) => setEdited(e.target.value)} rows={16} style={{ fontFamily: 'inherit', lineHeight: 1.45 }} />
       </Field>
@@ -880,32 +892,31 @@ function PostComposer({ p }: { p: Property }) {
       {picked.length > 0 && text.length > CAPTION_MAX && <div className="alert alert-warn">Подпись к альбому длиннее {CAPTION_MAX} символов: Telegram обрежет конец.</div>}
       <div>
         <div className="row row-between"><span className="label">Фото и видео в посте</span><span className="muted num" style={{ fontWeight: 700 }}>{picked.length}/{Math.min(ids.length, ALBUM_MAX)}</span></div>
-        <div className="muted" style={{ fontSize: 12, margin: '4px 0 8px' }}>Нажмите на файл, чтобы убрать его из поста; стрелками меняется порядок. Первый файл — обложка. На фото ставится водяной знак.</div>
-        {!ids.length ? <div className="muted" style={{ fontSize: 13 }}>Файлов нет: уйдёт текстовый пост</div> : (
-          <div className="photo-strip">
-            {ids.map((id, i) => {
-              const m = byId.get(id)!;
-              const n = picked.indexOf(id);
-              return (
-                <div className="ph" key={id} onClick={() => (n >= 0 || picked.length < ALBUM_MAX) && toggle(id)}
-                  style={{ cursor: 'pointer', opacity: n >= 0 ? 1 : 0.35, outline: n === 0 ? '3px solid var(--brand)' : undefined }}
-                  role="checkbox" aria-checked={n >= 0} aria-label={`Файл ${i + 1}${m.room ? `, ${m.room}` : ''}`}>
-                  {m.kind === 'video' ? <video src={mediaUrl(m.url || m.path)} muted style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <img src={thumbUrl(m.url || m.path)} alt={m.room || ''} loading="lazy" />}
-                  <span className="room badge badge-blue">{n >= 0 ? (n === 0 ? '1 · обложка' : n + 1) : 'не в посте'}</span>
-                  <span className="row" style={{ position: 'absolute', right: 4, top: 4, gap: 4 }} onClick={(e) => e.stopPropagation()}>
-                    {i > 0 && <button type="button" className="btn btn-secondary icon-btn btn-sm" style={{ width: 28, height: 28 }} onClick={() => move(i, -1)} aria-label="Раньше"><ChevronLeft size={14} /></button>}
-                    {i < ids.length - 1 && <button type="button" className="btn btn-secondary icon-btn btn-sm" style={{ width: 28, height: 28 }} onClick={() => move(i, 1)} aria-label="Позже"><ChevronRight size={14} /></button>}
-                  </span>
-                </div>
-              );
-            })}
-          </div>
-        )}
+        <div className="muted" style={{ fontSize: 12, margin: '4px 0 8px' }}>Перетащите, чтобы поменять порядок (на телефоне — долгое нажатие); галочка — файл в посте; нажмите, чтобы открыть. Первый файл — обложка, на фото ставится водяной знак.</div>
+        {!ids.length ? <div className="muted" style={{ fontSize: 13 }}>Файлов нет: уйдёт текстовый пост</div>
+          : <MediaGrid items={shots} grouped off={off} onToggle={(id) => toggle(Number(id))} onOrder={(next) => setOrder(next.map(Number))} />}
       </div>
       {blocked && <div className="alert alert-warn">Эксклюзив ещё висит на других сайтах: публикация закрыта до «Проверено: снято».</div>}
-      <Button variant="ok" size="lg" disabled={blocked || !text.trim()} loading={publish.isPending} onClick={() => publish.mutate()}>
-        <Send size={18} />Опубликовать в Telegram
+      <PublishTargets site={toSite} tg={toTg} onSite={setToSite} onTg={setToTg} />
+      <Button variant="ok" size="lg" disabled={blocked || (!toSite && !toTg) || (toTg && !text.trim())} loading={publish.isPending} onClick={() => publish.mutate()}>
+        <Send size={18} />Опубликовать
       </Button>
+    </div>
+  );
+}
+
+/** «На сайт» / «В Telegram» over the «Опубликовать» button (rent, sale and cars alike). */
+export function PublishTargets({ site, tg, onSite, onTg, tgLocked }: { site: boolean; tg: boolean; onSite: (v: boolean) => void; onTg: (v: boolean) => void; tgLocked?: string }) {
+  return (
+    <div className="col gap-sm">
+      <span className="label">Куда публикуем</span>
+      <div className="row row-wrap gap">
+        <label className="row gap-sm" style={{ cursor: 'pointer', fontWeight: 600 }}><input type="checkbox" checked={site} onChange={(e) => onSite(e.target.checked)} /><Globe size={16} />На сайт hge.ge</label>
+        <label className="row gap-sm" style={{ cursor: tgLocked ? 'not-allowed' : 'pointer', fontWeight: 600, opacity: tgLocked ? 0.5 : 1 }} title={tgLocked}>
+          <input type="checkbox" checked={tg && !tgLocked} disabled={!!tgLocked} onChange={(e) => onTg(e.target.checked)} /><Send size={16} />В Telegram</label>
+      </div>
+      {tgLocked && <span className="faint" style={{ fontSize: 12 }}>{tgLocked}</span>}
+      {!site && !tg && <span className="faint" style={{ fontSize: 12 }}>Отметьте хотя бы одно</span>}
     </div>
   );
 }
@@ -996,7 +1007,7 @@ function ReviewStep({ p }: { p: Property }) {
 function Republish({ p }: { p: Property }) {
   const [open, setOpen] = useState(false);
   return open ? <div className="col"><div className="divider" /><PostComposer p={p} /></div>
-    : <Button variant="secondary" onClick={() => setOpen(true)}><Wand2 size={16} />Обновить пост</Button>;
+    : <Button variant="secondary" onClick={() => setOpen(true)}><Wand2 size={16} />{p.post_url ? 'Обновить пост' : 'Опубликовать в Telegram'}</Button>;
 }
 
 /** «Скидка»: the new price and ❗️#Discount in the post; staff then posts it again («Обновить пост»). */
@@ -1278,6 +1289,13 @@ export function PropertyDetail({ id, compact }: { id: number; compact?: boolean 
   else if (['published', 'rented'].includes(p.status)) action = (
     <div className="col">
       <div className="alert alert-ok">Опубликовано {fmtDateTime(p.published_at)}</div>
+      {p.status === 'published' && (
+        <div className="row row-wrap gap-sm">
+          <span className="label">Где опубликован</span>
+          <Badge tone={p.site_hidden ? 'grey' : 'ok'}>{p.site_hidden ? 'не на сайте' : 'на сайте hge.ge'}</Badge>
+          <Badge tone={p.post_url ? 'ok' : 'grey'}>{p.post_url ? 'в Telegram' : 'нет поста в Telegram'}</Badge>
+        </div>
+      )}
       <div className="row row-wrap">
         {p.post_url && <a className="btn" href={p.post_url} target="_blank" rel="noreferrer"><ExternalLink size={16} />Пост в канале</a>}
         {isStaff && p.status === 'published' && <SiteButton p={p} />}
@@ -1306,7 +1324,7 @@ export function PropertyDetail({ id, compact }: { id: number; compact?: boolean 
             </div>
           </div>
           <div className="price-col">
-            <div className="price" style={{ fontSize: 24 }}>{money(p.price, p.currency || 'USD')}<span className="muted" style={{ fontSize: 12 }}>/мес</span></div>
+            <div className="price" style={{ fontSize: 24 }}>{money(p.post_fields?.deal === 'Sale' ? p.post_fields.sale_price ?? p.price : p.price, p.currency || 'USD')}{p.post_fields?.deal !== 'Sale' && <span className="muted" style={{ fontSize: 12 }}>/мес</span>}</div>
             <div className="muted" style={{ fontSize: 13 }}>{[districtLabel(p.district), bedroomsLabel(p.bedrooms), p.area ? `${p.area} м²` : null].filter(Boolean).join(' · ')}</div>
           </div>
         </div>

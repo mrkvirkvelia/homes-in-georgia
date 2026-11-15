@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 
 from app import storage
 from app.db import SessionLocal
-from app.models import Car, ChannelPost, Property, PropertyMedia, PropertyPublication, SaleObject
+from app.models import Car, ChannelPost, Property, PropertyMedia, PropertyPublication
 from app.services import properties as P
 from app.services import site_feed as F
 from app.services.common import log_event
@@ -33,6 +33,16 @@ def target(it: dict) -> str:
     if it["service"] in ("sale", "new") or it.get("deal") == "sale":
         return "sale"
     return "rent"
+
+
+def fields(it: dict, kind: str) -> dict:
+    """rent_fields, and for a sale the generator's sale block: deal Sale, the type, the price as sale_price."""
+    pf = rent_fields(it)
+    if kind != "sale":
+        return pf
+    pf = {k: v for k, v in pf.items() if k not in ("months", "periods", "period", "tenants", "deposit")}
+    extra = {"completion": it.get("completion"), "sale_price": int(it["price"]) if it.get("price") else None}
+    return {**pf, "deal": "Sale", "prop_type": pf.get("prop_type") or "Apartment", **{k: v for k, v in extra.items() if v}}
 
 
 def rent_fields(it: dict) -> dict:
@@ -102,7 +112,6 @@ def download(it: dict) -> list[tuple[str, bytes]]:
 
 def exists(db: Session, sid: str) -> bool:
     return bool(db.scalar(select(Property.id).where(Property.post_fields["site_id"].astext == sid))
-                or db.scalar(select(SaleObject.id).where(SaleObject.site_id == sid))
                 or db.scalar(select(Car.id).where(Car.site_id == sid)))
 
 
@@ -119,15 +128,15 @@ def one(db: Session, it: dict, photos: bool) -> tuple[str, int]:
     """-> ("created" | "matched", photos stored). Commits nothing."""
     kind, c = target(it), common(it)
     got = download(it) if photos else []
-    if kind == "rent":
+    if kind in ("rent", "sale"):  # a sale is a property too (post_fields.deal = Sale)
         msg = re.search(r"/(\d+)/?$", c["post_url"] or "")
         p = existing_rent(db, c["post_url"])
         if p:
-            p.post_fields = {**(p.post_fields or {}), **{k: v for k, v in rent_fields(it).items() if k in ("service", "site_id")}}
+            p.post_fields = {**(p.post_fields or {}), **{k: v for k, v in fields(it, kind).items() if k in ("service", "site_id")}}
             outcome = "matched"
             got = got if not db.scalar(select(PropertyMedia.id).where(PropertyMedia.property_id == p.id, PropertyMedia.kind == "photo").limit(1)) else []
         else:
-            p = Property(source_type="channel", status="published", is_exclusive=bool(it.get("exclusive")), post_fields=rent_fields(it),
+            p = Property(source_type="channel", status="published", is_exclusive=bool(it.get("exclusive")), post_fields=fields(it, kind),
                          address=it.get("title"), district=it.get("district"), bedrooms=it.get("rooms"), area=it.get("area"),
                          floor=it.get("floor"), total_floors=it.get("floors"), post_message_id=msg[1] if msg else None,
                          **{k: v for k, v in c.items() if v is not None})
@@ -143,24 +152,17 @@ def one(db: Session, it: dict, photos: bool) -> tuple[str, int]:
             storage.put_preview(key, data)
             db.add(PropertyMedia(property_id=p.id, kind="photo", path=key, position=pos))
         return outcome, len(got)
-    if kind == "sale":
-        pf = {k: v for k, v in rent_fields(it).items() if k not in ("service", "site_id", "months", "periods", "period")}
-        o = SaleObject(service=it["service"], title=it["title"], district=it.get("district"), rooms=it.get("rooms"),
-                       area=it.get("area"), floor=it.get("floor"), floors=it.get("floors"), completion=it.get("completion"),
-                       post_fields={**pf, "deal": "Sale", "prop_type": pf.get("prop_type") or "Apartment"},
-                       is_exclusive=bool(it.get("exclusive")))
-    else:
-        o = Car(deal=it["deal"], period=it.get("period"), title=it["title"], deposit=it.get("deposit"), year=it.get("year"),
-                gearbox=it.get("gearbox"), fuel=it.get("fuel"), body=it.get("body"), seats=it.get("seats"),
-                mileage=int(it["mileage"]) if it.get("mileage") else None, pickup=it.get("pickup"),
-                is_exclusive=bool(it.get("exclusive")))
+    o = Car(deal=it["deal"], period=it.get("period"), title=it["title"], deposit=it.get("deposit"), year=it.get("year"),
+            gearbox=it.get("gearbox"), fuel=it.get("fuel"), body=it.get("body"), seats=it.get("seats"),
+            mileage=int(it["mileage"]) if it.get("mileage") else None, pickup=it.get("pickup"),
+            is_exclusive=bool(it.get("exclusive")))
     for k, v in c.items():
         setattr(o, k, v)
     o.site_id, o.status = it["id"], "published"
     db.add(o)
     db.flush()
     for ext, data in got:
-        key = f"offers/{'s' if kind == 'sale' else 'c'}{o.id}/{uuid.uuid4().hex}{ext}"
+        key = f"offers/c{o.id}/{uuid.uuid4().hex}{ext}"
         storage.put(key, data)
         storage.put_preview(key, data)
         o.photos = [*o.photos, key]

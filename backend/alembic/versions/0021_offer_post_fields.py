@@ -1,8 +1,11 @@
-"""sale_objects.post_fields (the rent objects' tags instead of the site's words), properties.site_hidden
+"""Sale objects become properties (post_fields.deal = Sale); properties.site_hidden
 
-The sale form is the rent generator's now (Stanislav 11-15): kind / headline / metro / approx / building / condition /
-heating / amenities move into post_fields, words the generator has no tag for stay in post_fields.site_extra (the site
-still shows them, services/site_feed.py). Self-contained: the maps are copied here, not imported.
+Stanislav 11-15: no separate «Продажа» section, a sale is an object like a rent one («Объекты», switch Аренда /
+Продажа). Every sale_objects row is copied into properties with its photos / video (property_media) and its facts as
+the generator's tags; post_fields.offer_ident keeps the old site id "s<id>" (links keep resolving, site_feed.find), and
+post_fields.site_id the old site's id. sale_objects stays, unused: drop it in a later migration once prod is checked.
+Self-contained: the maps are copied here, not imported. site_hidden: «Снять с сайта» keeps an object published but
+off hge.ge.
 
 Revision ID: 0021
 Revises: 0020
@@ -12,7 +15,6 @@ from typing import Sequence, Union
 
 import sqlalchemy as sa
 from alembic import op
-from sqlalchemy.dialects.postgresql import JSONB
 
 revision: str = '0021'
 down_revision: Union[str, Sequence[str], None] = '0020'
@@ -35,11 +37,11 @@ METRO = {"Liberty Square": "LibertySquare", "Rustaveli": "Rustaveli", "Marjanish
          "Vazha-Pshavela": "VazhaPshavela", "Delisi": "Delisi", "State University": "TCUniversity",
          "Medical University": "MCUniversity", "Avlabari": "AvlabariMetro", "Isani": "IsaniMetro",
          "300 Aragveli": "300Aragveli", "Samgori": "SamgoriMetro", "Varketili": "Varketili"}
-OLD = ("kind", "headline", "metro", "approx", "building", "condition", "heating", "amenities")
 
 
 def tags(r) -> dict:
-    f, extra = {"deal": "Sale", "prop_type": KIND.get(r.kind, "Apartment")}, {}
+    """A sale_objects row -> post_fields (the rent generator's vocabulary); words without a tag go to site_extra."""
+    f, extra = {"deal": "Sale", "service": r.service, "offer_ident": f"s{r.id}", "prop_type": KIND.get(r.kind, "Apartment")}, {}
     for col, m in (("building", BUILDING), ("heating", HEATING), ("metro", METRO)):
         v = getattr(r, col)
         if v and v in m:
@@ -57,10 +59,10 @@ def tags(r) -> dict:
         f["amenities"] = known
     if rest := [a for a in am if a not in AMENITY]:
         extra["amenities"] = rest
-    if r.headline:
-        f["headline"] = r.headline
-    if r.approx:
-        f["approx"] = True
+    for k, v in (("headline", r.headline), ("site_id", r.site_id), ("completion", r.completion),
+                 ("sale_price", int(r.price) if r.price is not None else None), ("approx", r.approx or None)):
+        if v:
+            f[k] = v
     if extra:
         f["site_extra"] = extra
     return f
@@ -68,22 +70,30 @@ def tags(r) -> dict:
 
 def upgrade() -> None:
     op.add_column("properties", sa.Column("site_hidden", sa.Boolean, nullable=False, server_default=sa.text("false")))
-    op.add_column("sale_objects", sa.Column("post_fields", JSONB, nullable=False, server_default=sa.text("'{}'::jsonb")))
     conn = op.get_bind()
-    for r in conn.execute(sa.text(f"SELECT id, {', '.join(OLD)} FROM sale_objects")).all():
-        conn.execute(sa.text("UPDATE sale_objects SET post_fields = CAST(:f AS jsonb) WHERE id = :id"),
-                     {"f": json.dumps(tags(r)), "id": r.id})
-    for c in OLD:
-        op.drop_column("sale_objects", c)
+    rows = conn.execute(sa.text("SELECT * FROM sale_objects ORDER BY id")).all()
+    for r in rows:
+        status = {"published": "published", "archived": "archived"}.get(r.status, "media_uploaded")
+        pid = conn.execute(sa.text("""
+            INSERT INTO properties (source_type, status, agent_id, address, district, lat, lng, price, currency, bedrooms,
+                area, floor, total_floors, description, is_exclusive, post_fields, post_url, published_at, verified_at,
+                archive_reason, archived_at, created_at, updated_at)
+            VALUES (:src, :status, :agent, :title, :district, :lat, :lng, :price, :currency, :rooms, :area, :floor, :floors,
+                :description, :excl, CAST(:pf AS jsonb), :post_url, :pub, :pub, :reason, :arch, :created, :updated)
+            RETURNING id"""), {
+            "src": "channel" if r.site_id else "direct", "status": status, "agent": r.agent_id, "title": r.title,
+            "district": r.district, "lat": r.lat, "lng": r.lng, "price": r.price, "currency": r.currency, "rooms": r.rooms,
+            "area": r.area, "floor": r.floor, "floors": r.floors, "description": r.description, "excl": r.is_exclusive,
+            "pf": json.dumps(tags(r), ensure_ascii=False), "post_url": r.post_url, "pub": r.published_at,
+            "reason": "not_actual" if status == "archived" else None, "arch": r.updated_at if status == "archived" else None,
+            "created": r.created_at, "updated": r.updated_at}).scalar()
+        files = [("photo", k) for k in (r.photos or [])] + ([("video", r.video)] if r.video else [])
+        for pos, (kind, key) in enumerate(files):
+            conn.execute(sa.text("INSERT INTO property_media (property_id, kind, path, position) VALUES (:p, :k, :path, :pos)"),
+                         {"p": pid, "k": kind, "path": key, "pos": pos})
 
 
 def downgrade() -> None:
-    # ponytail: the columns come back empty; the tags stay in post_fields
-    txt = lambda n, **kw: sa.Column(n, sa.Text, **kw)  # noqa: E731
-    for col in (txt("kind", nullable=False, server_default="apartment"), txt("headline"), txt("metro"),
-                sa.Column("approx", sa.Boolean, nullable=False, server_default=sa.text("false")),
-                txt("building"), txt("condition"), txt("heating"),
-                sa.Column("amenities", JSONB, nullable=False, server_default=sa.text("'[]'::jsonb"))):
-        op.add_column("sale_objects", col)
-    op.drop_column("sale_objects", "post_fields")
+    conn = op.get_bind()
+    conn.execute(sa.text("DELETE FROM properties WHERE post_fields ? 'offer_ident'"))  # media go with them (cascade)
     op.drop_column("properties", "site_hidden")

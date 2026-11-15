@@ -12,7 +12,7 @@ import { CabinetPage } from './pages/Cabinet';
 import { CalcPage } from './pages/Calc';
 import { CalendarPage } from './pages/Calendar';
 import { ContractsPage } from './pages/Contracts';
-import { DailyRentPage } from './pages/DailyRent';
+import { DailyRentPage } from './features/dailyRent/DailyRent';
 import { DashboardPage } from './pages/Dashboard';
 import { DealsPage } from './pages/Deals';
 import { ExclusiveSignPage } from './pages/ExclusiveSign';
@@ -109,7 +109,7 @@ export function App() {
         <Route path="reports" element={<ReportsPage />} />
         <Route path="stats" element={<Navigate to="/analytics?tab=business" replace />} />{/* old link, 11-14 */}
         <Route path="analytics" element={<RequireAuth roles={SUPER_ROLES}><AnalyticsPage /></RequireAuth>} />
-        <Route path="daily-rent" element={<RequireAuth roles={DAILY_RENT_ROLES}><DailyRentPage /></RequireAuth>} />
+        <Route path="daily-rent/*" element={<RequireAuth roles={DAILY_RENT_ROLES}><DailyRentPage /></RequireAuth>} />
         <Route path="admin" element={<RequireAuth roles={ADMIN_ROLES}><AdminPage /></RequireAuth>} />
         <Route path="me" element={<CabinetPage />} />
         <Route path="*" element={<NotFound />} />

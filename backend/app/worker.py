@@ -200,6 +200,21 @@ def run_job(db: Session, job: Job) -> str:
         return "error"
 
 
+def daily_rent_ical_tick():
+    """«Посуточная аренда»: fetch every Airbnb / Booking calendar, then tell the Daily Rent people about new double
+    bookings (ApartFlow's syncTick + notifyConflicts)."""
+    from app.models import DrApartment
+    from app.services import daily_rent_ical
+    try:
+        with SessionLocal() as db:
+            if r := daily_rent_ical.sync_all(db):
+                log.info("daily rent ical: %s", r)
+            if fresh := daily_rent_ical.new_conflicts(db):
+                notify.daily_rent_conflicts(fresh, {a.id: a.name for a in db.query(DrApartment)})
+    except Exception:  # noqa: BLE001
+        log.exception("daily rent ical sync failed")
+
+
 def tick(limit: int = 50) -> dict:
     """One pass: claim due jobs one at a time (each in its own transaction, row-locked, SKIP LOCKED)."""
     stats: dict[str, int] = {}
@@ -227,6 +242,7 @@ def main():
     log.info("worker started, interval %ss, tz %s", args.interval, env.TZ)
     from app.telegram import login_bot
     login_bot.start_thread()  # staff invites: /start inv_<token> in the CRM sign-in bot
+    last_ical = time.time() - env.DAILY_RENT_ICAL_MINUTES * 60 + 20  # first fetch 20 s after the start, as ApartFlow
     while True:
         try:
             st = tick()
@@ -234,6 +250,9 @@ def main():
                 log.info("jobs: %s", st)
         except Exception:  # noqa: BLE001
             log.exception("tick failed")
+        if env.DAILY_RENT_ICAL_MINUTES > 0 and time.time() - last_ical >= env.DAILY_RENT_ICAL_MINUTES * 60:
+            last_ical = time.time()
+            daily_rent_ical_tick()
         try:  # the bot's catalog follows the objects (services/catalog.py)
             with SessionLocal() as db:
                 if n := catalog.sync_all(db):

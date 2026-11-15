@@ -28,7 +28,7 @@ def decode_token(token: str) -> dict:
 # The only CRM API a Daily Rent manager may call (Irakli 11-13): everything else is refused for that role here, in the
 # one dependency every endpoint goes through — so a new endpoint is closed to it by default.
 DAILY_RENT_PATHS = ("/api/auth/me",)
-DAILY_RENT_PREFIX = "/api/daily-rent/"
+DAILY_RENT_PREFIX = ("/api/daily-rent/", "/api/media/daily/")  # its section and the apartments' photos
 
 
 def current_user(request: Request, db: Session = Depends(get_db, scope="function"), authorization: str | None = Header(None),
@@ -47,7 +47,7 @@ def current_user(request: Request, db: Session = Depends(get_db, scope="function
         raise DomainError("unauthorized", "user inactive or deleted", 401)
     if user.role == DAILY_RENT_ONLY:
         path = request.url.path
-        if path not in DAILY_RENT_PATHS and not path.startswith(DAILY_RENT_PREFIX):
+        if (path not in DAILY_RENT_PATHS and not path.startswith(DAILY_RENT_PREFIX)) or ".." in path:
             raise DomainError("forbidden", "the Daily Rent manager sees only Daily Rent")
     return user
 

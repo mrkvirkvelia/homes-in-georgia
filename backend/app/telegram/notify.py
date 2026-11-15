@@ -1127,6 +1127,20 @@ def birthdays_tomorrow(people):
         tg.send(t, text)
 
 
+@safe
+def daily_rent_conflicts(conflicts, names):
+    """«Посуточная аренда»: the same nights sold twice (services/daily_rent_ical.new_conflicts) → superadmins, admins and
+    the Daily Rent managers in private, with the «Шахматка» button (ApartFlow's «⚠️ Двойная занятость»)."""
+    who = lambda x: (f"проживание {x.get('guest') or ''} ({x.get('platform') or ''})" if x["kind"] == "stay"  # noqa: E731
+                     else {"airbnb": "Airbnb", "booking": "Booking", "other": "Другая площадка", "manual": "Закрыто вручную"}.get(x["origin"], x["origin"]))
+    for c in conflicts:
+        text = (f"⚠️ <b>Двойная занятость</b>\n{e(names.get(c['apartment_id'], c['apartment_id']))}: {c['start']} — {c['end']}\n"
+                f"{e(who(c['a']))} и {e(who(c['b']))}")
+        for t in store.staff_tg_ids(("superadmin", "admin", "daily_rent_manager")):
+            url = links.miniapp("daily-rent/calendar")
+            tg.send(t, text, kb([[app_btn("📅 Открыть шахматку", url, True)]]) if url else None)
+
+
 def lead_btn(lid):
     return lambda private: kb([[app_btn("📋 Открыть заявку", links.lead_app(lid), private)]])
 

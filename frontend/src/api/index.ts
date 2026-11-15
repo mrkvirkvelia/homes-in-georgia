@@ -240,11 +240,6 @@ export const api = {
     site: (days: number, fresh?: boolean) => http.get<SiteReport>('/analytics/site', { days, fresh: fresh || undefined }),
   },
 
-  /** «Посуточная аренда» (Daily Rent / ApartFlow): the frame address with a one-time entry token */
-  dailyRent: {
-    session: () => http.post<{ url: string; expires_in: number }>('/daily-rent/session'),
-  },
-
   ticker: {
     list: () => http.get<L<TickerMessage>>('/ticker'),
     create: (text: string) => http.post<TickerMessage>('/ticker', { text }),

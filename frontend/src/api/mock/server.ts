@@ -4,6 +4,7 @@ import { scenarioRows, type DistRow, type Scenario } from '../../lib/scenarios';
 import type { Deal, EventItem, Lead, LeadStatus, Listing, Property, PropertyStatus, Report, User } from '../types';
 import { STAFF_ROLES } from '../types';
 import * as F from './fixtures';
+import { registerDailyRent } from './dailyRent';
 
 const delay = (ms = 160) => new Promise((r) => setTimeout(r, ms));
 const page = <T>(items: T[]) => ({ items, total: items.length });
@@ -123,6 +124,8 @@ type Handler = (m: RegExpMatchArray, body: Record<string, unknown>, q: URLSearch
 const routes: [string, RegExp, Handler][] = [];
 const on = (method: string, path: string, h: Handler) =>
   routes.push([method, new RegExp('^' + path.replace(/:(\w+)/g, '([^/]+)') + '$'), h]);
+
+registerDailyRent(on);  // «Посуточная аренда»
 
 // ---------- auth ----------
 on('GET', '/config', () => ({ bot_username: 'HomesinGeorgia_bot', mock: true }));

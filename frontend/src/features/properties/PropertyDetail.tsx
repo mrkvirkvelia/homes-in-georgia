@@ -387,7 +387,7 @@ function PostGeneratorStep({ p, canEdit }: { p: Property; canEdit: boolean }) {
             {!sale && <Field label="Жильцы макс."><Input type="number" inputMode="numeric" min={1} value={pf.tenants ?? ''} onChange={(e) => setPf('tenants', e.target.value === '' ? undefined : Number(e.target.value))} /></Field>}
           </div>
           <Field label="Дизайн"><Chips options={one('design')} value={pf.design} onChange={(v) => setPf('design', v)} /></Field>
-          <Field label="Ванные комнаты" hint="Одна — не отмечать"><Chips options={one('bathrooms')} value={pf.bathrooms} onChange={(v) => setPf('bathrooms', v)} /></Field>
+          <Field label="Ванные комнаты"><Chips options={one('bathrooms')} value={pf.bathrooms} onChange={(v) => setPf('bathrooms', v)} /></Field>
           <Field label="Отопление"><Chips options={one('heating')} value={pf.heating} onChange={(v) => setPf('heating', v)} /></Field>
           {((sale ? [['Удобства', SALE_AMENITIES]] : [['✅/✖️ в посте', AMENITY_FIXED], ['Остальные (только ✅ если есть)', AMENITY_REST]]) as [string, string[]][]).map(([label, keys]) => (
             <Field key={label} label={label}>
@@ -1108,7 +1108,7 @@ export const POST_ONE: Record<string, [string, Record<string, string>]> = {
   design: ['Дизайн', { New: 'Новый', White: 'Белый', Grey: 'Серый', Yellow: 'Жёлтый', Mixed: 'Смешанный', Old: 'Старый', Retro: 'Ретро', UnderRepair: 'В ремонте' }],
   condition: ['Состояние (продажа)', { BlackFrame: 'Чёрный каркас', WhiteFrame: 'Белый каркас', GreenFrame: 'Зелёный каркас', FullyRenovated: 'С ремонтом' }],
   heating: ['Отопление', { CentralHeating: 'Центральное', GasHeating: 'Газовое', ElectricalHeating: 'Электрическое', ACHeating: 'Кондиционер', Fireplace: 'Камин' }],
-  bathrooms: ['Санузлов', { '2Bathroom': '2', '3Bathroom': '3', '4Bathroom': '4' }],
+  bathrooms: ['Санузлов', { '1Bathroom': '1', '2Bathroom': '2', '3Bathroom': '3', '4Bathroom': '4' }],
   pets: ['Животные', { Allowed: 'Можно', NotAllowed: 'Нельзя', ByAgreement: 'По договорённости' }],
 };
 export const POST_MANY: Record<string, [string, Record<string, string>]> = {

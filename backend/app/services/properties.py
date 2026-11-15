@@ -1269,7 +1269,7 @@ POST_ONE = {
     "design": ("New", "White", "Grey", "Yellow", "Mixed", "Old", "Retro", "UnderRepair"),
     "condition": ("BlackFrame", "WhiteFrame", "GreenFrame", "FullyRenovated"),  # sale only
     "heating": ("CentralHeating", "GasHeating", "ElectricalHeating", "ACHeating", "Fireplace"),
-    "bathrooms": ("2Bathroom", "3Bathroom", "4Bathroom"),
+    "bathrooms": ("1Bathroom", "2Bathroom", "3Bathroom", "4Bathroom"),  # 1: Irakli 11-15
     "pets": ("Allowed", "NotAllowed", "ByAgreement"),
 }
 FIXED_AMENITIES = ("Elevator", "Oven", "ParkingPlace", "Conditioner")  # a rent post shows ✖️ for the missing ones
@@ -1383,7 +1383,7 @@ def listing_prefill(listing: Listing) -> tuple[dict, dict]:
     pf = {"prop_type": _P_TYPE.get(d.get("property")), "building": _P_BUILDING.get(d.get("building")),
           "design": _P_DESIGN.get(d.get("condition")), "heating": _P_HEATING.get(d.get("heating")),
           "pets": _P_PETS.get(d.get("pets")),
-          "bathrooms": f"{min(baths, 4)}Bathroom" if baths and baths >= 2 else None,
+          "bathrooms": f"{min(baths, 4)}Bathroom" if baths else None,
           "metro": METRO_NAME.get(d.get("metro_en") or "") or nearest_metro(listing.lat, listing.lng),
           "amenities": yes, "periods": terms,
           "tenants": int(tenants[-1]) if tenants else None, "deposit": _int(d.get("deposit_usd"))}

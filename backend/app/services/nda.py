@@ -19,6 +19,7 @@ import logging
 import re
 import secrets
 import struct
+import threading
 from datetime import datetime, timedelta, timezone
 
 import httpx
@@ -608,10 +609,15 @@ def finalize(db: Session, nid: int) -> str:
     jobs.schedule(db, "nda_drive", n.id, now())
     log_event(db, "nda", n.id, "pdf", None, pdf_sha256=hashlib.sha256(pdf).hexdigest())
     db.commit()
-    _send(env.BOT_TOKEN, by and by.tg_id, f"✅ NDA подписано: {n.full_name} (@{n.tg_username or '—'})", filename(n), pdf)
-    _send(env.LOGIN_BOT_TOKEN or env.BOT_TOKEN, n.tg_id if n.tg_id and n.tg_id != "0" else None,
+    # in the background: the agent's page answers as soon as the PDF is kept (two Telegram uploads took seconds)
+    _bg(_send, env.BOT_TOKEN, by and by.tg_id, f"✅ NDA подписано: {n.full_name} (@{n.tg_username or '—'})", filename(n), pdf)
+    _bg(_send, env.LOGIN_BOT_TOKEN or env.BOT_TOKEN, n.tg_id if n.tg_id and n.tg_id != "0" else None,
           "Homes in Georgia: your signed NDA / ხელმოწერილი NDA", filename(n), pdf)
     return "ok"
+
+
+def _bg(fn, *args) -> None:
+    threading.Thread(target=fn, args=args, daemon=True).start()
 
 
 def _send(token: str, chat_id, caption: str, name: str, pdf: bytes) -> None:

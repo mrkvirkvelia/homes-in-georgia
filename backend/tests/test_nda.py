@@ -45,6 +45,7 @@ def fake_chrome(monkeypatch):
 @pytest.fixture(autouse=True)
 def tg_sent(monkeypatch):
     sent = []
+    monkeypatch.setattr(N, "_bg", lambda fn, *a: fn(*a))  # Telegram sends inline in tests
     monkeypatch.setattr(N.httpx, "post", lambda url, **kw: sent.append((url, kw["data"]["chat_id"], kw["files"]["document"][0])))
     return sent
 

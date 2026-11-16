@@ -670,6 +670,14 @@ const ndaBlocks = [{ k: 'h', n: '1', ka: 'ტერმინები', ru: 'Т�
   { k: 'n', n: '1.2', ka: 'მონაწილე — {name_ka}, პირადი ნომერი {pid}.', ru: 'Участник — {name2}, личный номер {pid}.', en: 'Participant means {name2}, personal number {pid}.' },
   { k: 't', head: [{ ka: 'დონე', ru: 'Уровень', en: 'Level' }], rows: [[{ ka: '25', ru: '25', en: '25' }]] }];
 on('GET', '/ndas', () => page([nda]));
+// team members without a signed agreement: one with no NDA (complete profile), one missing the personal number
+const pre = (id: number, full_name: string, personal_id: string, role: string) => ({ user_id: id, lang: 'KA-RU', full_name, full_name_ka: '', personal_id, ie: '', address: '', phone: '+995 555 000 111', email: '', telegram: '', role, level: role === 'recruit' ? '25' : '50', access: '2026-10-01', iban_gel: '', iban_usd: '' });
+on('GET', '/ndas/team', () => ({ signed: 3, total: 6, items: [
+  { user_id: 7, name: 'Ника', role: 'recruit', level: 25, username: 'nika', can_send: true, missing: ['ie', 'email'], ready: true, status: 'none', nda: null, prefill: pre(7, 'Nika Kapanadze', '01001000007', 'recruit') },
+  { user_id: 8, name: 'Георгий', role: 'agent', level: 50, username: null, can_send: false, missing: ['personal_id', 'ie'], ready: false, status: 'none', nda: null, prefill: pre(8, 'Giorgi Lomidze', '', 'agent') },
+  { user_id: 9, name: 'Нино', role: 'agent', level: 70, username: 'nino_agent', can_send: true, missing: [], ready: true, status: 'sent', nda: { ...nda, user_id: 9 }, prefill: pre(9, 'Nino Beridze', '01001055555', 'agent') }] }));
+on('POST', '/ndas/team/send-all', () => ({ made: 1, sent: 1, not_sent: [] }));
+on('POST', '/ndas/:id/send', () => ({ sent: false, url: `${location.origin}${nda.path}`, path: nda.path }));
 on('GET', '/ndas/company-signature', () => ({ signature: null, at: null, by_name: null }));
 on('GET', '/ndas/:id/text', () => ({ blocks: nda.details.blocks || ndaBlocks, edited: !!nda.details.blocks, edition: '1.2', lang: nda.lang, status: nda.status }));
 on('PUT', '/ndas/:id/text', (_m, b) => { nda.details = b.blocks ? { blocks: b.blocks } : {}; return nda; });

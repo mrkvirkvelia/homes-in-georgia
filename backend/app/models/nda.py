@@ -42,5 +42,6 @@ class AgentNda(Base):
     pdf_path = Column(Text)
     drive_file_id = Column(Text)
     created_by = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"))
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"))  # made for this team member (0027)
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     cancelled_at = Column(DateTime(timezone=True))

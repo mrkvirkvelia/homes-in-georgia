@@ -239,3 +239,54 @@ def test_ie_from_signed_nda_to_profile(db, client):
     client.post(f"/api/public/nda/{token}", json={"signature": SIG, "consent": True, "doc_sha256": v["doc_sha256"]})
     db.expire_all()
     assert db.get(type(ag), ag.id).ie_number == "406112233"
+
+
+def test_team_without_nda_prefill_send_and_writeback(db, client, monkeypatch):
+    """Team members without a signed agreement: listed with what's missing, the form prefilled from the profile, one open
+    agreement each (409 → «Пересоздать»), the link sent by the CRM bot, bulk only for complete profiles, the personal
+    number written back on signing."""
+    from app.telegram import client as tg
+    sent = []
+    monkeypatch.setattr(tg, "send", lambda chat, text, kb=None, **kw: sent.append((chat, kb)) or (None if chat == 999 else {"ok": 1}))
+    boss = make_user(db, "superadmin")
+    client.put("/api/ndas/company-signature", json={"signature": SIG}, headers=auth(boss))
+    nino = make_user(db, "agent", first_name="Nino", last_name="Beridze", tg_id=777001, username="nino_agent", level=70,
+                     phone="+995 555 1", email="n@x.ge", ie_number="406112233")
+    gio = make_user(db, "recruit", first_name="Gio", last_name="K", tg_id=999, personal_id="01001000001")
+    make_user(db, "recruit", first_name="Old", deleted_at=N.now())  # removed: not listed
+    make_user(db, "operator")  # not a field user
+    r = client.get("/api/ndas/team", headers=auth(boss)).json()
+    rows = {x["user_id"]: x for x in r["items"]}
+    assert set(rows) == {nino.id, gio.id} and r["signed"] == 0
+    assert not rows[nino.id]["ready"] and "personal_id" in rows[nino.id]["missing"] and rows[gio.id]["ready"]
+    p = rows[nino.id]["prefill"]
+    assert p["full_name"] == "Nino Beridze" and p["telegram"] == "@nino_agent" and p["level"] == "70" and p["ie"] == "406112233"
+    assert rows[gio.id]["prefill"]["role"] == "recruit" and rows[gio.id]["prefill"]["level"] == "25"
+
+    # bulk: only Gio (complete profile); the bot can't write to him → «скопируйте ссылку»
+    assert client.post("/api/ndas/team/send-all", headers=auth(boss)).json() == {"made": 1, "sent": 0, "not_sent": [gio.name]}
+    assert client.post("/api/ndas/team/send-all", headers=auth(boss)).json()["made"] == 0  # no duplicates
+
+    # Nino: the admin fills the personal number; a second one is refused unless «Пересоздать»
+    body = {**p, "personal_id": "01001055555"}
+    n1 = client.post("/api/ndas", json=body, headers=auth(boss)).json()
+    assert n1["user_id"] == nino.id and n1["details"]["ie"] == "406112233"
+    assert client.post("/api/ndas", json=body, headers=auth(boss)).status_code == 409
+    n2 = client.post("/api/ndas", json={**body, "replace": True}, headers=auth(boss)).json()
+    assert client.get(f"/api/ndas/{n1['id']}", headers=auth(boss)).json()["status"] == "cancelled"
+    s = client.post(f"/api/ndas/{n2['id']}/send", headers=auth(boss)).json()
+    assert s["sent"] and s["url"].endswith(n2["path"]) and sent[-1][0] == 777001
+    assert sent[-1][1]["inline_keyboard"][0][0]["url"] == s["url"]
+    row = {x["user_id"]: x for x in client.get("/api/ndas/team", headers=auth(boss)).json()["items"]}[nino.id]
+    assert row["status"] == "sent" and row["nda"]["id"] == n2["id"]
+
+    # signed → off the list, the personal number in the profile
+    token = n2["path"].split("/")[-1]
+    client.post(f"/api/public/nda/{token}/telegram", json=_widget())
+    v = client.get(f"/api/public/nda/{token}").json()
+    assert client.post(f"/api/public/nda/{token}", json={"signature": SIG, "consent": True, "doc_sha256": v["doc_sha256"]}).status_code == 200
+    db.expire_all()
+    assert db.get(type(nino), nino.id).personal_id == "01001055555"
+    r = client.get("/api/ndas/team", headers=auth(boss)).json()
+    assert [x["user_id"] for x in r["items"]] == [gio.id] and r["signed"] == 1
+    assert client.get("/api/ndas/team", headers=auth(nino)).status_code == 403

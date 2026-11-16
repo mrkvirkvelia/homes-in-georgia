@@ -26,7 +26,7 @@ from sqlalchemy.orm import Session
 
 from app import storage
 from app.config import settings as env
-from app.models import ADMINS, STAFF, SUPER, AgentNda, User
+from app.models import ADMINS, FIELD_SQL, STAFF, SUPER, AgentNda, User
 from app.services import contracts as C, jobs
 from app.services.common import TZ, log_event, now
 from app.services.errors import DomainError, forbidden
@@ -205,7 +205,7 @@ def out(db: Session, n: AgentNda, full: bool = False) -> dict:
          "created_by": {"id": by.id, "name": by.name} if by else None,
          "signed_at": n.signed_at.isoformat() if n.signed_at else None,
          "tg_username": n.tg_username, "has_pdf": bool(n.pdf_path), "in_drive": bool(n.drive_file_id),
-         "number": number(n), "details": n.details or {}}
+         "number": number(n), "details": n.details or {}, "user_id": n.user_id}
     if full:
         d["html"] = n.html
     return d
@@ -248,6 +248,9 @@ def create(db: Session, body: dict, user: User) -> AgentNda:
     lang = body.get("lang") or "KA-RU"
     if lang not in LANGS:
         raise DomainError("bad_input", "Язык: KA, KA-RU или KA-EN")
+    member = db.get(User, int(body["user_id"])) if body.get("user_id") else None
+    if body.get("user_id") and not member:
+        raise DomainError("not_found", "Пользователь не найден")
     f = {k: _clean(body.get(k)) for k in ("full_name", "personal_id", "phone", "telegram")}
     f["telegram"] = f["telegram"].lstrip("@").split("/")[-1] or ""  # «@name» or «t.me/name» → «name»
     if not f["full_name"] or not f["personal_id"]:
@@ -257,13 +260,21 @@ def create(db: Session, body: dict, user: User) -> AgentNda:
     d["level"] = d["level"] if d["level"] in LEVELS else ("25" if role == "recruit" else "50")
     d["access"] = _date(d["access"]) or now().astimezone(TZ).strftime("%d.%m.%Y")
     d["role"] = role
-    if not d["ie"] and (u := _user_by_username(db, f["telegram"])):
+    if member:  # a team member: one open agreement at a time — «Отправить снова» or «Пересоздать» (replace)
+        old = list(db.scalars(select(AgentNda).where(or_(*_conds(member)), AgentNda.status == "sent").with_for_update()))
+        if old and not body.get("replace"):
+            raise DomainError("nda_exists", "У участника уже есть неподписанное соглашение: отправьте его снова или пересоздайте", 409)
+        for o in old:
+            o.status, o.cancelled_at = "cancelled", now()
+            log_event(db, "nda", o.id, "cancelled", user, label=o.full_name, reason="recreated")
+    if not d["ie"] and (u := member or _user_by_username(db, f["telegram"])):
         d["ie"] = u.ie_number or ""  # the profile's ИП number (users.ie_number)
     comp = company_signature()
     if not comp:
         raise DomainError("no_company_signature", "Сначала Давид должен один раз расписаться за компанию (NDA → «Подпись компании»)", 409)
     n = AgentNda(lang=lang, token=secrets.token_urlsafe(24), html="", doc_sha256="", details=d, role=ROLES[role]["ru"],
                  company_signature=comp["signature"], company_signed_at=now(), created_by=user.id,
+                 user_id=member.id if member else None,
                  **{k: (v or None) for k, v in f.items()})
     db.add(n)
     db.flush()  # the id → the agreement's number
@@ -461,10 +472,13 @@ def sign(db: Session, token: str, data: dict, ip: str | None, user_agent: str | 
     n.signature, n.signed_at = data["signature"], now()
     n.ip, n.user_agent = (ip or "")[:100] or None, (user_agent or "")[:300] or None
     n.status = "signed"
-    ie = (n.details or {}).get("ie")
-    if ie and (u := _user_of(db, n)) and not u.ie_number and re.fullmatch(r"\d{9}|\d{11}", ie):
+    ie, u = (n.details or {}).get("ie"), _user_of(db, n)
+    if ie and u and not u.ie_number and re.fullmatch(r"\d{9}|\d{11}", ie):
         u.ie_number = ie  # the agreement's ИП → the profile
         log_event(db, "user", u.id, "updated", None, ie_number=ie, source=f"nda {n.id}")
+    if u and not u.personal_id and n.personal_id:
+        u.personal_id = n.personal_id  # the agreement's personal number → the profile
+        log_event(db, "user", u.id, "updated", None, personal_id=n.personal_id, source=f"nda {n.id}")
     log_event(db, "nda", n.id, "signed", None, label=n.full_name, tg_id=n.tg_id, tg_username=n.tg_username, ip=n.ip,
               user_agent=n.user_agent, doc_sha256=n.doc_sha256)
     db.commit()
@@ -584,6 +598,8 @@ def _user_by_username(db: Session, username: str | None) -> User | None:
 
 
 def _user_of(db: Session, n: AgentNda) -> User | None:
+    if n.user_id and (u := db.get(User, n.user_id)):
+        return u
     u = db.scalar(select(User).where(User.tg_id == int(n.tg_id))) if n.tg_id and n.tg_id.isdigit() and n.tg_id != "0" else None
     return u or _user_by_username(db, n.telegram)
 
@@ -612,11 +628,7 @@ def apply_ie(db: Session, u: User, actor: User | None) -> None:
     ie = u.ie_number
     if not ie:
         return
-    conds = ([AgentNda.tg_id == str(u.tg_id)] if u.tg_id else []) + \
-        ([func.lower(AgentNda.telegram) == u.username.lower()] if u.username else [])
-    if not conds:
-        return
-    for n in list(db.scalars(select(AgentNda).where(or_(*conds), AgentNda.status.in_(("sent", "signed"))).with_for_update())):
+    for n in list(db.scalars(select(AgentNda).where(or_(*_conds(u)), AgentNda.status.in_(("sent", "signed"))).with_for_update())):
         d = dict(n.details or {})
         if n.status == "sent" and d.get("ie") != ie:
             n.details = {**d, "ie": ie}
@@ -640,3 +652,82 @@ def apply_ie(db: Session, u: User, actor: User | None) -> None:
             _send(env.LOGIN_BOT_TOKEN or env.BOT_TOKEN, n.tg_id if n.tg_id and n.tg_id != "0" else None,
                   "Homes in Georgia: NDA + IE number / NDA + ი/მ ნომერი", filename(n).replace(".pdf", " IE.pdf"), pdf)
     db.commit()
+
+
+# ---------------------------------------------------------------- team members without a signed agreement (Stanislav
+# 11-16): the list on the NDA page, the form prefilled from the profile, the link sent by the CRM bot
+
+def _conds(u: User) -> list:
+    """An NDA is the user's: made for him (user_id), confirmed with his Telegram account or naming his @username."""
+    return [AgentNda.user_id == u.id] + ([AgentNda.tg_id == str(u.tg_id)] if u.tg_id else []) + \
+        ([func.lower(AgentNda.telegram) == u.username.lower()] if u.username else [])
+
+
+def _mine(n: AgentNda, u: User) -> bool:
+    return n.user_id == u.id or bool(u.tg_id and n.tg_id == str(u.tg_id)) or \
+        bool(u.username and n.telegram and n.telegram.lower() == u.username.lower())
+
+
+def prefill(u: User) -> dict:
+    """The NDA form from the profile; what the profile lacks stays empty for staff to fill."""
+    role = "recruit" if u.role == "recruit" else "agent"
+    level = str(u.level) if str(u.level) in LEVELS else ("25" if role == "recruit" else "50")
+    return {"user_id": u.id, "lang": "KA-RU", "full_name": " ".join(x for x in (u.first_name, u.last_name) if x) or u.name,
+            "full_name_ka": "", "personal_id": u.personal_id or "", "ie": u.ie_number or "", "address": "",
+            "phone": u.phone or "", "email": u.email or "", "telegram": f"@{u.username}" if u.username else "",
+            "role": role, "level": level, "access": (u.created_at or now()).astimezone(TZ).strftime("%Y-%m-%d"),
+            "iban_gel": "", "iban_usd": ""}
+
+
+def team(db: Session, user: User) -> dict:
+    """Active field users (agents, recruits, staff «+ как агент») without a signed agreement: the open one if sent, what
+    the profile lacks (личный номер and the surname are required; ИП, phone, email only shown)."""
+    _staff(user)
+    users = list(db.scalars(select(User).where(FIELD_SQL, User.is_active.is_(True), User.deleted_at.is_(None)).order_by(User.name)))
+    ndas = list(db.scalars(select(AgentNda).where(AgentNda.status != "cancelled").order_by(AgentNda.id.desc())))
+    rows, signed = [], 0
+    for u in users:
+        mine = [n for n in ndas if _mine(n, u)]  # ponytail: users × NDAs in Python, fine for a team of dozens
+        if any(n.status == "signed" for n in mine):
+            signed += 1
+            continue
+        open_ = next((n for n in mine if n.status == "sent"), None)
+        need = [k for k, v in (("personal_id", u.personal_id), ("last_name", u.last_name)) if not v]
+        extra = [k for k, v in (("ie", u.ie_number), ("phone", u.phone), ("email", u.email)) if not v]
+        rows.append({"user_id": u.id, "name": u.name, "role": u.role, "level": u.level, "username": u.username,
+                     "can_send": bool(u.tg_id), "missing": need + extra, "ready": not need,
+                     "status": "sent" if open_ else "none", "nda": out(db, open_) if open_ else None, "prefill": prefill(u)})
+    return {"items": rows, "signed": signed, "total": len(users)}
+
+
+def send_link(db: Session, nid: int, user: User) -> dict:
+    """The signing link → the team member's Telegram through the CRM bot; {sent: false} → staff copy the link."""
+    from app.telegram import client as tg
+    n = get(db, nid, user)
+    if n.status != "sent":
+        raise DomainError("bad_status", f"NDA: {STATUS_LABEL[n.status]}", 409)
+    url = env.PUBLIC_URL.rstrip("/") + path(n.token)
+    u = _user_of(db, n)
+    ok = False
+    if u and u.tg_id:
+        text = (f"📝 <b>Homes in Georgia</b>\nპლატფორმასთან მიერთების შეთანხმება — გთხოვთ, გაეცნოთ და მოაწეროთ ხელი.\n"
+                f"Соглашение о подключении к платформе — пожалуйста, прочитайте и подпишите.\n{H.escape(n.full_name)}")
+        ok = tg.send(u.tg_id, text, {"inline_keyboard": [[{"text": "✍️ ხელმოწერა / Подписать", "url": url}]]}) is not None
+    log_event(db, "nda", n.id, "link_sent" if ok else "link_not_sent", user, label=n.full_name, to=u and u.id)
+    db.commit()
+    return {"sent": ok, "url": url, "path": path(n.token)}
+
+
+def send_all(db: Session, user: User) -> dict:
+    """«Сформировать и отправить всем»: every team member with no agreement yet and the required profile fields."""
+    made, sent, manual = 0, 0, []
+    for r in team(db, user)["items"]:
+        if r["status"] != "none" or not r["ready"]:
+            continue
+        n = create(db, r["prefill"], user)
+        made += 1
+        if send_link(db, n.id, user)["sent"]:
+            sent += 1
+        else:
+            manual.append(r["name"])
+    return {"made": made, "sent": sent, "not_sent": manual}

@@ -29,6 +29,8 @@ class NdaIn(BaseModel):
     access: str | None = Field(None, max_length=20)  # access start date: 2026-11-14 or 14.11.2026
     iban_gel: str | None = Field(None, max_length=60)
     iban_usd: str | None = Field(None, max_length=60)
+    user_id: int | None = None  # made for this team member (one open agreement each)
+    replace: bool = False  # «Пересоздать»: cancel the member's open agreement first
 
 
 class SignatureIn(BaseModel):
@@ -68,6 +70,23 @@ def ndas_company_signature(user: User = Depends(current_user)):
 def ndas_set_company_signature(body: SignatureIn, user: User = Depends(current_user)):
     d = N.set_company_signature(body.signature, user)
     return {"signature": d["signature"], "at": d["at"], "by_name": d["by_name"]}
+
+
+@router.get("/ndas/team")
+def ndas_team(db: Session = Depends(get_db, scope="function"), user: User = Depends(current_user)):
+    """Active team members without a signed agreement (+ the form prefilled from each profile)."""
+    return N.team(db, user)
+
+
+@router.post("/ndas/team/send-all")
+def ndas_team_send_all(db: Session = Depends(get_db, scope="function"), user: User = Depends(current_user)):
+    return N.send_all(db, user)
+
+
+@router.post("/ndas/{nid}/send")
+def ndas_send(nid: int, db: Session = Depends(get_db, scope="function"), user: User = Depends(current_user)):
+    """The signing link → the member's Telegram (CRM bot); {sent: false} → copy the link."""
+    return N.send_link(db, nid, user)
 
 
 @router.get("/ndas/{nid}")

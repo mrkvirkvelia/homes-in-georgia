@@ -10,15 +10,21 @@ import { errText, useToast } from '../components/toast';
 import { Badge, Button, Card, Empty, Field, Input, Loading, Modal, PageHead, Select, Tabs, Textarea } from '../components/ui';
 import { t } from '../lib/i18n';
 import { SignaturePad, signaturePng } from '../components/SignaturePad';
-import { fmtDate, fmtDateTime, phoneInput } from '../lib/format';
+import { ROLE_LABEL, fmtDate, fmtDateTime, phoneInput } from '../lib/format';
 
 interface Nda {
   id: number; status: 'sent' | 'signed' | 'cancelled'; status_label: string; lang: 'KA' | 'KA-RU' | 'KA-EN';
   full_name: string; personal_id: string; phone: string | null; telegram: string | null; role: string | null;
   path: string | null; created_at: string; created_by: { id: number; name: string } | null; signed_at: string | null;
   tg_username: string | null; has_pdf: boolean; number: string;
-  details: { ie?: string; ie_amended?: { ie: string; at: string } };
+  details: { ie?: string; ie_amended?: { ie: string; at: string } }; user_id?: number | null;
 }
+type Form = Record<'full_name' | 'full_name_ka' | 'personal_id' | 'ie' | 'address' | 'phone' | 'email' | 'telegram' | 'iban_gel' | 'iban_usd' | 'role' | 'level' | 'access' | 'lang', string>;
+interface Member {
+  user_id: number; name: string; role: string; level: number | null; username: string | null; can_send: boolean;
+  missing: string[]; ready: boolean; status: 'sent' | 'none'; nda: Nda | null; prefill: Form & { user_id: number };
+}
+interface Preset { form: Form & { user_id: number }; replace: boolean; name: string }
 interface CompanySig { signature: string | null; at: string | null; by_name: string | null; edition?: string }
 const LANGS = [{ value: 'KA-RU', label: 'ქართული + Русский' }, { value: 'KA-EN', label: 'ქართული + English' }, { value: 'KA', label: 'ქართული' }];
 const TONE = { sent: 'blue', signed: 'ok', cancelled: 'grey' } as const;
@@ -88,20 +94,22 @@ const ROLES = [{ value: 'recruit', label: 'Рекрут (учебные сдел
 const LEVELS = ['25', '50', '70', '90'].map((v) => ({ value: v, label: `Уровень ${v}` }));
 const today = () => new Date().toLocaleDateString('sv-SE');  // YYYY-MM-DD
 
-function NewNda({ onMade }: { onMade: (n: Nda) => void }) {
+function NewNda({ onMade, preset, onReset }: { onMade: (n: Nda) => void; preset?: Preset | null; onReset?: () => void }) {
   const toast = useToast();
   const blank = { full_name: '', full_name_ka: '', personal_id: '', ie: '', address: '', phone: '', email: '', telegram: '', iban_gel: '', iban_usd: '' };
-  const [f, setF] = useState({ ...blank, role: 'recruit', level: '25', access: today(), lang: 'KA-RU' });
+  const [f, setF] = useState<Form>({ ...blank, role: 'recruit', level: '25', access: today(), lang: 'KA-RU' });
+  useEffect(() => { if (preset) setF(preset.form); }, [preset]);
   const m = useMutation({
-    mutationFn: () => http.post<Nda>('/ndas', f),
-    onSuccess: (n) => { onMade(n); setF({ ...f, ...blank, access: today() }); toast('Соглашение создано — отправьте ссылку агенту'); },
+    mutationFn: () => http.post<Nda>('/ndas', preset ? { ...f, user_id: preset.form.user_id, replace: preset.replace } : f),
+    onSuccess: (n) => { onMade(n); setF({ ...f, ...blank, access: today() }); onReset?.(); toast('Соглашение создано — отправьте ссылку агенту'); },
     onError: (e) => toast(errText(e), true),
   });
   const sig = useQuery({ queryKey: ['nda-company-sig'], queryFn: () => http.get<CompanySig>('/ndas/company-signature') });
   const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => setF({ ...f, [k]: e.target.value });
   const role = (e: React.ChangeEvent<HTMLSelectElement>) => setF({ ...f, role: e.target.value, level: e.target.value === 'recruit' ? '25' : f.level === '25' ? '50' : f.level });
   return (
-    <Card label="Новому агенту" title={t('Соглашение о подключении к платформе (ред. {ed})', { ed: sig.data?.edition ?? '…' })}>
+    <Card label={preset ? t('Участнику команды: {name}', { name: preset.name }) : 'Новому агенту'} title={t('Соглашение о подключении к платформе (ред. {ed})', { ed: sig.data?.edition ?? '…' })}>
+      {preset && <div className="alert alert-info" style={{ marginBottom: 12 }}>{t('Заполнено из профиля — проверьте и дополните пустые поля')} · <button type="button" className="link-btn" onClick={() => { setF({ ...f, ...blank, access: today() }); onReset?.(); }}>{t('Очистить')}</button></div>}
       <div className="form-grid">
         <Field label="ФИО агента *" hint="Латиницей или кириллицей, как в паспорте"><Input value={f.full_name} onChange={set('full_name')} placeholder="Nino Beridze" /></Field>
         <Field label="ФИО по-грузински" hint="Для грузинского текста; пусто — как выше"><Input value={f.full_name_ka} onChange={set('full_name_ka')} placeholder="ნინო ბერიძე" /></Field>
@@ -235,6 +243,71 @@ function NdaTextEditor({ n, onClose }: { n: Nda; onClose: () => void }) {
   );
 }
 
+/** The signing link → the member's Telegram through the CRM bot; the bot can't write to him → copy the link. */
+function TgSend({ n, label }: { n: Nda; label?: string }) {
+  const toast = useToast();
+  const qc = useQueryClient();
+  const m = useMutation({
+    mutationFn: () => http.post<{ sent: boolean; url: string }>(`/ndas/${n.id}/send`),
+    onSuccess: (r) => {
+      qc.invalidateQueries({ queryKey: ['nda-team'] });
+      if (r.sent) toast(t('Ссылка отправлена в Telegram'));
+      else navigator.clipboard?.writeText(r.url).then(() => toast(t('Бот не может написать этому человеку — ссылка скопирована, отправьте её сами'), true), () => toast(t('Бот не может написать этому человеку — скопируйте ссылку'), true));
+    },
+    onError: (e) => toast(errText(e), true),
+  });
+  if (!n.user_id || n.status !== 'sent') return null;
+  return <Button size="sm" loading={m.isPending} onClick={() => m.mutate()}><Send size={14} />{label ?? t('Отправить в Telegram')}</Button>;
+}
+
+const MISSING: Record<string, string> = { personal_id: 'личный номер', last_name: 'фамилия', ie: 'ИП', phone: 'телефон', email: 'email' };
+
+function Team({ onForm }: { onForm: (p: Preset) => void }) {
+  const toast = useToast();
+  const qc = useQueryClient();
+  const q = useQuery({ queryKey: ['nda-team'], queryFn: () => http.get<{ items: Member[]; signed: number; total: number }>('/ndas/team') });
+  const all = useMutation({
+    mutationFn: () => http.post<{ made: number; sent: number; not_sent: string[] }>('/ndas/team/send-all'),
+    onSuccess: (r) => {
+      qc.invalidateQueries({ queryKey: ['nda-team'] }); qc.invalidateQueries({ queryKey: ['ndas'] });
+      toast(t('Создано: {made}, отправлено в Telegram: {sent}', { made: r.made, sent: r.sent }) + (r.not_sent.length ? ` · ${t('скопируйте ссылку')}: ${r.not_sent.join(', ')}` : ''), r.not_sent.length > 0);
+    },
+    onError: (e) => toast(errText(e), true),
+  });
+  const rows = q.data?.items ?? [];
+  const ready = rows.filter((r) => r.status === 'none' && r.ready).length;
+  const form = (r: Member, replace = false) => { onForm({ form: r.prefill, replace, name: r.name }); document.getElementById('nda-form')?.scrollIntoView({ behavior: 'smooth' }); };
+  return (
+    <Card label={q.data ? t('Подписали {signed} из {total}', { signed: q.data.signed, total: q.data.total }) : t('Команда')} title={t('В команде без подписанного соглашения')}>
+      {q.isLoading ? <Loading /> : rows.length === 0 ? <Empty text={t('Все в команде подписали соглашение')} icon={<ShieldCheck size={22} />} /> : (
+        <div className="col gap-sm">
+          {ready > 0 && <div><Button variant="secondary" loading={all.isPending} onClick={() => { if (window.confirm(t('Сформировать соглашения из профилей и отправить в Telegram: {n} чел. (у кого профиль заполнен и соглашения ещё нет)?', { n: ready }))) all.mutate(); }}><Send size={16} />{t('Сформировать и отправить всем, у кого профиль заполнен ({n})', { n: ready })}</Button></div>}
+          {rows.map((r) => (
+            <div key={r.user_id} className="card card-pad row row-between row-wrap gap-sm" style={{ padding: 12 }}>
+              <span className="col" style={{ gap: 2 }}>
+                <b>{r.name}</b>
+                <small className="muted">{ROLE_LABEL[r.role as keyof typeof ROLE_LABEL] ?? r.role}{r.level ? ` · ${t('Уровень')} ${r.level}` : ''}{r.username ? ` · @${r.username}` : ''}{!r.can_send ? ` · ${t('нет Telegram')}` : ''}</small>
+                {r.missing.length > 0 && <small className={r.ready ? 'faint' : 'text-red'}>{t('Нет в профиле')}: {r.missing.map((k) => t(MISSING[k] || k)).join(', ')}</small>}
+              </span>
+              <span className="row row-wrap gap-sm" style={{ alignItems: 'center' }}>
+                {r.nda ? <>
+                  <Badge tone="blue">{t('Отправлено')} {fmtDate(r.nda.created_at)}</Badge>
+                  <TgSend n={r.nda} label={t('Отправить снова')} />
+                  <Button size="sm" variant="ghost" onClick={() => navigator.clipboard?.writeText(absolute(r.nda!.path!)).then(() => toast(t('Ссылка скопирована')), () => undefined)}><Copy size={14} />{t('Копировать')}</Button>
+                  <Button size="sm" variant="ghost" onClick={() => form(r, true)}><RotateCcw size={14} />{t('Пересоздать')}</Button>
+                </> : <>
+                  <Badge tone="grey">{t('Нет соглашения')}</Badge>
+                  <Button size="sm" onClick={() => form(r)}><FileText size={14} />{t('Сформировать')}</Button>
+                </>}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+    </Card>
+  );
+}
+
 const TABS = [{ value: 'sent', label: 'Ждут подписи' }, { value: 'signed', label: 'Подписаны' }, { value: 'all', label: 'Все' }] as const;
 
 export function NdasPage() {
@@ -245,6 +318,7 @@ export function NdasPage() {
   const qc = useQueryClient();
   const [tab, setTab] = useState<(typeof TABS)[number]['value']>('sent');
   const [made, setMade] = useState<Nda | null>(null);
+  const [preset, setPreset] = useState<Preset | null>(null);
   const q = useQuery({ queryKey: ['ndas', tab], queryFn: () => http.get<{ items: Nda[]; total: number }>('/ndas', { status: tab, limit: 100 }) });
   const cancel = useMutation({
     mutationFn: (id: number) => http.post<Nda>(`/ndas/${id}/cancel`),
@@ -262,12 +336,14 @@ export function NdasPage() {
       <div><Link to="/admin" className="muted" style={{ fontSize: 13 }}>← Управление · Пользователи</Link></div>
       <PageHead label="Новые агенты" title="Соглашения (NDA)" />
       <CompanySignature />
-      <NewNda onMade={(n) => { setMade(n); setTab('sent'); qc.invalidateQueries({ queryKey: ['ndas'] }); }} />
+      <Team onForm={setPreset} />
+      <div id="nda-form" />
+      <NewNda preset={preset} onReset={() => setPreset(null)} onMade={(n) => { setMade(n); setTab('sent'); qc.invalidateQueries({ queryKey: ['ndas'] }); qc.invalidateQueries({ queryKey: ['nda-team'] }); }} />
       {made?.path && (
         <Card label="Готово" title={`Ссылка для ${made.full_name}`}>
           <div className="col gap-sm">
             <a href={absolute(made.path)} target="_blank" rel="noreferrer" style={{ wordBreak: 'break-all' }}>{absolute(made.path)}</a>
-            <LinkActions n={made} />
+            <div className="row row-wrap gap-sm"><TgSend n={made} /><LinkActions n={made} /></div>
             {admin && <div><Button size="sm" variant="ghost" onClick={() => setEditing(made)}><FileText size={14} />{t('Изменить пункты для этого агента')}</Button></div>}
           </div>
         </Card>

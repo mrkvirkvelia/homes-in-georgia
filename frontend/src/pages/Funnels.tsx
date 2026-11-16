@@ -51,12 +51,12 @@ export function ManualProperty({ open, onClose, base = '', deal = 'rent' }: { op
   );
 }
 
-/** «Объекты» tabs in three groups (Stanislav 11-13 mock-up): Входящие (new ads, operators' requests), Работа (the board,
+/** «Объекты» tabs in three groups (Stanislav 11-13 mock-up): Входящие (new ads, operators' requests, competitors' ads), Работа (the board,
  * the publication queue), База (mine, the whole base, the archive). */
 const OBJ_GROUPS: { key: string; label: string; icon: ReactNode; tabs: ObjTab[] }[] = [
-  { key: 'in', label: t('Входящие'), icon: <Inbox size={20} />, tabs: ['new', 'requests'] },
+  { key: 'in', label: t('Входящие'), icon: <Inbox size={20} />, tabs: ['new', 'requests', 'competitors'] },
   { key: 'work', label: t('Работа'), icon: <Briefcase size={20} />, tabs: ['board', 'review'] },
-  { key: 'base', label: t('База'), icon: <Database size={20} />, tabs: ['mine', 'all', 'archive', 'competitors'] },
+  { key: 'base', label: t('База'), icon: <Database size={20} />, tabs: ['mine', 'all', 'archive'] },
 ];
 const OBJ_TAB: Record<ObjTab, string> = { new: t('Новые объявления'), requests: t('Запросы'), board: t('В работе'), review: t('На публикацию'), mine: t('Мои объекты'), all: t('База объектов'), archive: t('Архив'), competitors: t('Конкуренты') };
 
@@ -76,8 +76,9 @@ export function ObjectsPage() {
   const queue = useQuery({ queryKey: ['properties', 'list', 'review', deal], queryFn: () => api.properties.list({ status: 'review', deal }), enabled: isStaff });
   const requests = useQuery({ queryKey: ['change-requests', 'pending'], queryFn: () => api.changeRequests.list('pending'), enabled: isStaff });
   const fresh = useQuery({ queryKey: ['listings', 'new', 'count'], queryFn: () => api.listings.new({}, 1), staleTime: 60_000 });
+  const rivals = useQuery({ queryKey: ['listings', 'rival', 'count'], queryFn: () => api.listings.new({ competitor: '1' }, 1), staleTime: 60_000 });
   const count: Partial<Record<ObjTab, number | undefined>> = {
-    new: deal === 'sale' ? undefined : fresh.data?.total, review: queue.data ? itemsOf(queue.data).length : undefined, requests: requests.data?.total,
+    new: deal === 'sale' ? undefined : fresh.data?.total, review: queue.data ? itemsOf(queue.data).length : undefined, requests: requests.data?.total, competitors: rivals.data?.total,
   };
   const groups = OBJ_GROUPS.map((g) => ({ ...g, tabs: g.tabs.filter(allowed) }));
   const group = groups.find((g) => g.tabs.includes(tab))!;
@@ -107,7 +108,7 @@ export function ObjectsPage() {
       <div className="obj-sub">
         <div className="subtabs" role="tablist">
           {group.tabs.map((t) => (
-            <button key={t} type="button" role="tab" aria-selected={t === tab} className={t === tab ? 'active' : ''} onClick={() => setTab(t)}>{OBJ_TAB[t]}{badge(t)}</button>
+            <button key={t} type="button" role="tab" aria-selected={t === tab} className={t === tab ? 'active' : ''} ref={t === tab ? (el) => el?.scrollIntoView({ inline: 'nearest', block: 'nearest' }) : undefined} onClick={() => setTab(t)}>{OBJ_TAB[t]}{badge(t)}</button>
           ))}
         </div>
       </div>

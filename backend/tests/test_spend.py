@@ -17,6 +17,9 @@ def test_spend(db, client, monkeypatch):
     db.add(Setting(key="source_runs", value=json.dumps({"facebook": [[now - 5 * 86400, 0.1, 9, 6], [now, 0.05, 3, 6]], "ss": [[now, 0.02, 1, 6]]})))
     db.add(Setting(key="llm_usage", value=json.dumps({today: {"gpt-4.1-mini": [3, 1_000_000, 100_000], "weird": [1, 5, 5],
                                                           "google/gemma": [10, 1000, 100, 0.25, 1000, 0]}, "1999-01-01": {"gpt-4.1-mini": [9, 9, 9]}})))
+    db.add(Setting(key="llm_purpose", value=json.dumps({today: {
+        "index_competitor": {"google/gemma": [3, 1000, 500, 0.3, 0, 0]},
+        "search_query": {"google/gemma": [2, 100, 10, 0.01, 0, 0]}, "search_pick": {"google/gemma": [2, 200, 20, 0.03, 0, 0]}}})))
     db.commit()
     admin = make_user(db, "superadmin")
     r = client.get("/api/spend", headers=auth(admin)).json()
@@ -28,4 +31,9 @@ def test_spend(db, client, monkeypatch):
     assert t["estimated"] and {m["model"]: m["usd"] for m in t["models"]}["google/gemma"] == 0.2501
     assert r["ai"]["month"]["calls"] == 14 and r["ai"]["week"]["calls"] == 14  # 1999 is not this month
     assert r["ai"]["balance"]["balance_usd"] == 9.5
+    p = r["ai"]["purposes"]["today"]
+    assert [x["purpose"] for x in p["rows"]] == ["index_competitor", "search_pick", "search_query"]
+    assert p["rows"][0] == {"purpose": "index_competitor", "calls": 3, "tokens": 1500, "completion": 500, "usd": 0.3}
+    assert p["searches"] == 2 and p["per_search_usd"] == 0.02  # (0.01 + 0.03) / 2 picks
+    assert r["ai"]["purposes"]["month"]["rows"] == p["rows"]
     assert client.get("/api/spend", headers=auth(make_user(db, "operator"))).status_code == 403

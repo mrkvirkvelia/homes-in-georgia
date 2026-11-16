@@ -665,7 +665,7 @@ on('GET', '/news', () => page([
 // Управление → Ключи (backend app/keys.py)
 const mockKeys: Record<string, string> = { OPENAI_BASE_URL: 'https://openrouter.ai/api/v1', LLM_MODEL: 'google/gemma-4-31b-it' };
 const ENV_KEYS: Record<string, string> = { OPENAI_API_KEY: 'sk-or-v1-0000000000000000a6e0', APIFY_TOKENS: 'apify_api_000000000000T4n0, apify_api_111111111111Zz99', MAPTILER_KEY: 'mt00000000000000evv8' };
-const KEY_NOTES: Record<string, [string, string]> = { OPENAI_API_KEY: ['Нейросеть: ключ API', 'OpenRouter, ProxyAPI или OpenAI: все вызовы ИИ идут через этот ключ'],
+const KEY_NOTES: Record<string, [string, string]> = { OPENAI_API_KEY: ['Нейросеть: ключ API', 'Ключ OpenRouter или другого OpenAI-совместимого API'],
   OPENAI_BASE_URL: ['Нейросеть: адрес API', 'Например https://openrouter.ai/api/v1'], LLM_MODEL: ['Нейросеть: модель', 'Например google/gemma-4-31b-it'],
   APIFY_TOKENS: ['Apify: ключи для парсера Facebook', 'Можно несколько через запятую, берутся по очереди'], APIFY_TOKEN: ['Apify: один ключ', 'Если список выше пустой'],
   MAPTILER_KEY: ['Карты MapTiler', 'Подложка карт в CRM и на сайте'] };

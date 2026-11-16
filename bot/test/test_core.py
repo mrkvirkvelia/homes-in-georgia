@@ -87,6 +87,18 @@ class Base(unittest.TestCase):
         return [json.loads(line)["id"] for line in prompt.splitlines() if line.startswith("{")]
 
 
+
+class SimilarTest(unittest.TestCase):
+    def test_same_bedrooms_and_price_district_first(self):
+        L = lambda i, d, b, p: {"id": i, "district": d, "bedrooms": b, "price_usd": p}
+        ref = L("obj1", "Ваке", 2, 500)
+        pool = [ref, L("a", "Сабуртало", 2, 510), L("b", "Ваке", 2, 600), L("c", "Ваке", 3, 500), L("d", "Ваке", 2, 900),
+                L("e", "Ваке", 2, 450)]
+        self.assertEqual([i["id"] for i in core.similar_to(ref, pool)], ["e", "b", "a"])
+        # fewer than 3 with 2 bedrooms: the bedrooms go, the price stays
+        self.assertEqual([i["id"] for i in core.similar_to(ref, pool[:3] + [pool[3]])], ["c", "b", "a"])
+        self.assertEqual(core.similar_to(ref, [ref, L("x", "Ваке", 2, 2000)]), [])
+
 class SyncTest(Base):
     def test_statuses(self):
         c = self.sync([item("tg1", "agency"), item("ss1"), item("fb1", "fb:g"), item("tg_x_1", "tg:x", agent_suspect=True),

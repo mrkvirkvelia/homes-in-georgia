@@ -42,6 +42,8 @@ T = {
         "tip_map": "\n🗺 Или выберите место на карте кнопкой внизу, найду квартиры рядом.",
         "more": "🔄 Ещё варианты", "like": "❤️ Нравится", "dislike": "👎 Не то", "sent": "✅ Передано агенту", "on_map": "📍 На карте",
         "liked": "Отлично!", "disliked": "Учту ваш вкус 👌", "gone": "Объявление уже неактуально",
+        "gone_similar": "Этот вариант уже сдан 😔 Вот похожие:",
+        "gone_search": "Этот вариант уже сдан 😔 Напишите, что ищете (район, бюджет, сколько комнат) — подберу похожие.",
         "lead_sent": f"Передал агенту {BRAND} 🙌 Он свяжется с собственником, договорится о просмотре и напишет вам.",
         "radius": "📍 Ищу в радиусе {r:g} км от {label}",
         "pin": "отмеченной точки", "here": "вашего местоположения", "picked": "выбранной точки",
@@ -69,6 +71,8 @@ Optional:
         "tip_map": "\n🗺 Or pick a place on the map with the button below, I'll find flats nearby.",
         "more": "🔄 More options", "like": "❤️ I like it", "dislike": "👎 Not this", "sent": "✅ Sent to an agent", "on_map": "📍 On the map",
         "liked": "Great!", "disliked": "Noted 👌", "gone": "This listing is no longer available",
+        "gone_similar": "This flat is already rented 😔 Here are similar ones:",
+        "gone_search": "This flat is already rented 😔 Tell me what you're looking for (area, budget, bedrooms) and I'll find similar ones.",
         "lead_sent": f"Sent to a {BRAND} agent 🙌 They will contact the owner, arrange a viewing and message you.",
         "radius": "📍 Searching within {r:g} km of {label}",
         "pin": "the pinned point", "here": "your location", "picked": "the selected point",
@@ -96,6 +100,8 @@ Optional:
         "tip_map": "\n🗺 ან აირჩიეთ ადგილი რუკაზე ქვემოთ მოცემული ღილაკით და ახლოს მდებარე ბინებს მოგიძებნით.",
         "more": "🔄 მეტი ვარიანტი", "like": "❤️ მომწონს", "dislike": "👎 არ მინდა", "sent": "✅ გადაეცა აგენტს", "on_map": "📍 რუკაზე",
         "liked": "მშვენიერია!", "disliked": "გავითვალისწინებ 👌", "gone": "განცხადება აღარ არის აქტუალური",
+        "gone_similar": "ეს ბინა უკვე გაქირავებულია 😔 აი მსგავსი ვარიანტები:",
+        "gone_search": "ეს ბინა უკვე გაქირავებულია 😔 მომწერეთ, რას ეძებთ (უბანი, ბიუჯეტი, ოთახები) და მსგავსს შეგირჩევთ.",
         "lead_sent": f"გადავეცი {BRAND}-ის აგენტს 🙌 ის დაუკავშირდება მესაკუთრეს, შეათანხმებს ნახვას და მოგწერთ.",
         "radius": "📍 ვეძებ {r:g} კმ რადიუსში · {label}",
         "pin": "მონიშნული წერტილი", "here": "თქვენი მდებარეობა", "picked": "არჩეული წერტილი",
@@ -231,6 +237,27 @@ def published():
         return [db.row(r) for r in c.execute(f"SELECT l.* FROM listings l WHERE {CLIENT_SEARCH} ORDER BY l.first_seen DESC, l.id")]
 
 
+def similar_to(ref, pool, n=3):
+    """Up to n listings like ref (an object gone from the catalog): same bedrooms, price within ±30%; the same district
+    first, then the closest price. Relaxed (bedrooms, then price) while fewer than n fit."""
+    price, beds = ref.get("price_usd"), ref.get("bedrooms")
+    near = lambda i: not price or (i.get("price_usd") and abs(i["price_usd"] - price) <= price * 0.3)
+    pool = [i for i in pool if i["id"] != ref["id"]]
+    for fits in (lambda i: near(i) and (beds is None or i.get("bedrooms") == beds), near):
+        got = [i for i in pool if fits(i)]
+        if len(got) >= n:
+            break
+    return sorted(got, key=lambda i: (i.get("district") != ref.get("district"), abs((i.get("price_usd") or 0) - (price or 0))))[:n]
+
+
+def similar_to_object(pid, cl):
+    """Similar published listings for a client who tapped a channel post of object pid that is no longer available."""
+    with db.tx() as c:
+        ref = c.execute("SELECT * FROM listings WHERE id = ? OR id = (SELECT listing_id FROM properties WHERE id = ?) "
+                        "ORDER BY id LIKE 'obj%' DESC LIMIT 1", (f"obj{pid}", pid)).fetchone()
+    return similar_to(db.row(ref), for_client(published(), cl["state"])) if ref else []
+
+
 def reactions(cl, kind):
     with db.tx() as c:
         return [db.row(r) for r in c.execute("SELECT l.* FROM reactions r JOIN listings l ON l.id = r.listing_id "
@@ -324,7 +351,7 @@ def locate(cl):
     if not key:
         return profile_anchor(cl)
     if not st["near"] or st["near"][0] != key:
-        res = ask(NEAR_PROMPT.format(msgs=key, lang=LANG_NAME[lang]), NEAR, timeout=120)
+        res = ask(NEAR_PROMPT.format(msgs=key, lang=LANG_NAME[lang]), NEAR, timeout=120, purpose="search_near")
         p = res["place"] and geocode(res["place"])
         st["near"] = [key, [list(p), res["label"] or res["place"], res["radius_km"] or 2.0] if p else None]
     return (st["near"][1] and (tuple(st["near"][1][0]), st["near"][1][1], st["near"][1][2])) or profile_anchor(cl)
@@ -399,7 +426,7 @@ def search_llm(cl):
     if anchor:
         prompt += (f"\n\nКлиент хочет жить рядом с: {anchor[1]} (желательно в пределах {anchor[2]:g} км). "
                    "Столбец «км» — расстояние до этого места (адреса геокодированы примерно). Ближе = лучше при прочих равных.")
-    res = ask(prompt, PICK, images=st["images"][-5:], timeout=240)
+    res = ask(prompt, PICK, images=st["images"][-5:], timeout=240, purpose="search_pick")
     budget = res["max_price_usd"] or pq["max_price_usd"]
     cap = budget and budget * 1.1
     ok = {i["id"] for i in pool}  # the model only saw the pool: no shown, unpublished or unasked-for commercial ids
@@ -491,7 +518,7 @@ def understand(cl):
 @lru_cache(maxsize=512)
 def parse_query(key, lang, districts):
     """QUERY_PROMPT for one message set; the same words from any client parse once per process (errors aren't cached)."""
-    return ask(QUERY_PROMPT.format(msgs=key, lang=LANG_NAME[lang], districts=districts), QUERY, timeout=120, retries=1)
+    return ask(QUERY_PROMPT.format(msgs=key, lang=LANG_NAME[lang], districts=districts), QUERY, timeout=120, retries=1, purpose="search_query")
 
 
 def _district_ok(i, wanted):
@@ -669,7 +696,7 @@ def search_hybrid(cl):
         prompt += (f"\n\nКлиент хочет жить рядом с: {anchor[1]} (желательно в пределах {anchor[2]:g} км). "
                    "Столбец «км» — расстояние до этого места (адреса геокодированы примерно). Ближе = лучше при прочих равных.")
     pick = ThreadPoolExecutor(1)  # the model picks while the first cards (and their translation) go out
-    fut = pick.submit(ask, prompt, PICK, images=st["images"][-5:], timeout=240, retries=1)
+    fut = pick.submit(ask, prompt, PICK, images=st["images"][-5:], timeout=240, retries=1, purpose="search_pick")
     pick.shutdown(wait=False)
     fits = {i["id"] for i in hard_filter(top20, q, dist if anchor else None, anchor and anchor[2])}
     early = items_of([(i["id"], template_reason(i, lang)) for i in  # the best by score that meet every condition
@@ -714,7 +741,8 @@ def translate(listings):
     res = ask("Translate each apartment listing to natural English for a client. Keep facts, no phones, links, "
               "site or agency names. Return district (Tbilisi district in English) and description.\n\n"
               + "\n".join(json.dumps({"id": i["id"], "district": i.get("district"), "description": i.get("description_ru")},
-                                     ensure_ascii=False) for i in todo), TR, timeout=120, retries=1)
+                                     ensure_ascii=False) for i in todo), TR, timeout=120, retries=1,
+              purpose="search_translate")
     got = {x["id"]: x for x in res["items"]}
     with db.tx() as c:
         for i in todo:

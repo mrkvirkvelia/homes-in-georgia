@@ -327,6 +327,20 @@ def _llm_sum(days: dict) -> dict:
     return out
 
 
+def _purposes(days: dict) -> dict:
+    """days: {day: {purpose: {model: row}}} (llm_purpose) -> spend per purpose, the costliest first, and $ per client search
+    (search_* $ / search_pick calls: every search ends with one pick)."""
+    names = {p for ps in days.values() for p in ps}
+    rows = []
+    for p in names:
+        x = _llm_sum({d: ps[p] for d, ps in days.items() if p in ps})
+        rows.append({"purpose": p, "calls": x["calls"], "tokens": x["prompt"] + x["completion"], "completion": x["completion"], "usd": x["usd"]})
+    rows.sort(key=lambda r: -r["usd"])
+    picks = sum(r["calls"] for r in rows if r["purpose"] == "search_pick")
+    search = sum(r["usd"] for r in rows if r["purpose"].startswith("search_"))
+    return {"rows": rows, "searches": picks, "per_search_usd": round(search / picks, 5) if picks else None}
+
+
 def _apify_accounts() -> list[dict]:
     """Each Apify key's monthly usage from the Apify API (masked, never the key)."""
     import httpx
@@ -352,26 +366,22 @@ def _apify_accounts() -> list[dict]:
 
 def ai_provider(base: str) -> str:
     base = base.lower()
-    return ("OpenRouter" if "openrouter.ai" in base else "ProxyAPI" if "proxyapi" in base
-            else "OpenAI" if "api.openai.com" in base or not base else re.sub(r"^https?://([^/]+).*$", r"\1", base))
+    return ("OpenRouter" if "openrouter.ai" in base else "OpenAI" if "api.openai.com" in base or not base else re.sub(r"^https?://([^/]+).*$", r"\1", base))
 
 
 def _ai_balance() -> dict | None:
-    """OpenRouter: credits left / used (key's own limit if it has one); ProxyAPI: rubles when the key may read it.
+    """OpenRouter: credits left / used (key's own limit if it has one).
     Cached 5 minutes. None when the provider shows no balance."""
     import hashlib
     import httpx
     key, base = os.environ.get("OPENAI_API_KEY") or "", os.environ.get("OPENAI_BASE_URL") or ""
     prov = ai_provider(base)
-    if not key or prov not in ("OpenRouter", "ProxyAPI"):
+    if not key or prov != "OpenRouter":
         return None
     h = {"Authorization": f"Bearer {key}"}
 
     def fetch():
         try:
-            if prov == "ProxyAPI":
-                r = httpx.get("https://api.proxyapi.ru/proxyapi/balance", headers=h, timeout=10)
-                return {"balance_rub": float(r.json()["balance"])} if r.status_code == 200 else None
             out = {}
             r = httpx.get("https://openrouter.ai/api/v1/credits", headers=h, timeout=10)
             if r.status_code == 200:
@@ -394,7 +404,7 @@ def _ai_balance() -> dict | None:
 def spend(db: Session = Depends(get_db, scope="function"), user: User = Depends(require_level("admin"))):
     """Apify: today / 7 days from the runs the parser recorded (source_runs) + each key's month from the Apify API.
     AI: calls, tokens and $ per day and model recorded by bot/llm.py (llm_usage; OpenRouter reports each call's cost),
-    the provider's balance."""
+    the same per purpose (llm_purpose, from 16.11), the provider's balance."""
     from datetime import datetime, timedelta, timezone
     keys.refresh()
     now = datetime.now(timezone.utc)
@@ -403,6 +413,7 @@ def spend(db: Session = Depends(get_db, scope="function"), user: User = Depends(
     runs = jload(settings.get(db, "source_runs"), {})
     flat = [r for rr in runs.values() for r in rr]
     usage = jload(settings.get(db, "llm_usage"), {})
+    purpose = jload(settings.get(db, "llm_purpose"), {})
     base = os.environ.get("OPENAI_BASE_URL") or ""
     return {
         "apify": {"today_usd": round(sum(r[1] for r in flat if r[0] >= day0), 3), "week_usd": round(sum(r[1] for r in flat), 3),
@@ -413,6 +424,9 @@ def spend(db: Session = Depends(get_db, scope="function"), user: User = Depends(
                "today": _llm_sum({d: m for d, m in usage.items() if d == today}),
                "week": _llm_sum({d: m for d, m in usage.items() if d >= week0}),
                "month": _llm_sum({d: m for d, m in usage.items() if d.startswith(month)}),
+               "purposes": {"today": _purposes({d: p for d, p in purpose.items() if d == today}),
+                            "week": _purposes({d: p for d, p in purpose.items() if d >= week0}),
+                            "month": _purposes({d: p for d, p in purpose.items() if d.startswith(month)})},
                "balance": _ai_balance()},
     }
 

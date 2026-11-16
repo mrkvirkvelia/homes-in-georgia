@@ -1,5 +1,5 @@
 """Model calls. LLM_PROVIDER=openai (default, the only path on the server): any OpenAI-compatible
-Chat Completions API (e.g. ProxyAPI) over httpx. LLM_PROVIDER=codex: local dev only, Codex CLI on the
+Chat Completions API (OpenRouter, OpenAI, ...) over httpx. LLM_PROVIDER=codex: local dev only, Codex CLI on the
 ChatGPT subscription; no codex binary or login on the server, and nothing falls back to it.
 Env (openai): OPENAI_BASE_URL (default https://api.openai.com/v1), OPENAI_API_KEY, LLM_MODEL (default gpt-4.1-mini)."""
 import base64
@@ -23,12 +23,13 @@ def _crm_keys():
         pass
 
 
-def ask(prompt, schema, images=(), effort="low", timeout=300, retries=4):
-    """retries: API only. A client waiting in the chat passes 1: 4 retries back off ~30 s on a rate-limited model."""
+def ask(prompt, schema, images=(), effort="low", timeout=300, retries=4, purpose="other"):
+    """retries: API only. A client waiting in the chat passes 1: 4 retries back off ~30 s on a rate-limited model.
+    purpose: what the call is for (PURPOSES), for Управление → Ключи → Расходы."""
     _crm_keys()
     if os.environ.get("LLM_PROVIDER", "openai").lower() == "codex":
         return ask_codex(prompt, schema, images, effort, timeout)
-    return ask_openai(prompt, schema, images, timeout, retries=retries)
+    return ask_openai(prompt, schema, images, timeout, retries=retries, purpose=purpose)
 
 
 def ask_codex(prompt, schema, images=(), effort="low", timeout=300):
@@ -59,7 +60,7 @@ def data_url(path, side=640):
     return "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode()
 
 
-def ask_openai(prompt, schema, images=(), timeout=300, transport=None, retries=4):
+def ask_openai(prompt, schema, images=(), timeout=300, transport=None, retries=4, purpose="other"):
     import httpx
     base = os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1").rstrip("/")
     model = os.environ.get("LLM_MODEL", "gpt-4.1-mini")
@@ -81,9 +82,9 @@ def ask_openai(prompt, schema, images=(), timeout=300, transport=None, retries=4
                 if r.status_code == 200:
                     d = r.json()
                     u = d.get("usage") or {}
-                    print(f"llm {model}: prompt={u.get('prompt_tokens')} completion={u.get('completion_tokens')} "
+                    print(f"llm {model} {purpose}: prompt={u.get('prompt_tokens')} completion={u.get('completion_tokens')} "
                           f"images={len(images)} {time.time() - t0:.1f}s", file=sys.stderr, flush=True)
-                    record_usage(model, u.get("prompt_tokens") or 0, u.get("completion_tokens") or 0, u.get("cost"))
+                    record_usage(model, u.get("prompt_tokens") or 0, u.get("completion_tokens") or 0, u.get("cost"), purpose)
                     msg = d["choices"][0]["message"]
                     if msg.get("refusal"):
                         raise RuntimeError(f"llm refused: {msg['refusal']}")
@@ -97,32 +98,45 @@ def ask_openai(prompt, schema, images=(), timeout=300, transport=None, retries=4
             time.sleep(min(2 ** attempt * 2, 30))
 
 
-def record_usage(model, prompt_tokens, completion_tokens, cost=None):
-    """API tokens -> setting llm_usage {"YYYY-MM-DD": {model: [calls, prompt, completion, cost_usd, unpriced_prompt,
-    unpriced_completion]}}, 62 days (UTC), for Управление → Ключи → Расходы. cost: $ the provider reported (OpenRouter);
-    without it the tokens go to the unpriced pair, which the CRM prices by the model's list price. Rows written before
-    the cost existed have the first 3 only. Row locked: the bot and the parser write at once. Never fails the call."""
+# purpose -> who calls it. One client search = 1 search_query (cached per message set) + search_pick, maybe search_near
+# and search_translate; avg $ per search = their sum / search_query calls (Расходы)
+PURPOSES = ("search_query", "search_near", "search_pick", "search_translate", "index", "index_competitor", "index_facts", "other")
+
+
+def _add(row, prompt_tokens, completion_tokens, cost):
+    """row: [calls, prompt, completion, cost_usd, unpriced_prompt, unpriced_completion] (old rows: the first 3)."""
+    if len(row) < 6:
+        row[3:] = [0.0, row[1], row[2]]  # an old row: all its tokens so far are unpriced
+    row[0] += 1
+    row[1] += prompt_tokens
+    row[2] += completion_tokens
+    if cost is not None:
+        row[3] = round(row[3] + float(cost), 8)
+    else:
+        row[4] += prompt_tokens
+        row[5] += completion_tokens
+
+
+def record_usage(model, prompt_tokens, completion_tokens, cost=None, purpose="other"):
+    """API tokens -> setting llm_usage {"YYYY-MM-DD": {model: row}} and llm_purpose {"YYYY-MM-DD": {purpose: {model: row}}}
+    (row: see _add), 62 days (UTC), for Управление → Ключи → Расходы. cost: $ the provider reported (OpenRouter);
+    without it the tokens go to the unpriced pair, which the CRM prices by the model's list price. Rows locked: the bot
+    and the parser write at once. Never fails the call."""
     try:
         import db
         from datetime import datetime, timedelta, timezone
         now = datetime.now(timezone.utc)
         day, keep = now.strftime("%Y-%m-%d"), (now - timedelta(days=62)).strftime("%Y-%m-%d")
         with db.tx() as c:
-            c.execute("INSERT INTO settings (key, value) VALUES ('llm_usage', '{}') ON CONFLICT (key) DO NOTHING")
-            r = c.execute("SELECT value FROM settings WHERE key = 'llm_usage' FOR UPDATE").fetchone()
-            usage = {k: v for k, v in json.loads(r[0] or "{}").items() if k >= keep}
-            row = usage.setdefault(day, {}).setdefault(model, [0, 0, 0])
-            if len(row) < 6:
-                row[3:] = [0.0, row[1], row[2]]  # an old row: all its tokens so far are unpriced
-            row[0] += 1
-            row[1] += prompt_tokens
-            row[2] += completion_tokens
-            if cost is not None:
-                row[3] = round(row[3] + float(cost), 8)
-            else:
-                row[4] += prompt_tokens
-                row[5] += completion_tokens
-            c.execute("UPDATE settings SET value = ? WHERE key = 'llm_usage'", (json.dumps(usage),))
+            for key in ("llm_usage", "llm_purpose"):
+                c.execute("INSERT INTO settings (key, value) VALUES (?, '{}') ON CONFLICT (key) DO NOTHING", (key,))
+                r = c.execute("SELECT value FROM settings WHERE key = ? FOR UPDATE", (key,)).fetchone()
+                usage = {k: v for k, v in json.loads(r[0] or "{}").items() if k >= keep}
+                rows = usage.setdefault(day, {})
+                if key == "llm_purpose":
+                    rows = rows.setdefault(purpose, {})
+                _add(rows.setdefault(model, [0, 0, 0]), prompt_tokens, completion_tokens, cost)
+                c.execute("UPDATE settings SET value = ? WHERE key = ?", (json.dumps(usage), key))
     except Exception as e:  # noqa: BLE001
         print(f"llm usage not recorded: {e}", file=sys.stderr, flush=True)
 

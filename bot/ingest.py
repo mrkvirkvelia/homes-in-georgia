@@ -508,13 +508,15 @@ def index_batch(batch):
         images += ph
         lines.append(_line(it).replace('{"id"', f'{{"photos": {len(ph)}, "id"', 1))
     schema = obj(listings={"type": "array", "items": PROFILE})
-    res = ask(INDEX_PROMPT.format(items="\n".join(lines)), schema, images=images)
+    res = ask(INDEX_PROMPT.format(items="\n".join(lines)), schema, images=images,
+              purpose="index_competitor" if any(it.get("competitor") for it in batch) else "index")
     return {p["id"]: {**p, "v": INDEX_V} for p in res["listings"]}
 
 
 def facts_batch(batch, cache):
     """Old cache entries: only the new facts, text only (no photos: cheap), merged into the cached profile."""
-    res = ask(FACTS_PROMPT.format(items="\n".join(_line(it, 1500) for it in batch)), obj(listings={"type": "array", "items": FACTS}))
+    res = ask(FACTS_PROMPT.format(items="\n".join(_line(it, 1500) for it in batch)), obj(listings={"type": "array", "items": FACTS}),
+              purpose="index_facts")
     got = {p["id"]: p for p in res["listings"]}
     return {i: {**cache[i], **{k: v for k, v in p.items() if k != "pets"}, "v": INDEX_V}
             for i, p in got.items() if i in cache}

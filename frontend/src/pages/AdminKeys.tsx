@@ -17,6 +17,12 @@ const APIFY_KEYS = ['APIFY_TOKENS', 'APIFY_TOKEN'];
 const MAP_KEYS = ['MAPTILER_KEY'];
 const CHECKABLE = new Set(['OPENAI_API_KEY', ...APIFY_KEYS]);
 const usd = (v: number | null | undefined, d = 2) => (v == null ? '—' : `$${v.toFixed(v > 0 && v < 0.01 ? 4 : d)}`);
+const PURPOSE: Record<string, string> = {
+  search_query: 'Подбор: разбор запроса клиента', search_near: 'Подбор: место рядом с которым искать',
+  search_pick: 'Подбор: выбор вариантов', search_translate: 'Подбор: перевод карточек на английский',
+  index: 'Парсер: разбор новых объявлений (текст + фото)', index_competitor: 'Парсер: разбор постов конкурентов (текст + фото)',
+  index_facts: 'Парсер: факты для старых объявлений (текст)', other: 'Прочее (проверка ключа, ручные запуски)',
+};
 const mono = { fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: 13, overflowWrap: 'anywhere' as const };
 
 const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
@@ -96,7 +102,6 @@ export function KeysPage() {
           <div style={tiles}>
             {bal && bal.balance_usd != null && <Tile label={t('Баланс')} value={usd(bal.balance_usd)} sub={bal.used_usd != null ? t('потрачено всего {v}', { v: usd(bal.used_usd) }) : undefined} />}
             {bal && bal.balance_usd == null && bal.key_remaining_usd != null && <Tile label={t('Остаток лимита ключа')} value={usd(bal.key_remaining_usd)} sub={t('из {v}', { v: usd(bal.key_limit_usd) })} />}
-            {bal && bal.balance_rub != null && <Tile label={t('Баланс')} value={`${num(Math.round(bal.balance_rub))} ₽`} />}
             <Tile label={t('Сегодня')} value={usd(ai.today.usd)} sub={sumSub(ai.today)} />
             <Tile label={t('7 дней')} value={usd(ai.week.usd)} sub={sumSub(ai.week)} />
             <Tile label={t('Месяц')} value={usd(ai.month.usd)} sub={sumSub(ai.month)} />
@@ -106,6 +111,21 @@ export function KeysPage() {
             <thead><tr><th>{t('Модель')}</th><th style={{ textAlign: 'right' }}>{t('Сегодня')}</th><th style={{ textAlign: 'right' }}>{t('7 дней')}</th><th style={{ textAlign: 'right' }}>{t('Месяц')}</th></tr></thead>
             <tbody>{models.map((m) => <tr key={m}><td style={mono}>{m}</td>{[ai.today, ai.week, ai.month].map((x, i) => <td key={i} style={{ textAlign: 'right', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>{cell(x, m)}</td>)}</tr>)}</tbody>
           </table></div>}
+          {ai.purposes && ai.purposes.month.rows.length > 0 && (() => {
+            const ps = ai.purposes;
+            const names = [...new Set([...ps.month.rows, ...ps.week.rows, ...ps.today.rows].map((r) => r.purpose))];
+            const pc = (x: typeof ps.today, p: string) => { const r = x.rows.find((y) => y.purpose === p);
+              return r ? <>{usd(r.usd)}<div className="faint" style={{ fontSize: 11 }}>{t('{calls} выз. · {tokens} ток.', { calls: num(r.calls), tokens: num(r.tokens) })}</div></> : '·'; };
+            const avg = ps.week.per_search_usd;
+            return <>
+              <div className="table-wrap mt"><table className="table table-tight" style={{ fontSize: 13 }}>
+                <thead><tr><th>{t('На что')}</th><th style={{ textAlign: 'right' }}>{t('Сегодня')}</th><th style={{ textAlign: 'right' }}>{t('7 дней')}</th><th style={{ textAlign: 'right' }}>{t('Месяц')}</th></tr></thead>
+                <tbody>{names.map((p) => <tr key={p}><td>{PURPOSE[p] ? t(PURPOSE[p]) : p}</td>{[ps.today, ps.week, ps.month].map((x, i) => <td key={i} style={{ textAlign: 'right', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>{pc(x, p)}</td>)}</tr>)}</tbody>
+              </table></div>
+              {avg != null && <p style={{ fontSize: 13, marginBottom: 0 }}>{t('Один подбор клиенту в среднем: {v} ({n} подборов за 7 дней)', { v: usd(avg, 4), n: num(ps.week.searches) })}</p>}
+              <p className="faint" style={{ fontSize: 12, marginBottom: 0 }}>{t('Разбивка по назначению ведётся с 16.11.2026, поэтому может быть меньше общей суммы.')}</p>
+            </>;
+          })()}
           {ai.month.estimated && <p className="faint" style={{ fontSize: 12, marginBottom: 0 }}>{t('Вызовы, за которые провайдер не прислал стоимость, посчитаны по прайсу модели.')}</p>}
         </>}
         <div className="mt">{rows(by(AI_KEYS))}</div>

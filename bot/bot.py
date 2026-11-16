@@ -309,6 +309,43 @@ async def keep_typing(bot, chat_id):
         await asyncio.sleep(4.5)
 
 
+async def send_cards(bot, chat_id, cl, found, search_id=None):
+    """Album + text card (❤️/👎, 📍) per {"listing", "reason", "near"}, albums prepared in parallel; yields per card sent."""
+    lang = cl["lang"]
+    prep = [asyncio.create_task(asyncio.to_thread(prepare_card, x["listing"]["id"])) for x in found]
+    for x, p in zip(found, prep):
+        i, items = await p
+        if not i:  # publication may have been withdrawn while the model was choosing cards
+            continue
+        try:  # one broken album (file gone, Telegram refusing a photo) must not cost the other listings
+            await send_album(bot, chat_id, i, items=items)
+        except Exception as e:
+            logging.getLogger(__name__).warning("album of %s failed: %r", i.get("id"), e)
+        try:
+            # buttons can't sit on an album, so ❤️/👎 and "📍 On the map" (approximate zone only) go on the text card
+            like = await asyncio.to_thread(notify.like_button, cl, i["id"], core.t(lang, "like"))
+            text, markup = core.card(i, x["reason"], x["near"], lang), core.card_keyboard(i, lang, like=like)
+            m = await bot.send_message(chat_id, text, reply_markup=kb_of(markup))
+            await asyncio.to_thread(journey.remember_card, cl, i["id"], chat_id, m.message_id, text,
+                                    markup["inline_keyboard"][1:], search_id)
+        except Exception as e:
+            logging.getLogger(__name__).warning("card of %s failed: %r", i.get("id"), e)
+        yield i
+
+
+async def gone_post(update: Update, ctx, cl, pid):
+    """A channel post's ❤️ for an object no longer available: «уже сдан» + up to 3 similar cards, or an invite to search."""
+    chat_id, lang = update.effective_chat.id, cl["lang"]
+    similar = await asyncio.to_thread(core.similar_to_object, pid, cl)
+    if not similar:
+        await ctx.bot.send_message(chat_id, core.t(lang, "gone_search"))
+        return
+    await ctx.bot.send_message(chat_id, core.t(lang, "gone_similar"))
+    found = [{"listing": i, "reason": core.template_reason(i, lang), "near": None} for i in similar]
+    async for _ in send_cards(ctx.bot, chat_id, cl, found):
+        pass
+
+
 async def search(chat_id, user, ctx, delay=2.5):
     """core.search_steps batches: the first cards go while the model picks the rest; each batch's albums are
     prepared in parallel and sent in order. Logs time to the first card and to the last."""
@@ -342,24 +379,7 @@ async def search(chat_id, user, ctx, delay=2.5):
                         return
                 await ctx.bot.send_message(chat_id, core.t(lang, "found", understood=res["understood"], total=res["total"],
                                                            base=res["base"], n=res["planned"]))
-            prep = [asyncio.create_task(asyncio.to_thread(prepare_card, x["listing"]["id"])) for x in res["items"]]
-            for x, p in zip(res["items"], prep):
-                i, items = await p
-                if not i:  # publication may have been withdrawn while the model was choosing cards
-                    continue
-                try:  # one broken album (file gone, Telegram refusing a photo) must not cost the other listings
-                    await send_album(ctx.bot, chat_id, i, items=items)
-                except Exception as e:
-                    logging.getLogger(__name__).warning("album of %s failed: %r", i.get("id"), e)
-                try:
-                    # buttons can't sit on an album, so ❤️/👎 and "📍 On the map" (approximate zone only) go on the text card
-                    like = await asyncio.to_thread(notify.like_button, cl, i["id"], core.t(lang, "like"))
-                    text, markup = core.card(i, x["reason"], x["near"], lang), core.card_keyboard(i, lang, like=like)
-                    m = await ctx.bot.send_message(chat_id, text, reply_markup=kb_of(markup))
-                    await asyncio.to_thread(journey.remember_card, cl, i["id"], chat_id, m.message_id, text,
-                                            markup["inline_keyboard"][1:], res.get("search_id"))
-                except Exception as e:
-                    logging.getLogger(__name__).warning("card of %s failed: %r", i.get("id"), e)
+            async for _ in send_cards(ctx.bot, chat_id, cl, res["items"], res.get("search_id")):
                 timing.append(asyncio.get_running_loop().time() - t0)
             if wait_msg is None and not nxt.done() and res["planned"] > len(res["items"]):
                 wait_msg = await ctx.bot.send_message(chat_id, core.t(lang, "picking_more"))
@@ -396,7 +416,9 @@ async def on_start(update: Update, ctx):
     cl = await asyncio.to_thread(client_of, update.effective_user, update.effective_chat.id)
     await asyncio.to_thread(core.reset, cl, lang_hint=update.effective_user.language_code)
     if ctx.args and re.fullmatch(r"p\d+", ctx.args[0]):  # a button under a channel post: straight to a lead
-        await journey.on_post_start(update, ctx, cl, int(ctx.args[0][1:]))
+        pid = int(ctx.args[0][1:])
+        if not await journey.on_post_start(update, ctx, cl, pid):
+            await gone_post(update, ctx, cl, pid)
         return
     if not cl["state"].get("lang_set"):  # first contact: the language first, then the questionnaire (on_lang_button)
         await on_lang(update, ctx)

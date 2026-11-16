@@ -17,7 +17,7 @@ BLOCKED = {"DATABASE_URL", "TEST_DATABASE_URL", "SECRET_KEY", "BOT_TOKEN", "LOGI
            "S3_ACCESS_KEY", "S3_SECRET_KEY", "S3_ENDPOINT", "S3_BUCKET", "MEDIA_STORAGE", "MEDIA_DIR", "POSTGRES_PASSWORD",
            "GOOGLE_SA_JSON", "APP_ENV", "DEV_CORS", "PASSWORD_LOGIN", "PUBLIC_URL", "CHROME_BIN", "LLM_PROVIDER"}
 KNOWN = {  # NAME -> (what it is, in plain words; where it is used). Shown even when empty; any other NAME can be added
-    "OPENAI_API_KEY": ("Нейросеть: ключ API", "OpenRouter, ProxyAPI или OpenAI: все вызовы ИИ идут через этот ключ"),
+    "OPENAI_API_KEY": ("Нейросеть: ключ API", "Ключ OpenRouter или другого OpenAI-совместимого API"),
     "OPENAI_BASE_URL": ("Нейросеть: адрес API", "Например https://openrouter.ai/api/v1"),
     "LLM_MODEL": ("Нейросеть: модель", "Например google/gemma-4-31b-it"),
     "APIFY_TOKENS": ("Apify: ключи для парсера Facebook", "Можно несколько через запятую, берутся по очереди"),

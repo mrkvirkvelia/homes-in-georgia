@@ -776,11 +776,15 @@ export interface Offer {
 export interface LlmSum { calls: number; prompt: number; completion: number; usd: number; estimated: boolean; unpriced: string[];
   models: { model: string; calls: number; tokens: number; usd: number }[] }
 export interface AiBalance { balance_usd?: number; used_usd?: number; key_used_usd?: number | null; key_limit_usd?: number | null;
-  key_remaining_usd?: number | null; balance_rub?: number; error?: string }
+  key_remaining_usd?: number | null; error?: string }
+/** AI spend by what the call was for (bot/llm.py PURPOSES), the costliest first; per_search_usd: search_* $ / client searches. */
+export interface LlmPurposes { rows: { purpose: string; calls: number; tokens: number; completion: number; usd: number }[];
+  searches: number; per_search_usd: number | null }
 export interface Spend {
   apify: { today_usd: number; week_usd: number; by_source_week: Record<string, number>;
     accounts: { tail: string; masked?: string; used_usd: number | null; limit_usd: number | null; cycle_end: string | null; error: string | null }[] };
-  ai: { mode: string; provider: string; base_url: string; model: string; today: LlmSum; week: LlmSum; month: LlmSum; balance: AiBalance | null };
+  ai: { mode: string; provider: string; base_url: string; model: string; today: LlmSum; week: LlmSum; month: LlmSum; balance: AiBalance | null;
+    purposes: { today: LlmPurposes; week: LlmPurposes; month: LlmPurposes } };
 }
 /** value: settings (URL, model) in full, secrets masked (first 4 … last 4); the full secret only via /keys/{name}/value. */
 export interface IntegrationKey { name: string; title: string | null; note: string | null; source: 'crm' | 'env' | null; secret: boolean;

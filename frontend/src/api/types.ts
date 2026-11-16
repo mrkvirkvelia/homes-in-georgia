@@ -1,8 +1,8 @@
 // Types mirror docs/ARCHITECTURE.md §4 / §7. Optional fields are tolerant to backend variations.
 
-export type Role = 'superadmin' | 'admin' | 'operator' | 'agent' | 'recruit' | 'daily_rent_manager';
+export type Role = 'superadmin' | 'admin' | 'operator' | 'agent' | 'recruit' | 'daily_rent_manager' | 'car_operator';
 /** Hierarchical RBAC (backend models/people.py LEVELS): every role inherits all rights of the lower ones. */
-export const ROLE_LEVEL: Record<Role, number> = { recruit: 1, agent: 2, operator: 3, admin: 4, superadmin: 5, daily_rent_manager: 0 };
+export const ROLE_LEVEL: Record<Role, number> = { recruit: 1, agent: 2, operator: 3, admin: 4, superadmin: 5, daily_rent_manager: 0, car_operator: 0 };
 export const atLeast = (u: { role: Role } | null | undefined, role: Role) => !!u && (ROLE_LEVEL[u.role] ?? 0) >= ROLE_LEVEL[role];
 export const SUPER_ROLES: Role[] = ['superadmin'];
 export const ADMIN_ROLES: Role[] = [...SUPER_ROLES, 'admin'];
@@ -10,6 +10,8 @@ export const STAFF_ROLES: Role[] = [...ADMIN_ROLES, 'operator'];
 /** «Посуточная аренда» (Daily Rent / ApartFlow, Irakli 11-13). daily_rent_manager sees nothing else in the CRM. */
 export const DAILY_RENT_ONLY: Role = 'daily_rent_manager';
 export const DAILY_RENT_ROLES: Role[] = [...ADMIN_ROLES, DAILY_RENT_ONLY];
+/** «Оператор авто» (Stanislav 11-16): sees only «Авто» (backend api/deps.py). */
+export const CARS_ONLY: Role = 'car_operator';
 /** users.list role filter for agent pickers: agents, recruits and staff with «Работает как агент» (works_as_agent). */
 export const FIELD_FILTER = 'field';
 
@@ -760,4 +762,4 @@ export interface Offer {
   [field: string]: unknown;  // the kind's own columns (service, rooms, … / deal, year, …)
 }
 
-export interface IntegrationKey { name: string; note: string | null; source: 'crm' | 'env' | null; tail: string | null }
+export interface IntegrationKey { name: string; title: string | null; note: string | null; source: 'crm' | 'env' | null; tail: string | null }

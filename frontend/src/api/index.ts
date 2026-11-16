@@ -40,6 +40,9 @@ export const api = {
     update: (id: number, b: Partial<User> & { password?: string }) => http.patch<User>(`/users/${id}`, b),
     promote: (id: number) => http.post<User>(`/users/${id}/promote`),
     stats: (id: number) => http.get<Record<string, unknown>>(`/users/${id}/stats`),
+    photo: (id: number, file: File) => { const fd = new FormData(); fd.append('file', file); return http.post<User>(`/users/${id}/photo`, fd); },
+    /** an inactive user: hidden everywhere, his objects → «Платформа» (11-16) */
+    remove: (id: number) => http.del<{ ok: boolean; objects_to_platform: number }>(`/users/${id}`),
     /** #Zaza, or #ArturB when another agent has that first name (without '#') */
     suggestTag: (name: string, uid?: number) => http.get<{ tag: string }>('/users/agent-tag-suggestion', { name, uid }),
   },

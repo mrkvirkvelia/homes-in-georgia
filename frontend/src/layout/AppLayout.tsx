@@ -6,7 +6,7 @@ import {
   Car, Settings, Trophy, UsersRound,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
-import { ADMIN_ROLES, DAILY_RENT_ONLY, DAILY_RENT_ROLES, STAFF_ROLES, SUPER_ROLES, atLeast } from '../api/types';
+import { ADMIN_ROLES, CARS_ONLY, DAILY_RENT_ONLY, DAILY_RENT_ROLES, STAFF_ROLES, SUPER_ROLES, atLeast } from '../api/types';
 import { api } from '../api';
 import { itemsOf, IS_MOCK } from '../api/client';
 import type { Role } from '../api/types';
@@ -26,7 +26,7 @@ export const NAV: NavItem[] = [
   { to: '/contracts', label: t('Договоры'), icon: FileText, roles: AGENT_UP },
   { to: '/calendar', label: t('Календарь'), icon: CalendarDays },
   // hge.ge's cars (sales are objects: «Объекты» → Продажа, Stanislav 11-15)
-  { to: '/cars', label: t('Авто'), icon: Car, roles: AGENT_UP },
+  { to: '/cars', label: t('Авто'), icon: Car, roles: [...AGENT_UP, 'car_operator'] },
   { to: '/clients', label: t('Люди'), icon: UsersRound, roles: STAFF, also: ['/owners'] },
   { to: '/team', label: t('Команда'), icon: Trophy },
   { to: '/reports', label: t('Отчёты'), icon: ClipboardList },
@@ -92,10 +92,11 @@ export function AppLayout() {
   const [add, setAdd] = useState(false);
   const loc = useLocation();
   // The Daily Rent manager sees only «Посуточная аренда» (Irakli 11-13); the backend refuses everything else too
-  const dailyOnly = user?.role === DAILY_RENT_ONLY;
-  const items = dailyOnly ? NAV.filter((n) => n.to === '/daily-rent')
+  // «Оператор авто» likewise only «Авто» (Stanislav 11-16)
+  const only = user?.role === DAILY_RENT_ONLY ? '/daily-rent' : user?.role === CARS_ONLY ? '/cars' : null;
+  const items = only ? NAV.filter((n) => n.to === only)
     : NAV.filter((n) => !n.roles || (user && n.roles.includes(user.role)));
-  if (dailyOnly && !loc.pathname.startsWith('/daily-rent')) return <Navigate to="/daily-rent" replace />;
+  if (only && !loc.pathname.startsWith(only)) return <Navigate to={only} replace />;
   const bottom = items.slice(0, 4);
   const rest = items.slice(4);
   const logout = () => { signOut(); navigate('/login'); };
@@ -104,7 +105,7 @@ export function AppLayout() {
   return (
     <div className="shell">
       <aside className="sidebar">
-        <Link to={dailyOnly ? '/daily-rent' : '/'} className="brand" aria-label={t('Главная')} title={t('Главная')}>
+        <Link to={only || '/'} className="brand" aria-label={t('Главная')} title={t('Главная')}>
           <span className="brand-mark"><BrandMark /></span>
           <span className="brand-text">
             <div className="brand-name">Homes in Georgia</div>
@@ -132,12 +133,12 @@ export function AppLayout() {
       </aside>
       <div className="main">
         <header className="topbar">
-          <Link to={dailyOnly ? '/daily-rent' : '/'} aria-label={t('Главная')} title={t('Главная')} className="only-mobile brand-mark" style={{ width: 30, height: 30, borderRadius: 8, background: 'var(--brand)', display: 'grid', placeItems: 'center' }}>
+          <Link to={only || '/'} aria-label={t('Главная')} title={t('Главная')} className="only-mobile brand-mark" style={{ width: 30, height: 30, borderRadius: 8, background: 'var(--brand)', display: 'grid', placeItems: 'center' }}>
             <svg width="18" height="18" viewBox="0 0 64 64"><path d="M10 34 32 14l22 20v18H40V40H24v12H10z" fill="#fff" /><rect x="42" y="8" width="12" height="7" rx="2" fill="#E3172D" /></svg>
           </Link>
-          {dailyOnly ? <div className="grow" style={{ fontWeight: 700 }}>{t('Посуточная аренда')}</div> : <Ticker />}
+          {only ? <div className="grow" style={{ fontWeight: 700 }}>{only === '/cars' ? t('Авто') : t('Посуточная аренда')}</div> : <Ticker />}
           {IS_MOCK && <Badge tone="warn">{t('demo-данные')}</Badge>}
-          {!dailyOnly && <button className="btn btn-sm" onClick={() => setAdd(true)} aria-label={t('Добавить')}><Plus size={16} /><span className="hide-mobile">{t('Добавить')}</span></button>}
+          {!only && <button className="btn btn-sm" onClick={() => setAdd(true)} aria-label={t('Добавить')}><Plus size={16} /><span className="hide-mobile">{t('Добавить')}</span></button>}
         </header>
         <main className="content">
           <Outlet />

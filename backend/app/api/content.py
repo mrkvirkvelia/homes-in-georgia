@@ -140,7 +140,8 @@ def keys_list(db: Session = Depends(get_db, scope="function"), user: User = Depe
     for name in dict.fromkeys([*keys.KNOWN, *sorted(crm)]):
         v = crm.get(name) or os.environ.get(name)
         src = "crm" if name in crm else ("env" if v else None)
-        out.append({"name": name, "note": keys.KNOWN.get(name), "source": src, "tail": v[-4:] if v and len(v) >= 12 else ("…" if v else None)})
+        title, note = keys.KNOWN.get(name, (None, None))
+        out.append({"name": name, "title": title, "note": note, "source": src, "tail": v[-4:] if v and len(v) >= 12 else ("…" if v else None)})
     return {"items": out}
 
 

@@ -81,7 +81,7 @@ def _tg_user(db: Session, tg: dict) -> User:
         raise DomainError("not_registered", "Telegram account is not registered on the platform")
     if tg.get("username"):
         u.username = tg["username"]
-    if tg.get("photo_url"):
+    if tg.get("photo_url") and not (u.photo_url or "").startswith("/api/media/avatars/"):  # an uploaded one stays
         u.photo_url = tg["photo_url"]
     if not u.name or u.name.startswith("Superadmin "):
         u.name = tg.get("first_name") or tg.get("last_name") or u.name

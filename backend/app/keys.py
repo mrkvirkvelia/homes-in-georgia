@@ -15,11 +15,13 @@ BLOCKED = {"DATABASE_URL", "TEST_DATABASE_URL", "SECRET_KEY", "BOT_TOKEN", "LOGI
            "OPERATOR_USERBOT_SESSION", "ADMIN_BOOTSTRAP_LOGIN", "ADMIN_BOOTSTRAP_PASSWORD", "SUPERADMIN_TG_IDS",
            "S3_ACCESS_KEY", "S3_SECRET_KEY", "S3_ENDPOINT", "S3_BUCKET", "MEDIA_STORAGE", "MEDIA_DIR", "POSTGRES_PASSWORD",
            "GOOGLE_SA_JSON", "APP_ENV", "DEV_CORS", "PASSWORD_LOGIN", "PUBLIC_URL", "CHROME_BIN", "LLM_PROVIDER"}
-KNOWN = {  # shown even when empty; any other NAME can be added
-    "APIFY_TOKENS": "Apify: парсер Facebook-групп (несколько ключей через запятую)",
-    "APIFY_TOKEN": "Apify: один ключ (если не задан список выше)",
-    "OPENAI_API_KEY": "ИИ через API (OpenAI / ProxyAPI), когда LLM_PROVIDER=openai",
-    "MAPTILER_KEY": "MapTiler: карты в CRM и на сайте",
+KNOWN = {  # NAME -> (what it is, in plain words; where it is used). Shown even when empty; any other NAME can be added
+    "OPENAI_API_KEY": ("Нейросеть: ключ OpenAI / ProxyAPI", "Запасной вариант ИИ, когда подписка Codex не работает"),
+    "OPENAI_BASE_URL": ("Нейросеть: адрес API", "Например https://api.proxyapi.ru/openai/v1"),
+    "LLM_MODEL": ("Нейросеть: модель", "Например gpt-4.1-mini"),
+    "APIFY_TOKENS": ("Apify: ключи для парсера Facebook", "Можно несколько через запятую, берутся по очереди"),
+    "APIFY_TOKEN": ("Apify: один ключ", "Если список выше пустой"),
+    "MAPTILER_KEY": ("Карты MapTiler", "Подложка карт в CRM и на сайте"),
 }
 TTL = 60
 _ORIG = {k: os.environ.get(k) for k in KNOWN}  # .env / container values, for keys removed in the CRM

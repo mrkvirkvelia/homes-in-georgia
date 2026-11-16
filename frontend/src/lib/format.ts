@@ -3,7 +3,7 @@ import { LOCALE, lx, t, tmap } from './i18n';
 
 export const ROLE_LABEL: Record<Role, string> = tmap({
   superadmin: 'Суперадмин', admin: 'Админ', operator: 'Оператор', agent: 'Агент', recruit: 'Рекрут',
-  daily_rent_manager: 'Менеджер посуточной аренды',
+  daily_rent_manager: 'Оператор посуточной аренды', car_operator: 'Оператор авто',
 });
 
 export const PROPERTY_STATUS: Record<PropertyStatus, string> = tmap({

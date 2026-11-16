@@ -7,11 +7,13 @@ from app.db import Base
 # Hierarchical RBAC (Irakli 2026-11-12, docs/ROLES-IRAKLI-2026-11-12.md): every role inherits all rights of the lower
 # ones, so access checks compare levels (at_least(u, "operator")), never role lists.
 LEVELS = {"recruit": 1, "agent": 2, "operator": 3, "admin": 4, "superadmin": 5}
-ROLES = ("superadmin", "admin", "operator", "agent", "recruit", "daily_rent_manager")
+ROLES = ("superadmin", "admin", "operator", "agent", "recruit", "daily_rent_manager", "car_operator")
 # Daily Rent (посуточная аренда, the ApartFlow app) — Irakli 11-13. daily_rent_manager is outside the ladder above
 # (role_level 0): it sees only the Daily Rent tab; api/deps.current_user refuses it everywhere else.
 DAILY_RENT_ONLY = "daily_rent_manager"
 DAILY_RENT_ROLES = ("superadmin", "admin", DAILY_RENT_ONLY)
+# «Оператор авто» (Stanislav 11-16): outside the ladder too, sees only «Авто» (the cars); api/deps refuses the rest
+CARS_ONLY = "car_operator"
 SUPER = ("superadmin",)
 ADMINS = SUPER + ("admin",)
 STAFF = ADMINS + ("operator",)
@@ -50,6 +52,7 @@ class User(Base):
     agent_tag = Column(Text)  # post hashtag without '#' (Zaza, ArturB); unique lower(agent_tag) index (migration 0001)
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     last_login_at = Column(DateTime(timezone=True))
+    deleted_at = Column(DateTime(timezone=True))  # removed (inactive): hidden everywhere, objects → «Платформа» (0023)
 
     mentor = relationship("User", remote_side=[id])
 

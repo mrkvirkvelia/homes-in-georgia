@@ -19,6 +19,24 @@ import { DealStatusBadge, DealView, DealsList } from './Deals';
 import { LevelProgress } from './Team';
 import { lx, t } from '../lib/i18n';
 
+/** The avatar with «change photo» on click (Stanislav 11-16): admins for anyone, each employee for himself. */
+export function AvatarEdit({ user, size }: { user: Pick<User, 'id' | 'name' | 'photo_url'>; size?: 'lg' }) {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const { user: me, setMe } = useAuth();
+  const [src, setSrc] = useState(user.photo_url);
+  const up = useMutation({ mutationFn: (f: File) => api.users.photo(user.id, f),
+    onSuccess: (u) => { setSrc(u.photo_url); if (me?.id === u.id) setMe?.({ ...me, photo_url: u.photo_url }); qc.invalidateQueries({ queryKey: ['users'] }); toast(t('Фото обновлено')); },
+    onError: (e) => toast(errText(e), true) });
+  if (!me || (me.id !== user.id && !['superadmin', 'admin'].includes(me.role))) return <Avatar size={size} name={user.name} src={src} />;
+  return (
+    <label title={t('Сменить фото')} style={{ cursor: 'pointer', position: 'relative', display: 'inline-flex', opacity: up.isPending ? 0.5 : 1 }}>
+      <Avatar size={size} name={user.name} src={src} />
+      <input type="file" accept="image/*" hidden onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) up.mutate(f); }} />
+    </label>
+  );
+}
+
 const CNT: [string, string][] = [['photo', t('Фото')], ['showing', t('Показы')], ['stickers', t('Расклейка')], ['rental', t('Сдачи')]];
 
 export const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]{2,}$/;
@@ -72,7 +90,7 @@ export function CabinetView({ base = '', userId, tabbed }: { base?: string; user
     <div className="col gap-lg">
       <div className="card card-blue card-pad">
         <div className="row">
-          <Avatar size="lg" name={u?.name} src={u?.photo_url} />
+          {u ? <AvatarEdit key={u.id} user={u} size="lg" /> : <Avatar size="lg" />}
           <div className="grow">
             <div className="label">{u ? ROLE_LABEL[u.role] : ''}</div>
             <h2 style={{ color: '#fff', fontSize: 22, fontWeight: 900 }}>{u?.name}</h2>

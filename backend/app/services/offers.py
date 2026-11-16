@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 from app import storage
 from app.config import settings as env
 from app.api.deps import paginate
-from app.models import Car, User, at_least
+from app.models import CARS_ONLY, Car, User, at_least
 from app.services import properties as P
 from app.services import site_feed
 from app.services.common import get_or_404, log_event
@@ -43,6 +43,11 @@ def out(o) -> dict:
     return {**d, "item_id": site_feed.ident_of(o), "public": o.status == "published" and bool(o.photos)}
 
 
+def _op(actor: User | None) -> bool:
+    """Operator rights over the cars: operators and up, and the «Оператор авто» (Stanislav 11-16)."""
+    return at_least(actor, "operator") or getattr(actor, "role", None) == CARS_ONLY
+
+
 def listing(db: Session, model, status: str | None, q: str | None, limit: int, offset: int) -> dict:
     stmt = select(model).order_by(model.id.desc())
     if status:
@@ -61,7 +66,7 @@ def _changed(db: Session, o, actor: User | None, action: str, **data):
 def create(db: Session, model, data: dict, actor: User) -> object:
     allowed = FIELDS[kind_of(model)]
     o = model(**{k: v for k, v in data.items() if k in allowed}, agent_id=actor.id, status="draft")
-    if (aid := data.get("agent_id")) and at_least(actor, "operator"):
+    if (aid := data.get("agent_id")) and _op(actor):
         o.agent_id = aid
     db.add(o)
     db.flush()
@@ -72,7 +77,7 @@ def create(db: Session, model, data: dict, actor: User) -> object:
 def update(db: Session, model, oid: int, data: dict, actor: User) -> object:
     o = get_or_404(db, model, oid, "object", lock=True)
     for k, v in data.items():
-        if k in FIELDS[kind_of(model)] or (k == "agent_id" and at_least(actor, "operator")):
+        if k in FIELDS[kind_of(model)] or (k == "agent_id" and _op(actor)):
             setattr(o, k, v)
     _changed(db, o, actor, "updated", fields=sorted(data))
     return o
@@ -204,7 +209,7 @@ def publish(db: Session, model, oid: int, actor: User, text: str | None = None, 
     link); a Telegram failure changes nothing (the site is not touched either)."""
     if not (tg or site):
         raise DomainError("no_target", "Отметьте, куда публиковать: сайт или Telegram")
-    if tg and not at_least(actor, "operator"):
+    if tg and not _op(actor):
         raise forbidden("only operators publish to Telegram")
     o = get_or_404(db, model, oid, "object", lock=True)
     if not o.photos:

@@ -1,7 +1,7 @@
 """Users, cabinet, clients."""
 from datetime import date, datetime, timedelta
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, File, UploadFile
 from pydantic import BaseModel
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
@@ -101,6 +101,22 @@ def create_user(body: UserIn, db: Session = Depends(get_db, scope="function"), u
 @router.patch("/users/{uid}")
 def patch_user(uid: int, body: UserPatch, db: Session = Depends(get_db, scope="function"), user: User = Depends(require_level("admin"))):
     return user_out(users.update(db, uid, body.model_dump(exclude_unset=True), user), user)
+
+
+@router.post("/users/{uid}/photo")
+async def user_photo(uid: int, file: UploadFile = File(...), db: Session = Depends(get_db, scope="function"),
+                     user: User = Depends(current_user)):
+    data = await file.read(10 * 1024 * 1024 + 1)
+    if len(data) > 10 * 1024 * 1024:
+        from app.services.errors import DomainError
+        raise DomainError("bad_input", "Фото больше 10 МБ")
+    return user_out(users.set_photo(db, uid, data, user), user)
+
+
+@router.delete("/users/{uid}")
+def remove_user(uid: int, db: Session = Depends(get_db, scope="function"), user: User = Depends(require_level("admin"))):
+    """An inactive user is removed: hidden everywhere, his objects → «Платформа» (users.remove)."""
+    return {"ok": True, "objects_to_platform": users.remove(db, uid, user)}
 
 
 class InviteIn(BaseModel):

@@ -260,13 +260,61 @@ def promote(db: Session, uid: int, level: int = 50, actor: User | None = None) -
 
 
 def list_users(db: Session, role: str | None = None, active: bool | None = None) -> list[User]:
-    q = select(User)
+    q = select(User).where(User.deleted_at.is_(None))  # removed users: history only (remove below)
     if role:  # comma-separated roles; "field" = everyone who works as an agent (agents, recruits, works_as_agent staff)
         roles = role.split(",")
         q = q.where(User.role.in_(roles) | (FIELD_SQL if "field" in roles else False))
     if active is not None:
         q = q.where(User.is_active.is_(active))
     return list(db.scalars(q.order_by(User.name)))
+
+
+def remove(db: Session, uid: int, actor: User) -> int:
+    """Removes a deactivated user (Stanislav 11-16): hidden from every list and picker, his objects and cars go to
+    «Платформа» (agent_id NULL); deals and leads keep him for the history and stats. Returns the objects moved."""
+    from sqlalchemy import update
+    from app.models import Car, Property
+    from app.services.common import now
+    u = get_or_404(db, User, uid, "user")
+    if u.is_active:
+        raise DomainError("bad_status", "Сначала отключите пользователя, потом удаляйте")
+    if u.role == "superadmin":
+        raise DomainError("forbidden", "Суперадмина удалить нельзя", 403)
+    moved = db.execute(update(Property).where(Property.agent_id == uid).values(agent_id=None)).rowcount
+    db.execute(update(Car).where(Car.agent_id == uid).values(agent_id=None))
+    u.deleted_at = u.deleted_at or now()
+    log_event(db, "user", uid, "removed", actor, objects_to_platform=moved)
+    db.commit()
+    return moved
+
+
+def set_photo(db: Session, uid: int, data: bytes, actor: User) -> User:
+    """Avatar upload (Stanislav 11-16): admins for anyone, everyone for himself. 256 px JPEG in storage; a new key each
+    time, so browsers drop the old picture. Telegram sign-in and the avatar sync keep it (/api/media/avatars/…)."""
+    import io
+    import uuid
+    from PIL import Image, UnidentifiedImageError
+    from app import storage
+    if actor.id != uid and not at_least(actor, "admin"):
+        raise DomainError("forbidden", "Фото меняет сам сотрудник или админ", 403)
+    u = get_or_404(db, User, uid, "user")
+    try:
+        with Image.open(io.BytesIO(data)) as im:
+            im = im.convert("RGB")
+            w, h = im.size
+            side = min(w, h)
+            im = im.crop(((w - side) // 2, (h - side) // 2, (w + side) // 2, (h + side) // 2))
+            im.thumbnail((256, 256))
+            out = io.BytesIO()
+            im.save(out, "JPEG", quality=88)
+    except (UnidentifiedImageError, OSError):
+        raise DomainError("bad_input", "Это не картинка: загрузите JPG, PNG или WEBP")
+    key = f"avatars/u{uid}-{uuid.uuid4().hex[:8]}.jpg"
+    storage.put(key, out.getvalue())
+    u.photo_url = f"/api/media/{key}"
+    log_event(db, "user", uid, "photo", actor)
+    db.commit()
+    return u
 
 
 def field_users(db: Session) -> list[User]:

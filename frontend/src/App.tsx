@@ -73,7 +73,8 @@ function NotFound() {
 }
 
 const STAFF = STAFF_ROLES;
-const AGENT_UP: Role[] = [...STAFF_ROLES, 'agent'];  // the site's own objects: recruits no (backend api/offers.py)
+const AGENT_UP: Role[] = [...STAFF_ROLES, 'agent'];
+const CARS_ROLES: Role[] = [...AGENT_UP, 'car_operator'];  // + «Оператор авто» (11-16); the site's own objects: recruits no (backend api/offers.py)
 
 export function App() {
   return (
@@ -90,8 +91,8 @@ export function App() {
         <Route path="objects/:id" element={<PropertyPage />} />
         {/* sales are objects now (Stanislav 11-15): «Объекты» → Продажа */}
         <Route path="sale/*" element={<Navigate to="/objects?deal=sale" replace />} />
-        <Route path="cars" element={<RequireAuth roles={AGENT_UP}><OffersPage /></RequireAuth>} />
-        <Route path="cars/:id" element={<RequireAuth roles={AGENT_UP}><OfferCardPage /></RequireAuth>} />
+        <Route path="cars" element={<RequireAuth roles={CARS_ROLES}><OffersPage /></RequireAuth>} />
+        <Route path="cars/:id" element={<RequireAuth roles={CARS_ROLES}><OfferCardPage /></RequireAuth>} />
         <Route path="leads" element={<LeadsPage />} />
         <Route path="leads/:id" element={<LeadPage />} />
         <Route path="deals" element={<DealsPage />} />

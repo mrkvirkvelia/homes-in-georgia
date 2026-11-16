@@ -631,10 +631,12 @@ on('GET', '/news', () => page([
 ]));
 // Управление → Ключи (backend app/keys.py): values write-only
 const mockKeys: Record<string, string> = {};
-const KEY_NOTES: Record<string, string> = { APIFY_TOKENS: 'Apify: парсер Facebook-групп (несколько ключей через запятую)', APIFY_TOKEN: 'Apify: один ключ (если не задан список выше)',
-  OPENAI_API_KEY: 'ИИ через API (OpenAI / ProxyAPI), когда LLM_PROVIDER=openai', MAPTILER_KEY: 'MapTiler: карты в CRM и на сайте' };
+const KEY_NOTES: Record<string, [string, string]> = { OPENAI_API_KEY: ['Нейросеть: ключ OpenAI / ProxyAPI', 'Запасной вариант ИИ, когда подписка Codex не работает'],
+  OPENAI_BASE_URL: ['Нейросеть: адрес API', 'Например https://api.proxyapi.ru/openai/v1'], LLM_MODEL: ['Нейросеть: модель', 'Например gpt-4.1-mini'],
+  APIFY_TOKENS: ['Apify: ключи для парсера Facebook', 'Можно несколько через запятую, берутся по очереди'], APIFY_TOKEN: ['Apify: один ключ', 'Если список выше пустой'],
+  MAPTILER_KEY: ['Карты MapTiler', 'Подложка карт в CRM и на сайте'] };
 const keysOut = () => ({ items: [...new Set([...Object.keys(KEY_NOTES), ...Object.keys(mockKeys).sort()])].map((name) => ({
-  name, note: KEY_NOTES[name] ?? null, source: mockKeys[name] ? 'crm' : name === 'OPENAI_API_KEY' ? 'env' : null,
+  name, title: KEY_NOTES[name]?.[0] ?? null, note: KEY_NOTES[name]?.[1] ?? null, source: mockKeys[name] ? 'crm' : name === 'OPENAI_API_KEY' ? 'env' : null,
   tail: mockKeys[name] ? mockKeys[name].slice(-4) : name === 'OPENAI_API_KEY' ? 'a1b2' : null })) });
 on('GET', '/keys', () => keysOut());
 on('PUT', '/keys/:name', (m, b) => { mockKeys[m[1]] = String(b.value); return keysOut(); });

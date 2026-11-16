@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.db import get_db
-from app.models import DAILY_RENT_ONLY, LEVELS, User, at_least
+from app.models import CARS_ONLY, DAILY_RENT_ONLY, LEVELS, User, at_least
 from app.services.errors import DomainError
 
 ALG = "HS256"
@@ -29,6 +29,8 @@ def decode_token(token: str) -> dict:
 # one dependency every endpoint goes through — so a new endpoint is closed to it by default.
 DAILY_RENT_PATHS = ("/api/auth/me",)
 DAILY_RENT_PREFIX = ("/api/daily-rent/", "/api/media/daily/")  # its section and the apartments' photos
+# «Оператор авто» (Stanislav 11-16): the same, for the cars (api/offers.py) and their photos
+CARS_PREFIX = ("/api/offers/car", "/api/media/offers/")
 
 
 def current_user(request: Request, db: Session = Depends(get_db, scope="function"), authorization: str | None = Header(None),
@@ -49,6 +51,10 @@ def current_user(request: Request, db: Session = Depends(get_db, scope="function
         path = request.url.path
         if (path not in DAILY_RENT_PATHS and not path.startswith(DAILY_RENT_PREFIX)) or ".." in path:
             raise DomainError("forbidden", "the Daily Rent manager sees only Daily Rent")
+    if user.role == CARS_ONLY:
+        path = request.url.path
+        if (path not in DAILY_RENT_PATHS and not path.startswith(CARS_PREFIX)) or ".." in path:
+            raise DomainError("forbidden", "the car operator sees only the cars")
     return user
 
 

@@ -17,7 +17,7 @@ from app.telegram.client import conf
 
 log = logging.getLogger(__name__)
 ROLE_RU = {"superadmin": "суперадмин", "admin": "администратор", "operator": "оператор", "agent": "агент", "recruit": "рекрут",
-           "daily_rent_manager": "менеджер посуточной аренды"}
+           "daily_rent_manager": "оператор посуточной аренды", "car_operator": "оператор авто"}
 assert set(ROLE_RU) == set(ROLES)
 
 

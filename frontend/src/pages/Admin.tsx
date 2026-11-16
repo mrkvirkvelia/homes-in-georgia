@@ -10,14 +10,14 @@ import { useAuth } from '../auth/AuthContext';
 import { errText, useToast } from '../components/toast';
 import { Avatar, Badge, Button, Card, Drawer, Empty, ErrorBox, Field, Input, Loading, Modal, PageHead, Seg, Select, Switch, Tabs } from '../components/ui';
 import { ROLE_LABEL, ago, fmtDateTime, phoneBlur, phoneFocus, phoneInput } from '../lib/format';
-import { EMAIL_RE, birthdayLabel } from './Cabinet';
+import { AvatarEdit, EMAIL_RE, birthdayLabel } from './Cabinet';
 import { parseMetrics } from '../lib/useUserNames';
 import { ANALYTICS_METRICS, ANALYTICS_SECTIONS } from '../features/deals/Analytics';
 import { t } from '../lib/i18n';
 
 const MISSING: Record<string, string> = { name: t('фамилия'), birth_date: t('ДР'), phone: t('телефон'), email: 'email' };
-const ROLES: Role[] = ['superadmin', 'admin', 'operator', 'agent', 'recruit', 'daily_rent_manager'];
-const FIELDLESS: Role[] = ['daily_rent_manager'];  // no level / agent hashtag: only the Daily Rent tab
+const ROLES: Role[] = ['superadmin', 'admin', 'operator', 'agent', 'recruit', 'daily_rent_manager', 'car_operator'];
+const FIELDLESS: Role[] = ['daily_rent_manager', 'car_operator'];  // no level / agent hashtag: only the Daily Rent tab
 
 function UserForm({ user, all, onDone }: { user?: User; all: User[]; onDone: () => void }) {
   const qc = useQueryClient();
@@ -44,6 +44,7 @@ function UserForm({ user, all, onDone }: { user?: User; all: User[]; onDone: () 
     (f.phone || '').replace(/\D/g, '').length < 9 && t('телефон'), !EMAIL_RE.test((f.email || '').trim()) && 'email'].filter(Boolean);
   return (
     <div className="col gap-lg">
+      {user && <div className="row"><AvatarEdit user={user} size="lg" /><span className="muted" style={{ fontSize: 13 }}>{t('Нажмите на фото, чтобы сменить')}</span></div>}
       <div className="form-grid">
         <Field label={t('Имя *')}><Input value={f.first_name || ''} placeholder={t('Заза')} onChange={(e) => set('first_name', e.target.value)} /></Field>
         <Field label={t('Фамилия *')}><Input value={f.last_name || ''} placeholder={t('Беридзе')} onChange={(e) => set('last_name', e.target.value)} /></Field>
@@ -177,6 +178,10 @@ function Users() {
   const { data, isLoading, error } = useQuery({ queryKey: ['users', 'admin', role], queryFn: () => api.users.list({ role: role || undefined }) });
   const all = useQuery({ queryKey: ['users', 'admin', ''], queryFn: () => api.users.list({}) });
   const toggle = useMutation({ mutationFn: (u: User) => api.users.update(u.id, { is_active: !u.is_active }), onSuccess: () => qc.invalidateQueries({ queryKey: ['users'] }) });
+  const toast = useToast();
+  const remove = useMutation({ mutationFn: (u: User) => api.users.remove(u.id),
+    onSuccess: (r) => { qc.invalidateQueries({ queryKey: ['users'] }); toast(t('Удалён. Объектов передано Платформе: {n}', { n: r.objects_to_platform })); },
+    onError: (e) => toast(errText(e), true) });
   const items = itemsOf(data);
   // active on top; the ones who left are folded under «Неактивные (N)» (Stanislav 11-11)
   const [showOff, setShowOff] = useState(false);
@@ -195,7 +200,11 @@ function Users() {
                   <td className="num">{u.level ? `${u.level}%` : '—'}</td>
                   <td className="muted">{u.agent_tag ? `#${u.agent_tag}` : '—'}</td>
                   <td className="hide-mobile muted">{u.username ? `@${u.username}` : u.tg_id || '—'}</td>
-                  <td onClick={(e) => e.stopPropagation()}><Switch checked={u.is_active} onChange={() => toggle.mutate(u)} /></td>
+                  <td onClick={(e) => e.stopPropagation()}><div className="row" style={{ gap: 6, flexWrap: 'nowrap' }}>
+                    <Switch checked={u.is_active} onChange={() => toggle.mutate(u)} />
+                    {!u.is_active && u.role !== 'superadmin' && <Button size="sm" variant="ghost" aria-label={t('Удалить')} title={t('Удалить')} loading={remove.isPending && remove.variables?.id === u.id}
+                      onClick={() => confirm(t('Удалить {name}? Пропадёт из списков, его объекты перейдут Платформе. Сделки и история останутся.', { name: u.name })) && remove.mutate(u)}><Trash2 size={14} /></Button>}
+                  </div></td>
                 </tr>);
   return (
     <>
@@ -486,7 +495,7 @@ function KeysAdmin() {
   const qc = useQueryClient();
   const toast = useToast();
   const q = useQuery({ queryKey: ['keys'], queryFn: api.keys.list });
-  const [edit, setEdit] = useState<{ name: string; value: string; isNew?: boolean } | null>(null);
+  const [edit, setEdit] = useState<{ name: string; value: string; isNew?: boolean; custom?: boolean } | null>(null);
   const done = (d: { items: unknown[] }) => { qc.setQueryData(['keys'], d); setEdit(null); toast(t('Сохранено')); };
   const put = useMutation({ mutationFn: () => api.keys.put(edit!.name.trim().toUpperCase(), edit!.value.trim()), onSuccess: done, onError: (e) => toast(errText(e), true) });
   const del = useMutation({ mutationFn: (n: string) => api.keys.remove(n), onSuccess: (d) => qc.setQueryData(['keys'], d), onError: (e) => toast(errText(e), true) });
@@ -498,8 +507,8 @@ function KeysAdmin() {
       {itemsOf(q.data).map((k) => (
         <div key={k.name} className="list-row" style={{ flexWrap: 'wrap' }}>
           <div className="grow" style={{ minWidth: 220 }}>
-            <div style={{ fontWeight: 700, fontFamily: 'monospace', overflowWrap: 'anywhere' }}>{k.name}</div>
-            {k.note && <div className="muted" style={{ fontSize: 12 }}>{t(k.note)}</div>}
+            <div style={{ fontWeight: 700 }}>{k.title ? t(k.title) : k.name}</div>
+            <div className="muted" style={{ fontSize: 12 }}>{k.note ? `${t(k.note)} · ` : ''}<span style={{ fontFamily: 'monospace', overflowWrap: 'anywhere' }}>{k.name}</span></div>
           </div>
           {k.source === 'crm' ? <Badge tone="ok">{t('CRM')} · …{k.tail}</Badge> : k.source === 'env' ? <Badge tone="grey">{t('сервер')} · …{k.tail}</Badge> : <Badge tone="warn">{t('не задан')}</Badge>}
           <Button size="sm" variant="secondary" onClick={() => setEdit({ name: k.name, value: '' })}>{k.source === 'crm' ? t('Заменить') : t('Задать')}</Button>
@@ -507,9 +516,13 @@ function KeysAdmin() {
         </div>
       ))}
       <div className="row mt"><Button variant="secondary" onClick={() => setEdit({ name: '', value: '', isNew: true })}><Plus size={16} />{t('Добавить ключ')}</Button></div>
-      <Modal open={!!edit} onClose={() => setEdit(null)} title={edit?.isNew ? t('Новый ключ') : edit?.name || ''}>
+      <Modal open={!!edit} onClose={() => setEdit(null)} title={edit?.isNew ? t('Новый ключ') : t(itemsOf(q.data).find((k) => k.name === edit?.name)?.title || edit?.name || '')}>
         {edit && <form className="col gap" onSubmit={(e) => { e.preventDefault(); put.mutate(); }}>
-          {edit.isNew && <Field label={t('Имя (латиница, например THREADS_TOKEN)')}><Input value={edit.name} onChange={(e) => setEdit({ ...edit, name: e.target.value.toUpperCase().replace(/[^A-Z0-9_]/g, '') })} required /></Field>}
+          {edit.isNew && <Field label={t('Какой ключ')}><Select value={edit.custom ? '_' : edit.name}
+            onChange={(e) => setEdit({ ...edit, name: e.target.value === '_' ? '' : e.target.value, custom: e.target.value === '_' })}
+            placeholder={t('Выберите…')}
+            options={[...itemsOf(q.data).filter((k) => k.title).map((k) => ({ value: k.name, label: t(k.title!) })), { value: '_', label: t('Другой ключ (ввести имя)') }]} /></Field>}
+          {edit.isNew && edit.custom && <Field label={t('Имя ключа латиницей, например THREADS_TOKEN')}><Input value={edit.name} onChange={(e) => setEdit({ ...edit, name: e.target.value.toUpperCase().replace(/[^A-Z0-9_]/g, '') })} required /></Field>}
           <Field label={t('Значение')}><Input type="password" autoComplete="off" value={edit.value} onChange={(e) => setEdit({ ...edit, value: e.target.value })} required /></Field>
           <Button type="submit" loading={put.isPending} disabled={!edit.name.trim() || !edit.value.trim()}>{t('Сохранить')}</Button>
         </form>}

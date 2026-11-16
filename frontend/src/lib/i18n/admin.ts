@@ -357,4 +357,7 @@ export const D: Record<string, [ka: string, en: string]> = {
   'Сформировать': ['შექმნა', 'Prepare'],
   'Имя и фамилия латиницей или кириллицей, как в паспорте': ['სახელი და გვარი ლათინურად ან კირილიცით, როგორც პასპორტში', 'First and last name in Latin or Cyrillic, as in the passport'],
   'Только грузинскими буквами; пусто — как выше': ['მხოლოდ ქართული ასოებით; ცარიელი — როგორც ზემოთ', 'Georgian letters only; empty — same as above'],
+  'Соглашение создано и отправлено в Telegram': ['შეთანხმება შეიქმნა და გაიგზავნა Telegram-ში', 'Agreement created and sent in Telegram'],
+  'Соглашение создано, но бот не может написать — скопируйте ссылку ниже': ['შეთანხმება შეიქმნა, მაგრამ ბოტს არ შეუძლია მისწეროს — დააკოპირეთ ბმული ქვემოთ', "Agreement created, but the bot can't message — copy the link below"],
+  'Создать и отправить в Telegram': ['შექმნა და Telegram-ში გაგზავნა', 'Create and send in Telegram'],
 };

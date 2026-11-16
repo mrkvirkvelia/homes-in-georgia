@@ -277,6 +277,9 @@ def test_team_without_nda_prefill_send_and_writeback(db, client, monkeypatch):
     assert n1["user_id"] == nino.id and n1["details"]["ie"] == "406112233"
     assert client.post("/api/ndas", json=body, headers=auth(boss)).status_code == 409
     n2 = client.post("/api/ndas", json={**body, "replace": True}, headers=auth(boss)).json()
+    # after a cancel the form comes back with what was typed (not only the profile)
+    row = {x["user_id"]: x for x in client.get("/api/ndas/team", headers=auth(boss)).json()["items"]}[nino.id]
+    assert row["prefill"]["personal_id"] == "01001055555" and row["prefill"]["full_name"] == "Nino Beridze"
     assert client.get(f"/api/ndas/{n1['id']}", headers=auth(boss)).json()["status"] == "cancelled"
     s = client.post(f"/api/ndas/{n2['id']}/send", headers=auth(boss)).json()
     assert s["sent"] and s["url"].endswith(n2["path"]) and sent[-1][0] == 777001

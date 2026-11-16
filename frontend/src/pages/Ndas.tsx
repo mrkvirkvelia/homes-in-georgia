@@ -97,9 +97,17 @@ function NewNda({ onMade, preset, onReset }: { onMade: (n: Nda) => void; preset?
   const blank = { full_name: '', full_name_ka: '', personal_id: '', ie: '', address: '', phone: '', email: '', telegram: '', iban_gel: '', iban_usd: '' };
   const [f, setF] = useState<Form>({ ...blank, role: 'agent', level: '50', access: today(), lang: 'KA-RU' });
   useEffect(() => { if (preset) setF(preset.form); }, [preset]);
+  // a team member: made and sent to his Telegram by the CRM bot at once; the bot can't write to him → copy the link
   const m = useMutation({
-    mutationFn: () => http.post<Nda>('/ndas', preset ? { ...f, user_id: preset.form.user_id, replace: preset.replace } : f),
-    onSuccess: (n) => { onMade(n); setF({ ...f, ...blank, access: today() }); onReset?.(); toast('Соглашение создано — отправьте ссылку агенту'); },
+    mutationFn: async () => {
+      const n = await http.post<Nda>('/ndas', preset ? { ...f, user_id: preset.form.user_id, replace: preset.replace } : f);
+      const sent = preset ? (await http.post<{ sent: boolean }>(`/ndas/${n.id}/send`).catch(() => ({ sent: false }))).sent : null;
+      return { n, sent };
+    },
+    onSuccess: ({ n, sent }) => {
+      onMade(n); setF({ ...f, ...blank, access: today() }); onReset?.();
+      toast(sent === true ? t('Соглашение создано и отправлено в Telegram') : sent === false ? t('Соглашение создано, но бот не может написать — скопируйте ссылку ниже') : 'Соглашение создано — отправьте ссылку агенту', sent === false);
+    },
     onError: (e) => toast(errText(e), true),
   });
   const sig = useQuery({ queryKey: ['nda-company-sig'], queryFn: () => http.get<CompanySig>('/ndas/company-signature') });
@@ -121,7 +129,7 @@ function NewNda({ onMade, preset, onReset }: { onMade: (n: Nda) => void; preset?
         <Field label="IBAN USD"><Input value={f.iban_usd} onChange={set('iban_usd')} placeholder="GE…" /></Field>
         <Field label="Язык"><Select value={f.lang} onChange={set('lang')} options={LANGS} /></Field>
       </div>
-      <div className="mt"><Button disabled={f.full_name.trim().split(/\s+/).length < 2 || !f.personal_id.trim() || (!!f.full_name_ka.trim() && !/[\u10a0-\u10ff]/.test(f.full_name_ka))} loading={m.isPending} onClick={() => m.mutate()}><ShieldCheck size={16} />Создать ссылку</Button></div>
+      <div className="mt"><Button disabled={f.full_name.trim().split(/\s+/).length < 2 || !f.personal_id.trim() || (!!f.full_name_ka.trim() && !/[\u10a0-\u10ff]/.test(f.full_name_ka))} loading={m.isPending} onClick={() => m.mutate()}><ShieldCheck size={16} />{preset ? t('Создать и отправить в Telegram') : 'Создать ссылку'}</Button></div>
     </Card>
   );
 }
@@ -358,6 +366,7 @@ export function NdasPage() {
                   <Badge tone={TONE[n.status]}>{n.status_label}</Badge>
                 </div>
                 <div className="row row-wrap gap-sm">
+                  {n.status === 'sent' && <TgSend n={n} />}
                   {n.status === 'sent' && <LinkActions n={n} />}
                   {n.status === 'sent' && admin && <Button size="sm" variant="ghost" onClick={() => setEditing(n)}><FileText size={14} />{t('Текст')}</Button>}
                   {n.status === 'sent' && <Button size="sm" variant="ghost" loading={cancel.isPending} onClick={() => { if (window.confirm(`Отменить соглашение для ${n.full_name}? Ссылка перестанет работать.`)) cancel.mutate(n.id); }}><XCircle size={14} />Отменить</Button>}

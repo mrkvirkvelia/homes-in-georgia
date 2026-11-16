@@ -706,7 +706,7 @@ def _mine(n: AgentNda, u: User) -> bool:
         bool(u.username and n.telegram and n.telegram.lower() == u.username.lower())
 
 
-def prefill(u: User) -> dict:
+def prefill(u: User, last: AgentNda | None = None) -> dict:
     """The NDA form from the profile; what the profile lacks stays empty for staff to fill. The agreement's role is always
     Агент (no role / level in the form, Stanislav 11-16); the level from the profile, else 50."""
     role = "agent"
@@ -715,7 +715,19 @@ def prefill(u: User) -> dict:
             "full_name_ka": "", "personal_id": u.personal_id or "", "ie": u.ie_number or "", "address": "",
             "phone": u.phone or "", "email": u.email or "", "telegram": f"@{u.username}" if u.username else "",
             "role": role, "level": level, "access": now().astimezone(TZ).strftime("%Y-%m-%d"),
-            "iban_gel": u.iban_gel or "", "iban_usd": u.iban_usd or ""}
+            "iban_gel": u.iban_gel or "", "iban_usd": u.iban_usd or "",
+            **_from_nda(last)}
+
+
+def _from_nda(n: AgentNda | None) -> dict:
+    """What staff typed into the member's latest agreement (even a cancelled one) — so «Пересоздать» / «Сформировать»
+    after a cancel doesn't lose the full name, personal number, address…"""
+    if not n:
+        return {}
+    d = n.details or {}
+    got = {"full_name": n.full_name, "personal_id": n.personal_id, "phone": n.phone,
+           **{k: d.get(k) for k in ("full_name_ka", "ie", "address", "email", "iban_gel", "iban_usd")}}
+    return {k: v for k, v in got.items() if v}
 
 
 def team(db: Session, user: User) -> dict:
@@ -723,7 +735,7 @@ def team(db: Session, user: User) -> dict:
     the profile lacks (личный номер and the surname are required; ИП, phone, email only shown)."""
     _staff(user)
     users = list(db.scalars(select(User).where(FIELD_SQL, User.is_active.is_(True), User.deleted_at.is_(None)).order_by(User.name)))
-    ndas = list(db.scalars(select(AgentNda).where(AgentNda.status != "cancelled").order_by(AgentNda.id.desc())))
+    ndas = list(db.scalars(select(AgentNda).order_by(AgentNda.id.desc())))
     rows, signed = [], 0
     for u in users:
         mine = [n for n in ndas if _mine(n, u)]  # ponytail: users × NDAs in Python, fine for a team of dozens
@@ -731,11 +743,12 @@ def team(db: Session, user: User) -> dict:
             signed += 1
             continue
         open_ = next((n for n in mine if n.status == "sent"), None)
+        last = mine[0] if mine else None
         need = [k for k, v in (("personal_id", u.personal_id), ("last_name", u.last_name)) if not v]
         extra = [k for k, v in (("ie", u.ie_number), ("phone", u.phone), ("email", u.email)) if not v]
         rows.append({"user_id": u.id, "name": u.name, "role": u.role, "level": u.level, "username": u.username,
                      "can_send": bool(u.tg_id), "missing": need + extra, "ready": not need,
-                     "status": "sent" if open_ else "none", "nda": out(db, open_) if open_ else None, "prefill": prefill(u)})
+                     "status": "sent" if open_ else "none", "nda": out(db, open_) if open_ else None, "prefill": prefill(u, last)})
     return {"items": rows, "signed": signed, "total": len(users)}
 
 

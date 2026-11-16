@@ -108,11 +108,17 @@ class OpenAIProvider(unittest.TestCase):
             self.run_ask(lambda req: httpx.Response(500, text="down"))
         self.assertEqual(self.sleep.call_count, 4)
 
-    def test_codex_is_the_default(self):
-        with mock.patch.dict(os.environ, {"LLM_PROVIDER": ""}), mock.patch.object(llm, "ask_codex", return_value={"answer": "c"}) as c:
+    def test_api_is_the_default(self):
+        with mock.patch.dict(os.environ, {"LLM_PROVIDER": ""}), mock.patch.object(llm, "ask_openai", return_value={"answer": "a"}) as a, \
+                mock.patch.object(llm, "ask_codex") as c:
             os.environ.pop("LLM_PROVIDER")
+            self.assertEqual(llm.ask("hi", SCHEMA), {"answer": "a"})
+        a.assert_called_once()
+        c.assert_not_called()
+
+    def test_codex_only_when_asked(self):
+        with mock.patch.dict(os.environ, {"LLM_PROVIDER": "codex"}), mock.patch.object(llm, "ask_codex", return_value={"answer": "c"}):
             self.assertEqual(llm.ask("hi", SCHEMA), {"answer": "c"})
-        c.assert_called_once()
 
 
 if __name__ == "__main__":

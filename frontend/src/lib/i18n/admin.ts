@@ -255,7 +255,7 @@ export const D: Record<string, [ka: string, en: string]> = {
   "Сменить фото": ["ფოტოს შეცვლა", "Change photo"],
   "Нажмите на фото, чтобы сменить": ["დააჭირეთ ფოტოს შესაცვლელად", "Click the photo to change it"],
   "Нейросеть: ключ OpenAI / ProxyAPI": ["ნეირონული ქსელი: OpenAI / ProxyAPI გასაღები", "AI: OpenAI / ProxyAPI key"],
-  "Запасной вариант ИИ, когда подписка Codex не работает": ["AI-ს სარეზერვო ვარიანტი, როცა Codex-ის გამოწერა არ მუშაობს", "AI fallback when the Codex subscription is down"],
+  "Все вызовы ИИ идут через этот ключ": ["AI-ის ყველა მოთხოვნა ამ გასაღებით მიდის", "Every AI call goes through this key"],
   "Нейросеть: адрес API": ["ნეირონული ქსელი: API მისამართი", "AI: API address"],
   "Например https://api.proxyapi.ru/openai/v1": ["მაგ. https://api.proxyapi.ru/openai/v1", "E.g. https://api.proxyapi.ru/openai/v1"],
   "Нейросеть: модель": ["ნეირონული ქსელი: მოდელი", "AI: model"],

@@ -1,5 +1,6 @@
-"""Model calls. LLM_PROVIDER=codex (default): Codex CLI on the local subscription, no API keys.
-LLM_PROVIDER=openai: any OpenAI-compatible Chat Completions API (e.g. ProxyAPI) over httpx, for the server.
+"""Model calls. LLM_PROVIDER=openai (default, the only path on the server): any OpenAI-compatible
+Chat Completions API (e.g. ProxyAPI) over httpx. LLM_PROVIDER=codex: local dev only, Codex CLI on the
+ChatGPT subscription; no codex binary or login on the server, and nothing falls back to it.
 Env (openai): OPENAI_BASE_URL (default https://api.openai.com/v1), OPENAI_API_KEY, LLM_MODEL (default gpt-4.1-mini)."""
 import base64
 import io
@@ -24,9 +25,9 @@ def _crm_keys():
 
 def ask(prompt, schema, images=(), effort="low", timeout=300):
     _crm_keys()
-    if os.environ.get("LLM_PROVIDER", "codex").lower() == "openai":
-        return ask_openai(prompt, schema, images, timeout)
-    return ask_codex(prompt, schema, images, effort, timeout)
+    if os.environ.get("LLM_PROVIDER", "openai").lower() == "codex":
+        return ask_codex(prompt, schema, images, effort, timeout)
+    return ask_openai(prompt, schema, images, timeout)
 
 
 def ask_codex(prompt, schema, images=(), effort="low", timeout=300):

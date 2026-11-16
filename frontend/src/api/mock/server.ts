@@ -631,7 +631,7 @@ on('GET', '/news', () => page([
 ]));
 // Управление → Ключи (backend app/keys.py): values write-only
 const mockKeys: Record<string, string> = {};
-const KEY_NOTES: Record<string, [string, string]> = { OPENAI_API_KEY: ['Нейросеть: ключ OpenAI / ProxyAPI', 'Запасной вариант ИИ, когда подписка Codex не работает'],
+const KEY_NOTES: Record<string, [string, string]> = { OPENAI_API_KEY: ['Нейросеть: ключ OpenAI / ProxyAPI', 'Все вызовы ИИ идут через этот ключ'],
   OPENAI_BASE_URL: ['Нейросеть: адрес API', 'Например https://api.proxyapi.ru/openai/v1'], LLM_MODEL: ['Нейросеть: модель', 'Например gpt-4.1-mini'],
   APIFY_TOKENS: ['Apify: ключи для парсера Facebook', 'Можно несколько через запятую, берутся по очереди'], APIFY_TOKEN: ['Apify: один ключ', 'Если список выше пустой'],
   MAPTILER_KEY: ['Карты MapTiler', 'Подложка карт в CRM и на сайте'] };

@@ -253,6 +253,8 @@ def test_team_without_nda_prefill_send_and_writeback(db, client, monkeypatch):
     nino = make_user(db, "agent", first_name="Nino", last_name="Beridze", tg_id=777001, username="nino_agent", level=70,
                      phone="+995 555 1", email="n@x.ge", ie_number="406112233")
     gio = make_user(db, "recruit", first_name="Gio", last_name="K", tg_id=999, personal_id="01001000001")
+    gio.mentor_id = nino.id  # Nino has a recruit → Наставник
+    db.commit()
     make_user(db, "recruit", first_name="Old", deleted_at=N.now())  # removed: not listed
     make_user(db, "operator")  # not a field user
     r = client.get("/api/ndas/team", headers=auth(boss)).json()
@@ -261,6 +263,7 @@ def test_team_without_nda_prefill_send_and_writeback(db, client, monkeypatch):
     assert not rows[nino.id]["ready"] and "personal_id" in rows[nino.id]["missing"] and rows[gio.id]["ready"]
     p = rows[nino.id]["prefill"]
     assert p["full_name"] == "Nino Beridze" and p["telegram"] == "@nino_agent" and p["level"] == "70" and p["ie"] == "406112233"
+    assert p["role"] == "mentor"
     assert rows[gio.id]["prefill"]["role"] == "recruit" and rows[gio.id]["prefill"]["level"] == "25"
 
     # bulk: only Gio (complete profile); the bot can't write to him → «скопируйте ссылку»

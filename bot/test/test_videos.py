@@ -179,8 +179,9 @@ class AlbumPrefersChannelVideo(Base):
         sent = []
 
         class B:
-            async def send_media_group(self, chat, media):
+            async def send_media_group(self, chat, media, **kw):
                 sent.append(media)
+                self.kw = kw
                 return [mock.Mock(video=None)] * 2 + [mock.Mock(video=mock.Mock(file_id="X"))]
 
         asyncio.run(bot.on_channel_post(post(100, "g"), None))
@@ -191,6 +192,35 @@ class AlbumPrefersChannelVideo(Base):
         self.assertEqual(sent[0][2].media, "CHAN")  # no local upload
         with db.tx() as c:
             self.assertIsNone(c.execute("SELECT 1 FROM tg_files").fetchone())
+
+
+class AlbumTimeout(Base):
+    """An album must reach the client before its card: a long upload is waited for, a timeout is not retried."""
+    def album_item(self):
+        p = f"{self.tmp.name}/0.jpg"
+        open(p, "wb").write(b"jpg")
+        return {"id": "tg101", "source": "agency", "photos": [p, p]}
+
+    def test_waits_for_slow_album(self):
+        kw = {}
+
+        class B:
+            async def send_media_group(self, chat, media, **k):
+                kw.update(k)
+                return []
+        asyncio.run(bot.send_album(B(), 1, self.album_item()))
+        self.assertGreaterEqual(kw["read_timeout"], 60)  # PTB's default 5 s sent the card first
+
+    def test_timeout_no_retry_no_raise(self):
+        from telegram.error import TimedOut
+        calls = []
+
+        class B:
+            async def send_media_group(self, chat, media, **k):
+                calls.append(media)
+                raise TimedOut()
+        asyncio.run(bot.send_album(B(), 1, self.album_item()))  # the card still follows
+        self.assertEqual(len(calls), 1)  # Telegram may deliver it late: a retry would double it
 
 
 class FetchVideos(unittest.TestCase):

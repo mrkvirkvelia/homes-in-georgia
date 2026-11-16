@@ -11,7 +11,7 @@ from pathlib import Path
 
 from telegram import (BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto, InputMediaVideo, KeyboardButton, MenuButtonDefault,
                       MenuButtonWebApp, ReplyKeyboardMarkup, Update, WebAppInfo)
-from telegram.error import TelegramError
+from telegram.error import TelegramError, TimedOut
 from telegram.ext import Application, CallbackQueryHandler, CommandHandler, InlineQueryHandler, MessageHandler, filters
 
 import core
@@ -244,6 +244,9 @@ async def backfill_videos(bot, pause=1.0, limit=None):
     return done
 
 
+ALBUM_TIMEOUT = 90
+
+
 async def send_album(bot, chat_id, i, photos=core.ALBUM_PHOTOS):
     """A listing's photos + video as one album (no captions: the buttons go on the text card after it).
     The agency channel's own video (file_id) wins over a local file."""
@@ -252,14 +255,20 @@ async def send_album(bot, chat_id, i, photos=core.ALBUM_PHOTOS):
         items = [x for x in items if x["type"] == "photo"] + [{"type": "video", "file_id": fid}]
     if not items:
         return
+
+    def group(its):  # PTB's 5 s read timeout gave up on albums Telegram then delivered after the card: wait for them
+        return bot.send_media_group(chat_id, media_of(its), read_timeout=ALBUM_TIMEOUT, write_timeout=ALBUM_TIMEOUT)
     try:
-        msgs = await bot.send_media_group(chat_id, media_of(items))
+        msgs = await group(items)
+    except TimedOut as e:  # it may still arrive: a retry would double it, the card follows either way
+        logging.getLogger(__name__).warning("album of %s timed out after %ss: %r", i.get("id"), ALBUM_TIMEOUT, e)
+        return
     except TelegramError as e:  # a broken video must not cost the photos
         if not any(x["type"] == "video" for x in items):
             raise
         print("album with video failed, photos only:", e)
         items = [x for x in items if x["type"] == "photo"]
-        msgs = await bot.send_media_group(chat_id, media_of(items)) if items else []
+        msgs = await group(items) if items else []
     await asyncio.to_thread(remember_files, items, msgs)
 
 

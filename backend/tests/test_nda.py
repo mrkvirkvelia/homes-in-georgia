@@ -355,3 +355,71 @@ def test_correct_signed(db, client):
     assert "superseded_by" not in client.get(f"/api/ndas/{old['id']}", headers=auth(boss)).json()["details"]  # in force meanwhile
     sign(new)
     assert client.get(f"/api/ndas/{old['id']}", headers=auth(boss)).json()["details"]["superseded_by"] == new["id"]
+
+
+def test_common_template_editions(db, client):
+    """Admins edit the common text: a new edition (1.3 → 1.4) with who / which clauses; only NEW NDAs use it, a sent one
+    keeps its text until re-generated (blocks null), a signed one never changes; back to the original text = 1.5."""
+    boss, op = make_user(db, "superadmin", tg_id=111), make_user(db, "operator", tg_id=222)
+    client.put("/api/ndas/company-signature", json={"signature": SIG}, headers=auth(boss))
+    old = client.post("/api/ndas", json={"lang": "KA-RU", "full_name": "Old One", "personal_id": "1"}, headers=auth(op)).json()
+    assert old["edition"] == N.EDITION and f"Редакция {N.EDITION}" in old["html"]
+    t = client.get("/api/ndas/template", headers=auth(op)).json()
+    assert t["edition"] == N.EDITION and t["default"] and t["next"] == "1.4"
+    blocks = t["blocks"]
+    i = next(i for i, b in enumerate(blocks) if b["k"] == "n" and b["n"] == "1.2")
+    blocks[i] = {**blocks[i], "ru": "Новый общий пункт"}
+    tab = next(b for b in blocks if b["k"] == "t")
+    tab["rows"][0][0] = {**tab["rows"][0][0], "ru": "Ячейка изменена"}
+    body = {"blocks": blocks, "base": N.EDITION}
+    assert client.put("/api/ndas/template", json=body, headers=auth(op)).status_code == 403
+    pv = client.post("/api/ndas/template/preview", json={**body, "lang": "KA-RU", "edition": "1.4"}, headers=auth(boss)).json()
+    assert "Новый общий пункт" in pv["html"] and "Редакция 1.4" in pv["html"]
+    r = client.put("/api/ndas/template", json=body, headers=auth(boss))
+    assert r.status_code == 200, r.text
+    t = r.json()
+    assert t["edition"] == "1.4" and t["history"][0]["changes"] == ["1.2", "таблица"] and t["history"][0]["by_name"]
+    assert client.put("/api/ndas/template", json=body, headers=auth(boss)).status_code == 409  # base 1.3 is stale
+    new = client.post("/api/ndas", json={"lang": "KA-RU", "full_name": "New One", "personal_id": "2"}, headers=auth(op)).json()
+    assert new["edition"] == "1.4" and "Новый общий пункт" in new["html"] and "Ячейка изменена" in new["html"]
+    assert "Редакция 1.4" in new["html"] and "· 1.4 ·" in new["html"]
+    # the sent one keeps 1.3 …
+    o = client.get(f"/api/ndas/{old['id']}", headers=auth(op)).json()
+    assert o["html"] == old["html"] and o["edition"] == N.EDITION
+    assert client.get(f"/api/ndas/{old['id']}/text", headers=auth(op)).json()["current"] == "1.4"
+    # … until an admin re-generates it
+    o = client.put(f"/api/ndas/{old['id']}/text", json={"blocks": None}, headers=auth(boss)).json()
+    assert o["edition"] == "1.4" and "Новый общий пункт" in o["html"]
+    # back to the original text: a new edition, the code text
+    t = client.put("/api/ndas/template", json={"blocks": None, "base": "1.4"}, headers=auth(boss)).json()
+    assert t["edition"] == "1.5" and t["blocks"] == N.BLOCKS and t["history"][0]["from"] == N.EDITION
+    t = client.put("/api/ndas/template", json={"from_edition": "1.4", "edition": "2.0"}, headers=auth(boss)).json()
+    assert t["edition"] == "2.0" and t["blocks"][i]["ru"] == "Новый общий пункт"
+    bad = client.put("/api/ndas/template", json={"blocks": None, "edition": "1.4"}, headers=auth(boss))
+    assert bad.status_code == 400
+    # a signed NDA is never re-generated
+    row = db.get(AgentNda, new["id"])
+    row.status = "signed"
+    db.commit()
+    assert client.put(f"/api/ndas/{new['id']}/text", json={"blocks": None}, headers=auth(boss)).status_code == 409
+    assert db.get(AgentNda, new["id"]).html == new["html"]
+
+
+def test_new_nda_latest_edition_sent_keeps_own(db, client):
+    """A new NDA takes the latest common edition; a sent one keeps its own text and edition, even when re-rendered with
+    the agent's IBAN on the signing page (Stanislav 11-17)."""
+    boss = make_user(db, "superadmin", tg_id=111)
+    client.put("/api/ndas/company-signature", json={"signature": SIG}, headers=auth(boss))
+    sent = client.post("/api/ndas", json={"full_name": "Sent One", "personal_id": "1"}, headers=auth(boss)).json()
+    blocks = client.get("/api/ndas/template", headers=auth(boss)).json()["blocks"]
+    i = next(i for i, b in enumerate(blocks) if b["k"] == "n")
+    blocks[i] = {**blocks[i], "ru": "Пункт новой редакции"}
+    assert client.put("/api/ndas/template", json={"blocks": blocks}, headers=auth(boss)).json()["edition"] == "1.4"
+    new = client.post("/api/ndas", json={"full_name": "New One", "personal_id": "2"}, headers=auth(boss)).json()
+    assert new["edition"] == "1.4" and new["details"]["edition"] == "1.4" and "Пункт новой редакции" in new["html"]
+    token = sent["path"].split("/")[-1]
+    r = client.post(f"/api/public/nda/{token}/details", json={"iban_gel": "GE00TB0000000000000001"})
+    assert r.status_code == 200, r.text
+    s = client.get(f"/api/ndas/{sent['id']}", headers=auth(boss)).json()
+    assert s["edition"] == N.EDITION and "GE00TB0000000000000001" in s["html"] and "Пункт новой редакции" not in s["html"]
+    assert f"Редакция {N.EDITION}" in s["html"]

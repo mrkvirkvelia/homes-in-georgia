@@ -92,12 +92,15 @@ def accept(db: Session, token: str, tg: dict) -> User:
         raise DomainError("tg_already_bound", f"Этот Telegram уже привязан к аккаунту «{other.name}». "
                           "Откройте ссылку из другого Telegram или просто войдите в CRM", 409)
     name = tg.get("first_name") or tg.get("last_name") or tg.get("username") or f"Сотрудник {tg_id}"
-    u = User(tg_id=tg_id, username=tg.get("username"), name=name.strip(), photo_url=tg.get("photo_url"), role=inv.role,
+    u = User(tg_id=tg_id, username=tg.get("username"), name=name.strip(), role=inv.role,
              level=inv.level, districts=inv.districts or [], works_as_agent=inv.works_as_agent,
              agent_tag=users.clean_agent_tag(db, inv.agent_tag) if inv.agent_tag else None,
              birth_date=users.tg_birth_date(tg_id), **{k: tg[k] for k in ("first_name", "last_name") if tg.get(k)})
     db.add(u)
     db.flush()
+    if tg.get("photo_url"):  # the t.me/i/userpic link expires: keep our own copy (avatars/u<id>.jpg)
+        from app.telegram import avatars
+        avatars.save_from_url(u, tg["photo_url"])
     inv.used_at, inv.used_by = now(), u.id
     actor = inv.creator
     log_event(db, "user", u.id, "created", actor, role=u.role, via="invite", invite=inv.id, tg_id=tg_id)

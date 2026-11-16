@@ -274,7 +274,9 @@ export function Tabs<T extends string>({ value, onChange, tabs }: { value: T; on
 }
 
 export function Avatar({ name, src, size }: { name?: string | null; src?: string | null; size?: 'lg' }) {
-  return <span className={`avatar ${size === 'lg' ? 'avatar-lg' : ''}`}>{src ? <img src={mediaUrl(src)} alt="" /> : initials(name)}</span>;
+  const [broken, setBroken] = useState<string | null>(null); // a dead link -> the initials
+  const ok = src && broken !== src;
+  return <span className={`avatar ${size === 'lg' ? 'avatar-lg' : ''}`}>{ok ? <img src={mediaUrl(src)} alt="" onError={() => setBroken(src)} /> : initials(name)}</span>;
 }
 
 export function Progress({ value, max }: { value: number; max: number }) {

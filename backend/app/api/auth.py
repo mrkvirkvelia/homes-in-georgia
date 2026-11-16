@@ -17,6 +17,7 @@ from app.models import User, at_least, is_field
 from app.services import invites, users
 from app.services.common import now
 from app.services.errors import DomainError
+from app.telegram import avatars
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 MAX_AGE = 24 * 3600
@@ -81,8 +82,8 @@ def _tg_user(db: Session, tg: dict) -> User:
         raise DomainError("not_registered", "Telegram account is not registered on the platform")
     if tg.get("username"):
         u.username = tg["username"]
-    if tg.get("photo_url") and not (u.photo_url or "").startswith("/api/media/avatars/"):  # an uploaded one stays
-        u.photo_url = tg["photo_url"]
+    if tg.get("photo_url") and not (u.photo_url or "").startswith("/api/media/avatars/"):  # a stored / uploaded one stays
+        avatars.save_from_url(u, tg["photo_url"])
     if not u.name or u.name.startswith("Superadmin "):
         u.name = tg.get("first_name") or tg.get("last_name") or u.name
     if not u.birth_date:

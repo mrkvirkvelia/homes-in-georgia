@@ -26,7 +26,8 @@ contract to its client: {client_id | peer (@username / +phone), text, files: [{n
   time; {own} after «Другое время» -> leads.client_own_time; {comment} after the refusal reason «Другое» ->
   leads.client_comment; {kind: t14, deal} -> «3 2 3» = the three T14 scores; {problem: deal} -> a T14 complaint.
 
-HTTP (compose network only, X-Userbot-Token = SECRET_KEY): POST /send; GET /status; POST /login (start the QR),
+HTTP (compose network only, X-Userbot-Token = SECRET_KEY): POST /send; POST /photo {tg_id?, username?} (a team member's
+profile photo for app.telegram.avatars); GET /status; POST /login (start the QR),
 /password {password} (2FA, never stored), /logout (log the session out in Telegram and forget it).
 
 Creating a StringSession by hand instead (the operator logs in THEMSELVES, on their own computer):
@@ -339,6 +340,21 @@ async def _peer_entity(client, peer):
         return await client.get_input_entity(res.users[0])
 
 
+async def photo(client, tg_id=None, username=None):
+    """A user's profile photo as the operator account sees it -> bytes or None. tg_id needs the entity in the cache
+    (StringSession keeps none across restarts), so @username is tried too."""
+    for peer in (tg_id, username):
+        if not peer:
+            continue
+        try:
+            ent = await client.get_input_entity(int(peer) if peer == tg_id else str(peer).lstrip("@"))
+            if data := await client.download_profile_photo(ent, file=bytes):
+                return data
+        except Exception as e:  # noqa: BLE001 — unknown id / username, privacy
+            log.info("userbot photo %s: %r", peer, e)
+    return None
+
+
 async def send(client, client_id, text, options=None, choice=None, inline=None, peer=None, files=None):
     """Telethon send to a client -> message id. StringSession keeps no access hashes across restarts: a user not in the
     cache is found by @username (or after get_dialogs at start). inline: the bot's inline query whose first result is
@@ -439,7 +455,7 @@ def serve_http(client, loop, port):
 
         def do_POST(self):
             reply = self.reply
-            if self.path not in ("/send", "/login", "/password", "/logout") or not self.allowed():
+            if self.path not in ("/send", "/login", "/password", "/logout", "/photo") or not self.allowed():
                 return reply(403, {"ok": False})
             p = json.loads(self.rfile.read(int(self.headers.get("Content-Length") or 0)) or b"{}")
             if self.path == "/login":
@@ -462,6 +478,10 @@ def serve_http(client, loop, port):
             c = STATE["client"]
             if not STATE["me"] and client is None:
                 return reply(503, {"ok": False, "error": "operator account is not logged in"})
+            if self.path == "/photo":  # {tg_id?, username?} -> {ok, b64: the profile photo or null} (avatars.from_userbot)
+                import base64
+                data = asyncio.run_coroutine_threadsafe(photo(c, p.get("tg_id"), p.get("username")), loop).result(40)
+                return reply(200, {"ok": True, "b64": base64.b64encode(data).decode() if data else None})
             try:
                 cid = int(p["client_id"]) if p.get("client_id") else None
                 mid = asyncio.run_coroutine_threadsafe(send(c, cid, p["text"], p.get("options"), p.get("choice"), p.get("inline"),

@@ -660,6 +660,20 @@ on('GET', '/moderation', () => page(F.moderation));
 on('POST', '/moderation/:id', (m) => { const i = F.moderation.findIndex((x) => x.id === m[1]); if (i >= 0) F.moderation.splice(i, 1); return { ok: true }; });
 on('GET', '/addresses', () => page([]));
 
+// ---------- NDA: one unsigned agreement and a few clauses, for the per-agent text editor (Ndas.tsx)
+const nda = { id: 9101, status: 'sent', status_label: 'Отправлено', lang: 'KA-RU', full_name: 'Nino Beridze', personal_id: '01001055555', phone: null,
+  telegram: 'nino_agent', role: 'Рекрут', path: '/nda/mock-token-0000000000000', created_at: new Date().toISOString(), created_by: { id: 1, name: 'Давид' },
+  signed_at: null, tg_username: null, has_pdf: false, number: '2026-9101', details: {} as Record<string, unknown> };
+const ndaBlocks = [{ k: 'h', n: '1', ka: 'ტერმინები', ru: 'Термины', en: 'Terms' },
+  { k: 'n', n: '1.1', ka: 'პლატფორმა — ოპერატორის ღრუბლოვანი სისტემა.', ru: 'Платформа — облачная система Оператора.', en: 'Platform means the Operator’s cloud system.' },
+  { k: 'n', n: '1.2', ka: 'მონაწილე — {name_ka}, პირადი ნომერი {pid}.', ru: 'Участник — {name2}, личный номер {pid}.', en: 'Participant means {name2}, personal number {pid}.' },
+  { k: 't', head: [{ ka: 'დონე', ru: 'Уровень', en: 'Level' }], rows: [[{ ka: '25', ru: '25', en: '25' }]] }];
+on('GET', '/ndas', () => page([nda]));
+on('GET', '/ndas/company-signature', () => ({ signature: null, at: null, by_name: null }));
+on('GET', '/ndas/:id/text', () => ({ blocks: nda.details.blocks || ndaBlocks, edited: !!nda.details.blocks, edition: '1.2', lang: nda.lang, status: nda.status }));
+on('PUT', '/ndas/:id/text', (_m, b) => { nda.details = b.blocks ? { blocks: b.blocks } : {}; return nda; });
+on('POST', '/ndas/:id/text/preview', (_m, b) => ({ html: `<h1>Preview</h1>${(b.blocks as { n?: string; ka?: string; ru?: string }[]).map((x) => `<p>${x.n || ''} ${x.ka || ''} | ${x.ru || ''}</p>`).join('')}` }));
+
 // ---------- contracts: just the wizard's autosave and the card (no PDF in the mock); 11-13
 // one generated rent contract with a saved registry extract: the card, e-sign and /esign/mock-owner-9001-… (Irakli 11-13)
 const contracts: Record<string, unknown>[] = [{ id: 9001, kind: 'rent', lang: 'EN', lead_id: null, deal_id: null, cadastral: '01.10.14.016.017.01.001',

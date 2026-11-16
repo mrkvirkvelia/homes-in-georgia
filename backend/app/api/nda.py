@@ -75,6 +75,22 @@ def ndas_get(nid: int, db: Session = Depends(get_db, scope="function"), user: Us
     return N.out(db, N.get(db, nid, user), full=True)
 
 
+@router.get("/ndas/{nid}/text")
+def ndas_text(nid: int, db: Session = Depends(get_db, scope="function"), user: User = Depends(current_user)):
+    return N.text(db, nid, user)
+
+
+@router.put("/ndas/{nid}/text")
+def ndas_set_text(nid: int, body: dict, db: Session = Depends(get_db, scope="function"), user: User = Depends(current_user)):
+    """{"blocks": [...]} → this NDA's own text (re-rendered, new hash); {"blocks": null} → the standard text."""
+    return N.set_text(db, nid, body, user)
+
+
+@router.post("/ndas/{nid}/text/preview")
+def ndas_preview_text(nid: int, body: dict, db: Session = Depends(get_db, scope="function"), user: User = Depends(current_user)):
+    return N.set_text(db, nid, body, user, save=False)
+
+
 @router.post("/ndas/{nid}/cancel")
 def ndas_cancel(nid: int, db: Session = Depends(get_db, scope="function"), user: User = Depends(current_user)):
     return N.out(db, N.cancel(db, nid, user))

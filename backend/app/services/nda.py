@@ -26,7 +26,7 @@ from sqlalchemy.orm import Session
 
 from app import storage
 from app.config import settings as env
-from app.models import STAFF, SUPER, AgentNda, User
+from app.models import ADMINS, STAFF, SUPER, AgentNda, User
 from app.services import contracts as C, jobs
 from app.services.common import TZ, log_event, now
 from app.services.errors import DomainError, forbidden
@@ -51,7 +51,9 @@ def _md(s: str) -> str:
 
 
 def _fill(s: str, f: dict) -> str:
-    return s.format(**{k: f"**{v}**" if v and v != "—" else "—" for k, v in f.items()})
+    """{field} → «**value**»; an unknown {…} (typed in an edited clause) stays as typed."""
+    v = lambda k: f"**{f[k]}**" if f[k] and f[k] != "—" else "—"  # noqa: E731
+    return re.sub(r"\{(\w+)\}", lambda m: v(m.group(1)) if m.group(1) in f else m.group(0), s)
 
 
 CSS = """@page{size:A4;margin:16mm 15mm 18mm;@bottom-center{content:"Homes in Georgia · № {num} · {lang} · {edition} · " counter(page);
@@ -95,7 +97,7 @@ def _sig_table(lang: str, f: dict) -> str:
             f'<td>{slot("recipient-time", SIGNATURES["auto"][lang])}</td></tr></table>')
 
 
-def render(lang: str, f: dict) -> str:
+def render(lang: str, f: dict, blocks: list | None = None) -> str:
     """The agreement's HTML (A4 print CSS) for the participant's fields f (nda_text: {num} {date} {name_ka} {name2} …;
     role_ka / role2 come from f["role"], a ROLES key)."""
     second = SECOND[lang]
@@ -129,7 +131,7 @@ def render(lang: str, f: dict) -> str:
     # sections: the agreement, the parties' details + signatures, each appendix on a new page
     sections: list[list[str]] = [[]]
     sig_done = False
-    for b in BLOCKS:
+    for b in blocks or BLOCKS:
         if b.get("only") and lang not in b["only"].split():
             continue
         if b["k"] == "app":
@@ -228,6 +230,19 @@ def number(n: AgentNda) -> str:
     return f"{(n.created_at or now()).astimezone(TZ):%Y}-{n.id:04d}"
 
 
+def _page(n: AgentNda, blocks="own") -> str:
+    """The NDA's text from its fields and its own edited clauses (details.blocks; or the blocks given, None = the
+    standard text) — the date is the day it was made."""
+    d = n.details or {}
+    day = (n.created_at or now()).astimezone(TZ).strftime("%d.%m.%Y")
+    return render(n.lang, {"num": number(n), "date": day, "name_ka": d.get("full_name_ka") or n.full_name,
+                           "name2": n.full_name, "ie": d.get("ie"), "pid": n.personal_id, "address": d.get("address"),
+                           "phone": n.phone, "email": d.get("email"), "telegram": f"@{n.telegram}" if n.telegram else "",
+                           "role": d.get("role", ""), "level": d.get("level"), "access": d.get("access"),
+                           "iban_gel": d.get("iban_gel"), "iban_usd": d.get("iban_usd")},
+                  d.get("blocks") if blocks == "own" else blocks)
+
+
 def create(db: Session, body: dict, user: User) -> AgentNda:
     _staff(user)
     lang = body.get("lang") or "KA-RU"
@@ -250,12 +265,7 @@ def create(db: Session, body: dict, user: User) -> AgentNda:
                  **{k: (v or None) for k, v in f.items()})
     db.add(n)
     db.flush()  # the id → the agreement's number
-    day = now().astimezone(TZ).strftime("%d.%m.%Y")
-    page = render(lang, {"num": number(n), "date": day, "name_ka": d["full_name_ka"] or f["full_name"],
-                         "name2": f["full_name"], "ie": d["ie"], "pid": f["personal_id"], "address": d["address"],
-                         "phone": f["phone"], "email": d["email"], "telegram": f"@{f['telegram']}" if f["telegram"] else "",
-                         "role": role, "level": d["level"], "access": d["access"], "iban_gel": d["iban_gel"],
-                         "iban_usd": d["iban_usd"]})
+    page = _page(n)
     n.html, n.doc_sha256 = page, doc_hash(page)
     log_event(db, "nda", n.id, "created", user, label=f["full_name"], lang=lang)
     db.commit()
@@ -286,6 +296,74 @@ def cancel(db: Session, nid: int, user: User) -> AgentNda:
     log_event(db, "nda", n.id, "cancelled", user)
     db.commit()
     return n
+
+
+# ---------------------------------------------------------------- staff: this NDA's own text (like a client contract's
+# text edited in the wizard's preview): clauses changed / added / removed per agent while it is not signed
+
+KINDS = ("p", "h", "n", "li", "app", "sub", "t")
+TEXT_LANGS = ("ka", "ru", "en")
+MAX_BLOCKS, MAX_TEXT = 600, 6000
+
+
+def text(db: Session, nid: int, user: User) -> dict:
+    n = get(db, nid, user)
+    own = (n.details or {}).get("blocks")
+    return {"blocks": own or BLOCKS, "edited": bool(own), "edition": EDITION, "lang": n.lang, "status": n.status}
+
+
+def _cell(c) -> dict:
+    c = c if isinstance(c, dict) else {}
+    return {ln: str(c.get(ln) or "")[:MAX_TEXT] for ln in TEXT_LANGS}
+
+
+def _blocks(raw) -> list[dict]:
+    """The edited clause list, checked: known kinds, the three texts as strings (escaped when printed), «todo» = the
+    languages not translated yet after an edit in another one (shown to staff, not printed)."""
+    if not isinstance(raw, list) or not raw or len(raw) > MAX_BLOCKS:
+        raise DomainError("bad_input", "Текст соглашения: пустой или слишком длинный")
+    out = []
+    for b in raw:
+        if not isinstance(b, dict) or b.get("k") not in KINDS:
+            raise DomainError("bad_input", "Текст соглашения: неизвестный блок")
+        x = {"k": b["k"]}
+        if b["k"] == "t":
+            x["head"] = [_cell(c) for c in (b.get("head") or [])][:12]
+            x["rows"] = [[_cell(c) for c in (r or [])][:12] for r in (b.get("rows") or []) if isinstance(r, list)][:60]
+        else:
+            x.update(n=str(b.get("n") or "")[:20], **_cell(b))
+        if b.get("only") in ("KA", "KA-RU", "KA-EN", "KA-RU KA-EN"):
+            x["only"] = b["only"]
+        todo = [ln for ln in TEXT_LANGS if ln in (b.get("todo") or [])]
+        if todo:
+            x["todo"] = todo
+        out.append(x)
+    return out
+
+
+def set_text(db: Session, nid: int, body: dict, user: User, save: bool = True) -> dict:
+    """blocks → this NDA's text (re-rendered, new doc_sha256: an open signing page gets «текст изменился, обновите»);
+    blocks null → back to the standard text. Admins only, never a signed NDA. save=False: the preview's HTML only."""
+    if user.role not in ADMINS:
+        raise forbidden("only an admin changes an agreement's text")
+    n = db.get(AgentNda, int(nid), with_for_update=save) if str(nid).isdigit() else None
+    if not n:
+        raise DomainError("not_found", "NDA не найдено")
+    if n.status != "sent":
+        raise DomainError("bad_status", f"NDA: {STATUS_LABEL[n.status]} — текст не меняется", 409)
+    blocks = None if body.get("blocks") is None else _blocks(body["blocks"])
+    if blocks == BLOCKS:
+        blocks = None
+    page = _page(n, blocks)
+    if not save:
+        return {"html": page}
+    n.details = {**{k: v for k, v in (n.details or {}).items() if k != "blocks"}, **({"blocks": blocks} if blocks else {})}
+    if page != n.html:
+        n.html, n.doc_sha256 = page, doc_hash(page)
+        log_event(db, "nda", n.id, "text_edited", user, label=n.full_name, edited=bool(blocks),
+                  doc_sha256=n.doc_sha256)
+    db.commit()
+    return out(db, n, full=True)
 
 
 def pdf_bytes(n: AgentNda) -> bytes:

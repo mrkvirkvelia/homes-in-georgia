@@ -142,3 +142,42 @@ def test_test_mode_confirmation_and_pdf_retry(db, client, monkeypatch):
     assert worker.run_job(db, job) == "ok"
     db.expire_all()
     assert db.get(AgentNda, n["id"]).pdf_path
+
+
+def test_edit_text(db, client):
+    """An admin changes this NDA's clauses while unsigned (like a client contract's text): new text + hash, an open
+    signing page must reload; operators can't; a signed NDA is frozen; null → the standard text back."""
+    boss, op = make_user(db, "superadmin", tg_id=111), make_user(db, "operator", tg_id=222)
+    client.put("/api/ndas/company-signature", json={"signature": SIG}, headers=auth(boss))
+    n = client.post("/api/ndas", json={"lang": "KA-RU", "full_name": "Nino", "personal_id": "01001055555"},
+                    headers=auth(op)).json()
+    t = client.get(f"/api/ndas/{n['id']}/text", headers=auth(op)).json()
+    assert t["edited"] is False and t["edition"] == N.EDITION
+    blocks = t["blocks"]
+    i = next(i for i, b in enumerate(blocks) if b["k"] == "n")
+    blocks[i] = {**blocks[i], "ka": "ახალი ტექსტი {pid} {oops", "todo": ["ru", "en", "xx"]}
+    blocks.insert(i + 1, {"k": "n", "n": "0.9", "ka": "<b>დამატებითი</b>", "ru": "Особое условие", "en": ""})
+    del blocks[i + 2]
+    body = {"blocks": blocks}
+    assert client.put(f"/api/ndas/{n['id']}/text", json=body, headers=auth(op)).status_code == 403
+    pv = client.post(f"/api/ndas/{n['id']}/text/preview", json=body, headers=auth(boss)).json()["html"]
+    assert "Особое условие" in pv and client.get(f"/api/ndas/{n['id']}", headers=auth(op)).json()["html"] == n["html"]
+    r = client.put(f"/api/ndas/{n['id']}/text", json=body, headers=auth(boss))
+    assert r.status_code == 200, r.text
+    h = r.json()["html"]
+    assert "ახალი ტექსტი <b>01001055555</b> {oops" in h and "Особое условие" in h and "&lt;b&gt;დამატებითი" in h
+    t = client.get(f"/api/ndas/{n['id']}/text", headers=auth(op)).json()
+    assert t["edited"] and t["blocks"][i]["todo"] == ["ru", "en"] and len(t["blocks"]) == len(blocks)
+    token = n["path"].split("/")[-1]
+    v = client.get(f"/api/public/nda/{token}").json()
+    assert v["html"] == h
+    assert v["doc_sha256"] == hashlib.sha256(h.encode()).hexdigest()
+    assert client.put(f"/api/ndas/{n['id']}/text", json={"blocks": [{"k": "script"}]}, headers=auth(boss)).status_code == 400
+    # back to the standard text
+    r = client.put(f"/api/ndas/{n['id']}/text", json={"blocks": None}, headers=auth(boss)).json()
+    assert r["html"] == n["html"] and "blocks" not in r["details"]
+    # signed: frozen
+    row = db.get(AgentNda, n["id"])
+    row.status = "signed"
+    db.commit()
+    assert client.put(f"/api/ndas/{n['id']}/text", json=body, headers=auth(boss)).status_code == 409

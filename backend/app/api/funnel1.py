@@ -351,12 +351,19 @@ def public_exclusive_registry(token: str, personal_id: str | None = None, cadast
 @router.post("/public/exclusive/{token}/extract-code")
 async def public_exclusive_extract_code(token: str, file: UploadFile = File(...), db: Session = Depends(get_db, scope="function")):
     """The cadastral code read from the extract the owner picked (he doesn't type it); null if the PDF has no text."""
-    from app.services import registry
-    P.sign_view(db, token)
-    content = await file.read()
-    if len(content) > P.MAX_OWNER_DOC or not content.startswith(b"%PDF"):
-        raise DomainError("bad_file", "Выписка — PDF до 15 МБ")
-    return {"cadastral_code": registry.extract_code(content)}
+    return P.draft_extract(db, token, await file.read(), file.filename or "extract.pdf")
+
+
+@router.put("/public/exclusive/{token}/draft")
+def public_exclusive_draft(token: str, body: dict, db: Session = Depends(get_db, scope="function")):
+    """The sign page autosaves what the owner typed: reopening the link continues it (P.save_sign_draft)."""
+    return P.save_sign_draft(db, token, body)
+
+
+@router.post("/public/exclusive/{token}/id-doc")
+async def public_exclusive_id_doc(token: str, file: UploadFile = File(...), db: Session = Depends(get_db, scope="function")):
+    """The passport / ID photo, kept with the draft the moment he picks it."""
+    return P.draft_id_doc(db, token, file.filename or "", await file.read())
 
 
 @router.get("/registry/applications")
@@ -403,6 +410,15 @@ def registry_extract_from_url(body: RegistryUrlIn, user: User = Depends(current_
     fields = registry.parse_extract(registry.text_of_pdf(pdf) or "")
     return {"cadastral_code": fields.get("cadastral_code"), "fields": fields, "file": registry.store_extract(pdf),
             "url": body.url.strip()}
+
+
+@router.post("/public/exclusive/{token}/extract-from-url")
+def public_exclusive_extract_from_url(token: str, body: RegistryUrlIn, db: Session = Depends(get_db, scope="function")):
+    """As in the contract wizard: the owner pastes the extract's link (NAPR's GetBlob PDF) → the server downloads it
+    (NAPR hosts only), keeps it in the page's draft and returns the code and fields found."""
+    from app.services import registry
+    P.sign_view(db, token)  # a dead link downloads nothing
+    return P.draft_extract(db, token, registry.download_extract(body.url), "extract.pdf", body.url.strip())
 
 
 @router.post("/public/exclusive/{token}")

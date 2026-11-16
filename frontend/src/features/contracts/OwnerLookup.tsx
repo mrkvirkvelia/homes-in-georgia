@@ -36,10 +36,11 @@ interface UrlOut extends ExtractOut { file: string; url: string }
 /** The extract by its link (NAPR's «download» PDF, https://bs.napr.gov.ge/GetBlob?…): pasted here or by the big
  * button under the registry applications (go) → the server downloads it, fills the empty fields and keeps the PDF;
  * the link and the file go into the contract's data (onSaved). go resolves to the note, rejects with the error. */
-function useExtractLink(saved: string | undefined, onFields: (f: ExtractFields) => string[], onSaved: (url: string, file: string) => void) {
+export function useExtractLink(saved: string | undefined, onFields: (f: ExtractFields) => string[], onSaved: (url: string, file: string) => void,
+  endpoint = '/registry/extract-from-url', savedNote = t('Выписка сохранена с договором')) {  // the owner's sign page: its own endpoint
   const [url, setUrl] = useState(saved || '');
-  const [note, setNote] = useState<{ text: string; bad?: boolean } | null>(saved ? { text: t('Выписка сохранена с договором') } : null);
-  const load = useMutation({ mutationFn: (u: string) => http.post<UrlOut>('/registry/extract-from-url', { url: u }) });
+  const [note, setNote] = useState<{ text: string; bad?: boolean } | null>(saved ? { text: savedNote } : null);
+  const load = useMutation({ mutationFn: (u: string) => http.post<UrlOut>(endpoint, { url: u }) });
   const go = async (u: string) => {
     const s = u.trim();
     if (!s) return '';
@@ -62,7 +63,7 @@ function useExtractLink(saved: string | undefined, onFields: (f: ExtractFields) 
   return { url, setUrl, note, load, go };
 }
 
-function ExtractLink({ x: { url, setUrl, note, load, go } }: { x: ReturnType<typeof useExtractLink> }) {
+export function ExtractLink({ x: { url, setUrl, note, load, go } }: { x: ReturnType<typeof useExtractLink> }) {
   const run = (u: string) => void go(u).catch(() => undefined);  // the error is in note
   return (
     <div className="col gap-sm">

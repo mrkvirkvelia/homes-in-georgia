@@ -186,11 +186,49 @@ def test_cadastral_code_from_the_extract(db, client):
     p.is_exclusive, p.cadastral_code = True, None
     db.commit()
     token = properties.sign_token(p.id)
-    assert client.post(f"/api/public/exclusive/{token}/extract-code", files={"file": ("e.pdf", pdf)}).json() == \
-        {"cadastral_code": "01.10.13.015.029.01.123"}
+    assert client.post(f"/api/public/exclusive/{token}/extract-code", files={"file": ("e.pdf", pdf)}).json()["cadastral_code"] == \
+        "01.10.13.015.029.01.123"
     form = {"full_name": "Гиорги Беридзе", "personal_id": "01001012345", "phone": "+995 555 12 34 56", "consent": "true"}
     r = client.post(f"/api/public/exclusive/{token}", data=form,
                     files={"file": ("c.pdf", PDF), "id_doc": ("id.jpg", JPG), "extract": ("e.pdf", pdf)})
     assert r.status_code == 200
     db.expire_all()
     assert p.cadastral_code == "01.10.13.015.029.01.123"  # the empty card took it
+
+
+def test_sign_page_draft(db, client, monkeypatch):
+    """Stanislav 11-16: the owner's link keeps everything as a draft — typed fields, the extract (by its link, as in the
+    contract wizard) and the passport; reopening continues it, signing needs no re-upload and clears it."""
+    from app.services import registry
+    ag = make_user(db, "agent")
+    p = _ready(db, ag, "ss8", address="Пекини 8")
+    p.is_exclusive, p.cadastral_code = True, None
+    db.commit()
+    token = properties.sign_token(p.id)
+    base = f"/api/public/exclusive/{token}"
+    assert client.get(base).json()["draft"] == {}
+
+    r = client.put(f"{base}/draft", json={"full_name": " Гиорги ", "personal_id": "01001012345", "lang": "ru", "junk": "x",
+                                          "registry_app": {"app_id": "77", "reg_number": "N1"}})
+    assert r.status_code == 200 and r.json()["full_name"] == "Гиорги" and "junk" not in r.json()
+    pdf = _pdf("flat 01.10.13.015.029.01.124 area 50")
+    monkeypatch.setattr(registry, "download_extract", lambda url: pdf)
+    r = client.post(f"{base}/extract-from-url", json={"url": "https://bs.napr.gov.ge/GetBlob?pid=1"})
+    assert r.status_code == 200 and r.json()["cadastral_code"] == "01.10.13.015.029.01.124"
+    assert client.post(f"{base}/id-doc", files={"file": ("id.jpg", JPG)}).json()["id_doc_name"] == "id.jpg"
+    assert client.post(f"{base}/id-doc", files={"file": ("id.txt", b"x")}).status_code >= 400
+
+    d = client.get(base).json()["draft"]  # reopened: everything is back, storage keys are not shown
+    assert d["full_name"] == "Гиорги" and d["cadastral_code"] == "01.10.13.015.029.01.124" and d["extract_name"] == "extract.pdf"
+    assert d["extract_url"].startswith("https://bs.napr") and d["registry_app"]["app_id"] == "77"
+    assert not any(k.endswith("_file") for k in d)
+
+    form = {"full_name": "Гиорги", "personal_id": "01001012345", "phone": "+995 555 12 34 57", "consent": "true",
+            "cadastral_code": d["cadastral_code"]}
+    assert client.post(base, data=form, files={"file": ("c.pdf", PDF)}).status_code == 200  # the files come from the draft
+    db.expire_all()
+    out = properties.out(db, p, ag, full=True)
+    assert out["owner_docs"]["owner_id_doc"] and out["owner_docs"]["registry_extract"] and p.sign_draft == {}
+    assert properties.registry_app(db, p.id)["app_id"] == "77"
+    assert client.get(base).json()["draft"] is None
+    assert client.put(f"{base}/draft", json={"full_name": "x"}).status_code >= 400

@@ -1063,9 +1063,69 @@ def sign_view(db: Session, token: str) -> dict:
     p = _signable(db, token)
     owner = db.get(Owner, p.owner_id) if p.owner_id else None
     c = contract(db, p.id)
+    d = p.sign_draft or {}
     return {"id": p.id, "address": p.address or "", "cadastral_code": p.cadastral_code or "",
             "owner_name": owner and owner.name or "", "owner_phone": owner and owner.phone or "",
-            "signed_at": c.created_at if c else None}
+            "signed_at": c.created_at if c else None,
+            "draft": None if c else {k: v for k, v in d.items() if not k.endswith("_file")}}
+
+
+# ---- the sign page's draft (properties.sign_draft): every field autosaves, the files are kept the moment he gives them;
+# reopening the link continues where he stopped. Locked row: the autosave and a file upload don't overwrite each other.
+DRAFT_TEXT = ("full_name", "personal_id", "phone", "cadastral_code", "lang", "extract_url")
+SIGN_DRAFT_PREFIX = "private/sign-drafts/"
+
+
+def _set_draft(db: Session, p: Property, **kv) -> dict:
+    d = {**(p.sign_draft or {}), **kv, "saved_at": now_text()}
+    p.sign_draft = d
+    db.commit()
+    return {k: v for k, v in d.items() if not k.endswith("_file")}
+
+
+def save_sign_draft(db: Session, token: str, data: dict) -> dict:
+    """What he typed: only the known text fields (trimmed) and the picked NAPR application."""
+    p = _signable(db, token, lock=True)
+    if contract(db, p.id):
+        raise DomainError("already_signed", "Договор уже подписан")
+    kv = {k: str(data[k] or "").strip()[:2000 if k == "extract_url" else 200] for k in DRAFT_TEXT if k in data}
+    if "registry_app" in data:
+        kv["registry_app"] = _registry_app(json.dumps(data["registry_app"]) if isinstance(data["registry_app"], dict) else None)
+    return _set_draft(db, p, **kv)
+
+
+def draft_extract(db: Session, token: str, pdf: bytes, name: str, url: str = "") -> dict:
+    """The extract he gave (by its link or as the PDF): kept in private storage, the code and fields read from it."""
+    from app.services import registry
+    p = _signable(db, token, lock=True)
+    if contract(db, p.id):
+        raise DomainError("already_signed", "Договор уже подписан")
+    if len(pdf) > MAX_OWNER_DOC or not pdf.startswith(b"%PDF"):
+        raise DomainError("bad_file", "Выписка — PDF до 15 МБ")
+    fields = registry.parse_extract(registry.text_of_pdf(pdf) or "")
+    kv = {"extract_file": registry.store_extract(pdf), "extract_name": (name or "extract.pdf")[:200], "extract_url": url[:2000]}
+    if code := fields.get("cadastral_code"):
+        kv["cadastral_code"] = code
+    _set_draft(db, p, **kv)
+    return {"cadastral_code": fields.get("cadastral_code"), "fields": fields, "url": url, "name": kv["extract_name"]}
+
+
+def draft_id_doc(db: Session, token: str, name: str, content: bytes) -> dict:
+    """The passport / ID photo: checked like the signing upload, kept privately until he signs."""
+    p = _signable(db, token, lock=True)
+    if contract(db, p.id):
+        raise DomainError("already_signed", "Договор уже подписан")
+    ext = _check_owner_doc(OWNER_ID_DOC, name, content)
+    old = (p.sign_draft or {}).get("id_doc_file")
+    key = f"{SIGN_DRAFT_PREFIX}{p.id}/{uuid.uuid4().hex}{ext}"
+    storage.put(key, content)
+    out = _set_draft(db, p, id_doc_file=key, id_doc_name=(name or f"id{ext}")[:200])
+    if old:
+        try:
+            storage.delete(old)
+        except Exception:
+            log.warning("could not delete %s", old)
+    return out
 
 
 def sign_contract(db: Session, token: str, data: dict, pdf: bytes, ip: str | None, user_agent: str | None,
@@ -1082,7 +1142,13 @@ def sign_contract(db: Session, token: str, data: dict, pdf: bytes, ip: str | Non
         raise DomainError("consent_required", "Нужно согласие с условиями")
     if f["cadastral_code"] != (p.cadastral_code or "").strip():
         f["cadastral_code"] = clean_cadastral(f["cadastral_code"]) or ""
-    docs = docs or {}
+    docs = {k: v for k, v in (docs or {}).items() if v and v[1]}
+    draft = p.sign_draft or {}  # what he gave earlier on the page (the draft) stands in for a file not re-sent
+    for kind, fk, nk in ((OWNER_ID_DOC, "id_doc_file", "id_doc_name"), (REGISTRY_EXTRACT, "extract_file", "extract_name")):
+        if kind not in docs and draft.get(fk) and (content := storage.read(draft[fk])):
+            docs[kind] = (draft.get(nk) or os.path.basename(draft[fk]), content)
+    if not data.get("registry_app") and draft.get("registry_app"):
+        data = {**data, "registry_app": json.dumps(draft["registry_app"])}
     for kind, (label, _) in OWNER_DOCS.items():
         if not (docs.get(kind) and docs[kind][1]):
             raise DomainError("missing_fields", f"Загрузите: {label}")
@@ -1099,7 +1165,13 @@ def sign_contract(db: Session, token: str, data: dict, pdf: bytes, ip: str | Non
             _store_owner_doc(db, p, kind, name, content, None)
     log_event(db, "property", p.id, "exclusive_contract_signed", None, label=f["full_name"], **f, ip=ip, registry_app=app,
               user_agent=(user_agent or "")[:300], pdf_sha256=hashlib.sha256(pdf).hexdigest())
+    p.sign_draft = {}
     db.commit()
+    if draft.get("id_doc_file"):  # copied into the object's owner docs above; the extract key is shared (content hash)
+        try:
+            storage.delete(draft["id_doc_file"])
+        except Exception:
+            log.warning("could not delete %s", draft["id_doc_file"])
     return m
 
 

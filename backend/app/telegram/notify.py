@@ -374,17 +374,6 @@ INTRO = {"ru": ("Здравствуйте! Я оператор Homes in Georgia 
 MORE = {"ru": "и ещё {n}", "en": "and {n} more", "ka": "და კიდევ {n}"}
 
 
-def public_link(listing_id):
-    """A link the client can open: our public channel's post, else the object's card on our site (SITE_URL/map?q=o<id>).
-    Never a t.me/c/ post — the private test channel (PUBLISH_CHAT_ID before launch) opens only for its members."""
-    post = channel_post_of(listing_id)
-    if post and "t.me/c/" not in post:
-        return post
-    prop = store.q("SELECT id FROM properties WHERE listing_id = %s OR 'obj' || id = %s ORDER BY id LIMIT 1",
-                   (listing_id, listing_id), one=True)
-    return prop and f"{conf('SITE_URL').rstrip('/')}/map?q=o{prop['id']}"
-
-
 WRITE_FIRST = {"ru": ("Чтобы оператор прислал вам время просмотра, отправьте ему одно сообщение — оно уже готово 👇",
                       "💬 Написать оператору"),
                "en": ("So that the operator can send you viewing times, send them one message — it's ready 👇",
@@ -403,8 +392,8 @@ def operator_intro(lead):
     ids = [r["id"] for r in store.q("SELECT id FROM leads WHERE client_id = %s ORDER BY id", (g(lead, "client_id"),))]
     if ids and ids[0] < lid:  # two ❤️ at once both looked «first» (knows_operator): only the earliest lead writes
         return None
-    what = "\n".join(x for x in (headline(i, lang), public_link(g(lead, "listing_id")),
-                                  len(ids) > 1 and MORE[lang].format(n=len(ids) - 1)) if x)
+    # the client picked it in the bot: name it as the bot's card does, no links (Stanislav 11-16; the street is agent-only)
+    what = headline(i, lang) + (f" ({MORE[lang].format(n=len(ids) - 1)})" if len(ids) > 1 else "")
     from app.telegram import userbot
     if userbot.send_to_client(cl, INTRO[lang].format(what=what)):
         return "userbot"

@@ -80,6 +80,8 @@ class NoUsage(Exception):
 def tokens():
     """Apify keys in order, without duplicates: $APIFY_TOKENS, $APIFY_TOKEN, ~/.config/apify/token."""
     db.load_env()
+    from llm import _crm_keys
+    _crm_keys()  # Apify keys entered in the CRM win over .env
     out = [t.strip() for t in os.environ.get("APIFY_TOKENS", "").replace(";", ",").split(",")]
     out.append(os.environ.get("APIFY_TOKEN", "").strip())
     f = os.path.expanduser("~/.config/apify/token")

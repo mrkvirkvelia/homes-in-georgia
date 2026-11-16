@@ -4,7 +4,7 @@ import {
   normAgentStat, normAuth, normBoard, normCabinet, normClient, normCounter, normDashboard, normEvent, normLead, normListing, normPage,
   normProperty, normRecommend, normReport,
 } from './normalize';
-import type {
+import type { IntegrationKey,
   Birthday, Invite, InviteInfo,
   AgentStat, AppConfig, AuthOut, Cabinet, Client, Contract, ContractCloseReason, ContractDraftIn, ContractIn, CounterRow, Dashboard, Deal, DealCalcIn, DealCalcOut,
   EventItem, Evaluation, Lead, LeadContract, LeadStatus, DealPrefill, Listing, NewsItem, Owner, Page, Property, RecommendedAgent, Report, ReportKind,
@@ -252,6 +252,11 @@ export const api = {
   },
   news: () => http.get<L<NewsItem>>('/news'),
 
+  keys: {  // Управление → Ключи (superadmin): values are write-only, the list shows the last 4 characters
+    list: () => http.get<{ items: IntegrationKey[] }>('/keys'),
+    put: (name: string, value: string) => http.put<{ items: IntegrationKey[] }>(`/keys/${encodeURIComponent(name)}`, { value }),
+    remove: (name: string) => http.del<{ items: IntegrationKey[] }>(`/keys/${encodeURIComponent(name)}`),
+  },
   settings: {
     get: () => http.get<Settings>('/settings'),
     put: (b: Settings) => http.put<Settings>('/settings', b),

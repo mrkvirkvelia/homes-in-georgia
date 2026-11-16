@@ -629,6 +629,16 @@ on('GET', '/news', () => page([
   { id: 1, date: new Date().toISOString().slice(0, 10), text: 'Новые правила публикации: без проверки оператором в канал ничего не уходит.' },
   { id: 2, date: new Date(Date.now() - 3 * 86400_000).toISOString().slice(0, 10), text: 'Запущена воронка клиентов в боте: заявки приходят в общую группу операторов.' },
 ]));
+// Управление → Ключи (backend app/keys.py): values write-only
+const mockKeys: Record<string, string> = {};
+const KEY_NOTES: Record<string, string> = { APIFY_TOKENS: 'Apify: парсер Facebook-групп (несколько ключей через запятую)', APIFY_TOKEN: 'Apify: один ключ (если не задан список выше)',
+  OPENAI_API_KEY: 'ИИ через API (OpenAI / ProxyAPI), когда LLM_PROVIDER=openai', MAPTILER_KEY: 'MapTiler: карты в CRM и на сайте' };
+const keysOut = () => ({ items: [...new Set([...Object.keys(KEY_NOTES), ...Object.keys(mockKeys).sort()])].map((name) => ({
+  name, note: KEY_NOTES[name] ?? null, source: mockKeys[name] ? 'crm' : name === 'OPENAI_API_KEY' ? 'env' : null,
+  tail: mockKeys[name] ? mockKeys[name].slice(-4) : name === 'OPENAI_API_KEY' ? 'a1b2' : null })) });
+on('GET', '/keys', () => keysOut());
+on('PUT', '/keys/:name', (m, b) => { mockKeys[m[1]] = String(b.value); return keysOut(); });
+on('DELETE', '/keys/:name', (m) => { delete mockKeys[m[1]]; return keysOut(); });
 on('GET', '/settings', () => F.settings);
 on('PUT', '/settings', (_m, b) => Object.assign(F.settings, b));
 on('GET', '/sources', () => page(F.sources));

@@ -13,7 +13,17 @@ import time
 MODEL = os.environ.get("CODEX_MODEL", "gpt-6.1-sol")
 
 
+def _crm_keys():
+    """Keys entered in the CRM (Управление → Ключи, backend app/keys.py) over .env; no backend on the path = .env only."""
+    try:
+        from app.keys import refresh
+        refresh()
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def ask(prompt, schema, images=(), effort="low", timeout=300):
+    _crm_keys()
     if os.environ.get("LLM_PROVIDER", "codex").lower() == "openai":
         return ask_openai(prompt, schema, images, timeout)
     return ask_codex(prompt, schema, images, effort, timeout)

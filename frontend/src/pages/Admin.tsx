@@ -480,19 +480,60 @@ function SettingsAdmin() {
   );
 }
 
+/** Integration keys (superadmin): Apify, AI, maps… entered here win over the server's .env, no restart (backend app/keys.py).
+ *  A value is never shown again: only where it comes from and its last 4 characters. */
+function KeysAdmin() {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const q = useQuery({ queryKey: ['keys'], queryFn: api.keys.list });
+  const [edit, setEdit] = useState<{ name: string; value: string; isNew?: boolean } | null>(null);
+  const done = (d: { items: unknown[] }) => { qc.setQueryData(['keys'], d); setEdit(null); toast(t('Сохранено')); };
+  const put = useMutation({ mutationFn: () => api.keys.put(edit!.name.trim().toUpperCase(), edit!.value.trim()), onSuccess: done, onError: (e) => toast(errText(e), true) });
+  const del = useMutation({ mutationFn: (n: string) => api.keys.remove(n), onSuccess: (d) => qc.setQueryData(['keys'], d), onError: (e) => toast(errText(e), true) });
+  if (q.isLoading) return <Loading />;
+  if (q.error) return <ErrorBox error={q.error} />;
+  return (
+    <Card label={t('Только суперадмин')} title={t('Ключи интеграций')}>
+      <p className="muted" style={{ marginTop: 0 }}>{t('Ключ из CRM главнее ключа на сервере и начинает работать в течение минуты, без перезапуска. Значение после сохранения больше не показывается.')}</p>
+      {itemsOf(q.data).map((k) => (
+        <div key={k.name} className="list-row" style={{ flexWrap: 'wrap' }}>
+          <div className="grow" style={{ minWidth: 220 }}>
+            <div style={{ fontWeight: 700, fontFamily: 'monospace', overflowWrap: 'anywhere' }}>{k.name}</div>
+            {k.note && <div className="muted" style={{ fontSize: 12 }}>{t(k.note)}</div>}
+          </div>
+          {k.source === 'crm' ? <Badge tone="ok">{t('CRM')} · …{k.tail}</Badge> : k.source === 'env' ? <Badge tone="grey">{t('сервер')} · …{k.tail}</Badge> : <Badge tone="warn">{t('не задан')}</Badge>}
+          <Button size="sm" variant="secondary" onClick={() => setEdit({ name: k.name, value: '' })}>{k.source === 'crm' ? t('Заменить') : t('Задать')}</Button>
+          {k.source === 'crm' && <Button size="sm" variant="ghost" aria-label={t('Удалить')} loading={del.isPending && del.variables === k.name} onClick={() => confirm(t('Удалить ключ {name} из CRM? Останется значение с сервера, если оно есть.', { name: k.name })) && del.mutate(k.name)}><Trash2 size={14} /></Button>}
+        </div>
+      ))}
+      <div className="row mt"><Button variant="secondary" onClick={() => setEdit({ name: '', value: '', isNew: true })}><Plus size={16} />{t('Добавить ключ')}</Button></div>
+      <Modal open={!!edit} onClose={() => setEdit(null)} title={edit?.isNew ? t('Новый ключ') : edit?.name || ''}>
+        {edit && <form className="col gap" onSubmit={(e) => { e.preventDefault(); put.mutate(); }}>
+          {edit.isNew && <Field label={t('Имя (латиница, например THREADS_TOKEN)')}><Input value={edit.name} onChange={(e) => setEdit({ ...edit, name: e.target.value.toUpperCase().replace(/[^A-Z0-9_]/g, '') })} required /></Field>}
+          <Field label={t('Значение')}><Input type="password" autoComplete="off" value={edit.value} onChange={(e) => setEdit({ ...edit, value: e.target.value })} required /></Field>
+          <Button type="submit" loading={put.isPending} disabled={!edit.name.trim() || !edit.value.trim()}>{t('Сохранить')}</Button>
+        </form>}
+      </Modal>
+    </Card>
+  );
+}
+
 export function AdminPage() {
-  const [tab, setTab] = useState<'users' | 'sources' | 'ticker' | 'settings'>('users');
+  const [tab, setTab] = useState<'users' | 'sources' | 'ticker' | 'settings' | 'keys'>('users');
+  const isSuper = useAuth().hasRole(...SUPER_ROLES);
   return (
     <>
       <PageHead label={t('Только для администраторов')} title={t('Управление')} />
       <Tabs value={tab} onChange={setTab} tabs={[
         { value: 'users', label: t('Пользователи') }, { value: 'sources', label: t('Источники') },
         { value: 'ticker', label: t('Бегущая строка') }, { value: 'settings', label: t('Настройки') },
+        ...(isSuper ? [{ value: 'keys' as const, label: t('Ключи') }] : []),
       ]} />
       {tab === 'users' && <Users />}
       {tab === 'sources' && <Sources />}
       {tab === 'ticker' && <TickerAdmin />}
       {tab === 'settings' && <SettingsAdmin />}
+      {tab === 'keys' && isSuper && <KeysAdmin />}
     </>
   );
 }

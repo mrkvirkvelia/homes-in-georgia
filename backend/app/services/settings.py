@@ -74,7 +74,7 @@ def all(db: Session) -> dict:  # noqa: A001
     out = dict(DEFAULTS)
     # userbot_tg_id: written by the operator's userbot itself; source_runs: by the parser; source_every_min: its own
     # page (/sources/schedule). Not admin settings here: the settings form saves everything it got back.
-    out.update({r.key: r.value for r in db.query(Setting).all() if r.key not in HIDDEN})
+    out.update({r.key: r.value for r in db.query(Setting).all() if r.key not in HIDDEN and not r.key.startswith("key:")})  # key:*: app/keys.py, never shown
     return out
 
 

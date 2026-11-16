@@ -246,6 +246,8 @@ def main():
     login_bot.start_thread()  # staff invites: /start inv_<token> in the CRM sign-in bot
     last_ical = time.time() - env.DAILY_RENT_ICAL_MINUTES * 60 + 20  # first fetch 20 s after the start, as ApartFlow
     while True:
+        from app import keys
+        keys.refresh()  # Управление → Ключи
         try:
             st = tick()
             if st:

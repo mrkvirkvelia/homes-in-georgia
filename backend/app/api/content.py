@@ -10,11 +10,11 @@ from pydantic import BaseModel
 from sqlalchemy import delete, or_, select, update
 from sqlalchemy.orm import Session
 
-from app import storage
+from app import keys, storage
 from app.api.deps import current_user, paginate, require_level
 from app.config import REPO_ROOT, settings as env
 from app.db import get_db
-from app.models import Address, ChannelPost, Job, Lead, Listing, News, Property, Source, TickerMessage, User, at_least
+from app.models import Address, ChannelPost, Job, Lead, Listing, News, Property, Setting, Source, TickerMessage, User, at_least
 from app.services import ics, settings
 from app.services import properties as P
 from app.services.common import get_or_404, jload, log_event, now_text
@@ -119,6 +119,53 @@ def addresses_list(active: int = 1, db: Session = Depends(get_db, scope="functio
             for a in db.scalars(stmt.order_by(Address.district, Address.address))]
 
 
+# ---------------------------------------------------------------- integration keys (superadmin, app/keys.py)
+
+class KeyIn(BaseModel):
+    value: str
+
+
+def _key_name(name: str) -> str:
+    name = name.strip().upper()
+    if not keys.valid(name):
+        raise DomainError("bad_input", "Имя ключа: латиница A-Z, цифры и _, например THREADS_TOKEN (системные ключи меняются только в .env)")
+    return name
+
+
+@router.get("/keys")
+def keys_list(db: Session = Depends(get_db, scope="function"), user: User = Depends(require_level("superadmin"))):
+    """Known + added keys: where the value comes from (crm / env / none) and its last 4 characters, never the value."""
+    crm = keys.read(db)
+    out = []
+    for name in dict.fromkeys([*keys.KNOWN, *sorted(crm)]):
+        v = crm.get(name) or os.environ.get(name)
+        src = "crm" if name in crm else ("env" if v else None)
+        out.append({"name": name, "note": keys.KNOWN.get(name), "source": src, "tail": v[-4:] if v and len(v) >= 12 else ("…" if v else None)})
+    return {"items": out}
+
+
+@router.put("/keys/{name}")
+def keys_put(name: str, body: KeyIn, db: Session = Depends(get_db, scope="function"), user: User = Depends(require_level("superadmin"))):
+    name, value = _key_name(name), body.value.strip()
+    if not value or len(value) > 4000 or "\n" in value:
+        raise DomainError("bad_input", "Пустое или слишком длинное значение")
+    settings.set(db, keys.PREFIX + name, value, commit=False)
+    log_event(db, "setting", 0, "key_set", user, name=name)  # the name only, never the value
+    db.commit()
+    keys.refresh(force=True)
+    return keys_list(db, user)
+
+
+@router.delete("/keys/{name}")
+def keys_delete(name: str, db: Session = Depends(get_db, scope="function"), user: User = Depends(require_level("superadmin"))):
+    name = _key_name(name)
+    db.execute(delete(Setting).where(Setting.key == keys.PREFIX + name))
+    log_event(db, "setting", 0, "key_removed", user, name=name)
+    db.commit()
+    keys.refresh(force=True)
+    return keys_list(db, user)
+
+
 # ---------------------------------------------------------------- settings / sources
 
 @router.get("/settings")
@@ -132,7 +179,7 @@ def settings_put(body: dict, db: Session = Depends(get_db, scope="function"), us
     if not at_least(user, "superadmin") and any(k in settings.PROTECTED and str(v) != settings.get(db, k) for k, v in body.items()):
         raise DomainError("forbidden", "Эти настройки (интеграция с Telegram) меняет только суперадмин")
     for k, v in body.items():
-        if k in settings.HIDDEN:  # written by the parser / its own page, never by this form
+        if k in settings.HIDDEN or k.startswith("key:"):  # the parser's / its own page's / Управление → Ключи
             continue
         settings.set(db, k, json.dumps(v, ensure_ascii=False) if isinstance(v, (list, dict)) else v, commit=False)
     if str(body.get("sla_enabled", "")) == "0":  # SLA off: drop the running timers and their pending reminders
@@ -366,6 +413,7 @@ PREVIEW_HEADERS = {"Cache-Control": "private, max-age=2592000, immutable", "X-Co
 
 @public.get("/config")
 def public_config():
+    keys.refresh()  # a MapTiler key entered in Управление → Ключи
     return {"bot_username": env.LOGIN_BOT_USERNAME or env.BOT_USERNAME, "public_url": env.PUBLIC_URL, "bot_id": (env.LOGIN_BOT_TOKEN or env.BOT_TOKEN).split(":")[0], "maptiler_key": env.MAPTILER_KEY}
 
 

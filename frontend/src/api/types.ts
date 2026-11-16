@@ -759,3 +759,5 @@ export interface Offer {
   published_at: string | null; created_at: string; updated_at: string;
   [field: string]: unknown;  // the kind's own columns (service, rooms, … / deal, year, …)
 }
+
+export interface IntegrationKey { name: string; note: string | null; source: 'crm' | 'env' | null; tail: string | null }

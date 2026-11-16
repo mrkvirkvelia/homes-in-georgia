@@ -1030,7 +1030,7 @@ function DiscountModal({ p, open, onClose }: { p: Property; open: boolean; onClo
   );
 }
 
-/** A published object's actions: discount, pause, rented (by us / by the owner). The last three are the archive with a reason. */
+/** A published object's actions: discount, pause, the deal, rented by the owner. Pause and the owner's are the archive with a reason. */
 function PublishedActions({ p, onArchive }: { p: Property; onArchive: (reason: string) => void }) {
   const [discount, setDiscount] = useState(false);
   return (
@@ -1038,7 +1038,8 @@ function PublishedActions({ p, onArchive }: { p: Property; onArchive: (reason: s
       <div className="row row-wrap gap-sm">
         <Button variant="secondary" size="sm" onClick={() => setDiscount(true)}>{t('% Скидка')}</Button>
         <Button variant="secondary" size="sm" onClick={() => onArchive('paused')}><Clock size={14} />{t('Приостановить')}</Button>
-        <Button variant="secondary" size="sm" onClick={() => onArchive('rented_by_us')}><CheckCircle2 size={14} />{t('Сдали мы')}</Button>
+        {/* Stanislav 11-16: instead of «Сдали мы» — the deal form with this object; its confirm turns the object «Сдано» */}
+        <Link className="btn btn-secondary btn-sm" to={`/deals/new?property_id=${p.id}`}><CheckCircle2 size={14} />{t('Оформить сделку')}</Link>
         <Button variant="secondary" size="sm" onClick={() => onArchive('rented_by_owner')}><Home size={14} />{t('Собственник сдал')}</Button>
       </div>
       <DiscountModal p={p} open={discount} onClose={() => setDiscount(false)} />

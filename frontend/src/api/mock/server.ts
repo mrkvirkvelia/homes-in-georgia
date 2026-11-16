@@ -277,6 +277,12 @@ on('GET', '/properties/:id/contract', (m) => {
     data: { street_house: n(p.address), cadastral_code: n(p.cadastral_code), floor: n(p.floor), apartment_area: n(p.area), price_usd: n(p.price), deposit_usd: n(p.price), owner_full_name: n(p.owner?.name) } };
 });
 on('GET', '/properties/deal-search', (_m, _b, q) => {
+  const pid = q.get('pid');
+  if (pid) {
+    const p = getProp(Number(pid));
+    return { items: [{ id: p.id, address: p.address, district: p.district, status: p.status, blocked: null, agent_id: p.agent_id, lead_id: null,
+      fields: { address: p.address, price: p.price, owner_name: p.owner?.name, owner_phone: p.owner?.phone } }] };
+  }
   const t = String(q.get('q') || '').toLowerCase().replace(/^#/, '');
   return { items: t ? F.properties.filter((p) => String(p.id) === t || (p.address || '').toLowerCase().includes(t)).slice(0, 20)
     .map((p) => ({ id: p.id, address: p.address, district: p.district, status: p.status, blocked: null })) : [] };

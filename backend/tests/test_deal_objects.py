@@ -1,7 +1,8 @@
 """Stage 7: a deal picks its object from the base (search, prefill, another agent's object blocked); «Объекта нет в
 базе» creates an object the operator must verify before the deal is confirmed; the matcher sends known objects back."""
-from app.models import Deal, Owner, Property
-from tests.conftest import auth, make_listing, make_user
+from app.models import Deal, Lead, Owner, Property
+from app.services.common import now_text
+from tests.conftest import auth, make_client, make_listing, make_user
 
 PHONE = "+995 599 20 30 40"
 
@@ -38,6 +39,18 @@ def test_picker_search_scoping_and_prefill(db, client):
     assert r["blocked"] == "Объект закреплён за #Zaza" and r["fields"] is None
     assert _search(client, nino, pid=pid)[0]["fields"]["owner_phone"] == PHONE  # staff see everything
     assert _search(client, zaza, q="x") == []
+
+    # «Оформить сделку» from the object card (pid): the object's agent and the lead in work on it
+    r = _search(client, zaza, pid=pid)[0]
+    assert r["agent_id"] == zaza.id and r["lead_id"] is None
+    lead = Lead(client_id=make_client(db).id, listing_id=make_listing(db, "ld1").id, agent_id=zaza.id, status="contract", created_at=now_text(), updated_at=now_text(),
+                property_id=pid)
+    db.add(lead)
+    db.commit()
+    assert _search(client, zaza, pid=pid)[0]["lead_id"] == lead.id
+    assert _search(client, nino, pid=pid)[0]["lead_id"] == lead.id
+    assert "lead_id" not in _search(client, levan, pid=pid)[0]  # another agent's object: nothing
+    assert "lead_id" not in _search(client, zaza, q=f"#{pid}")[0]
 
     # the deal takes the object's data whatever the form says, and links the object
     r = client.post("/api/deals", headers=auth(zaza), json={

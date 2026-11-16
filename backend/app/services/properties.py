@@ -2215,7 +2215,19 @@ def deal_search(db: Session, user: User, q: str | None = None, pid: int | None =
         out.append({"id": p.id, "address": p.address, "district": p.district, "status": p.status, "bedrooms": p.bedrooms,
                     "agent_tag": users_svc.tag_of(agent) if agent else None, "needs_check": needs_check(p),
                     "blocked": blocked, "fields": None if blocked else deal_fields(db, p, user, deal_type)})
+        if pid and not blocked:  # «Оформить сделку» from the object card: its agent and the lead in work on it
+            out[-1].update(agent_id=p.agent_id, lead_id=_deal_lead(db, p, user))
     return out
+
+
+def _deal_lead(db: Session, p: Property, user: User) -> int | None:
+    """The newest lead past the viewing on this object (the user's own unless staff), for the deal form's prefill."""
+    from app.models import Lead
+    from app.services.leads import DEAL_STAGES
+    stmt = select(Lead.id).where(Lead.property_id == p.id, Lead.status.in_(DEAL_STAGES), Lead.archived_at.is_(None))
+    if not at_least(user, "operator"):
+        stmt = stmt.where(Lead.agent_id == user.id)
+    return db.scalar(stmt.order_by(Lead.id.desc()).limit(1))
 
 
 def verify(db: Session, pid: int, actor: User) -> Property:

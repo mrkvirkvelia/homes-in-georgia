@@ -51,7 +51,7 @@ const splitOf = (rows: DistRow[] | null) => rows && [...rows.filter((r) => r.who
 
 const SRC = ['', 'Instagram', 'Facebook', 'Telegram-канал', 'Рекомендация', 'Сайт', 'Другое'];
 
-export function DealForm({ leadId, onDone }: { leadId?: number; onDone?: (d: Deal) => void }) {
+export function DealForm({ leadId, propertyId, onDone }: { leadId?: number; propertyId?: number; onDone?: (d: Deal) => void }) {
   const { user, isStaff } = useAuth();
   const qc = useQueryClient();
   const toast = useToast();
@@ -78,7 +78,7 @@ export function DealForm({ leadId, onDone }: { leadId?: number; onDone?: (d: Dea
   const upd = (k: keyof typeof f, v: unknown) => setF((x) => ({ ...x, [k]: v }));
   // stage 7: the object is picked from the base (its fields become read-only) or typed by hand as a new object
   const loc = useLocation();
-  const [pid, setPid] = useState<number | null>(null);
+  const [pid, setPid] = useState<number | null>(propertyId ?? null);  // «Оформить сделку» from the object card
   const [manual, setManual] = useState(false);
   const [q, setQ] = useState('');
   const [exists, setExists] = useState<number | null>(null);
@@ -88,6 +88,9 @@ export function DealForm({ leadId, onDone }: { leadId?: number; onDone?: (d: Dea
   const obj = pid ? picked.data?.items[0] : undefined;
   const ro = (k: string) => !!obj?.fields && k in obj.fields;
   useEffect(() => { if (obj?.fields) setF((x) => ({ ...x, ...obj.fields })); }, [obj]);
+  // from the object card the deal is the object's agent's (staff file it for them); once, the agent can be changed
+  const agentSet = useRef(false);
+  useEffect(() => { if (isStaff && obj?.agent_id && !agentSet.current) { agentSet.current = true; upd('agent_id', obj.agent_id); } }, [obj]); // eslint-disable-line react-hooks/exhaustive-deps
   const pick = (id: number | null) => {
     if (obj?.fields) setF((x) => ({ ...x, ...Object.fromEntries(Object.keys(obj.fields!).map((k) => [k, k === 'is_exclusive' ? false : ''])) }));
     setPid(id); setManual(false); setExists(null);

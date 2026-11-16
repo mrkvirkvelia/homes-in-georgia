@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { DealsAnalytics } from '../features/deals/Analytics';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -196,12 +196,18 @@ export function DealsPage({ newDeal }: { newDeal?: boolean }) {
   const open = Number(params.get('open')) || null;
   const setOpen = (id: number | null) => { if (id) params.set('open', String(id)); else params.delete('open'); setParams(params, { replace: true }); };
   const leadId = Number(params.get('lead_id') || params.get('lead')) || undefined;
+  const propertyId = Number(params.get('property_id')) || undefined;
+  // from the object card: an object with a lead in work → the lead's deal form (its contract data comes in too)
+  const pick = useQuery({ queryKey: ['deal-pick', propertyId, 'rent', undefined], queryFn: () => api.properties.dealSearch({ pid: propertyId!, deal_type: 'rent' }), enabled: !!newDeal && !!propertyId && !leadId });
+  const pickLead = pick.data?.items[0]?.lead_id;
+  useEffect(() => { if (pickLead) navigate(`/deals/new?lead_id=${pickLead}`, { replace: true }); }, [pickLead]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (newDeal) {
     return (
       <>
         <PageHead label={leadId ? `Заявка #${leadId} · Сделка` : "Сделки · C9b"} title="Оформить сделку" />
-        <DealForm leadId={leadId} onDone={(d) => navigate(leadId ? `/leads/${leadId}` : `/deals?open=${d.id}`)} />
+        {propertyId && !leadId && (pick.isLoading || pickLead) ? <Loading />
+          : <DealForm key={leadId ?? propertyId} leadId={leadId} propertyId={leadId ? undefined : propertyId} onDone={(d) => navigate(leadId ? `/leads/${leadId}` : `/deals?open=${d.id}`)} />}
       </>
     );
   }

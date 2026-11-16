@@ -57,8 +57,11 @@ def chat_and_topic(chat_key, topic_key=None):
 
 
 def operators_targets():
-    """[(chat_id, topic)] for operator messages: OPERATORS_CHAT_ID (+topic), else the bot's group setting, else every
-    operator/admin/superadmin in private."""
+    """[(chat_id, topic)] for operator messages: the connected operator account (Настройки → «Аккаунт оператора»,
+    settings.userbot_tg_id) in private, only it (Stanislav 11-16: the other operators work in the CRM); not connected →
+    OPERATORS_CHAT_ID (+topic), else the bot's group setting, else every operator/admin/superadmin in private."""
+    if uid := (store.setting("userbot_tg_id") or "").strip():
+        return [(uid, None)]
     chat, topic = chat_and_topic("OPERATORS_CHAT_ID", "OPERATORS_TOPIC_ID")
     if chat:
         return [(chat, topic)]
@@ -84,11 +87,12 @@ def to_operators(kind, ref, text, keyboard_for):
 
 
 def to_lead_staff(lead, text, keyboard_for, keys=("operator_id",)):
-    """Private messages to the lead's operator (and/or agent: keys); the operators chat too when the operator isn't
-    reached (no operator yet, no Telegram id, or the send failed)."""
+    """Private messages to the lead's operator (and/or agent: keys) — the connected operator account when there is one;
+    the operators chat too when the operator isn't reached (no operator yet, no Telegram id, or the send failed)."""
     sent, op_ok = set(), False
+    connected = (store.setting("userbot_tg_id") or "").strip()  # the connected operator account stands for the operator
     for k in keys:
-        u = store.user(g(lead, k)) or {}
+        u = {"tg_id": connected} if k == "operator_id" and connected else store.user(g(lead, k)) or {}
         tid = u.get("tg_id")
         if not tid or not u.get("is_active", True):
             continue

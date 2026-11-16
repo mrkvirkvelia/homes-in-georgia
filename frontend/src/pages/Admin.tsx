@@ -4,11 +4,11 @@ import { ChevronDown, ChevronUp, Copy, Plus, Send, ShieldCheck, Trash2, UserPlus
 import { Link } from 'react-router-dom';
 import { api } from '../api';
 import { itemsOf } from '../api/client';
-import type { Invite, InviteStatus, Role, Settings, User } from '../api/types';
+import type { Invite, InviteStatus, Role, Settings, Source, User } from '../api/types';
 import { ADMIN_ROLES, SUPER_ROLES, atLeast } from '../api/types';
 import { useAuth } from '../auth/AuthContext';
 import { errText, useToast } from '../components/toast';
-import { Avatar, Badge, Button, Card, Drawer, Empty, ErrorBox, Field, Input, Loading, Modal, PageHead, Seg, Select, Switch, Tabs } from '../components/ui';
+import { Avatar, Badge, Button, Card, Checkbox, Drawer, Empty, ErrorBox, Field, Input, Loading, Modal, PageHead, Seg, Select, Switch, Tabs } from '../components/ui';
 import { ROLE_LABEL, ago, fmtDateTime, phoneBlur, phoneFocus, phoneInput } from '../lib/format';
 import { EMAIL_RE, birthdayLabel } from './Cabinet';
 import { parseMetrics } from '../lib/useUserNames';
@@ -292,7 +292,7 @@ function Sources() {
   const [url, setUrl] = useState('');
   const [name, setName] = useState('');
   const { data, isLoading, error } = useQuery({ queryKey: ['sources'], queryFn: api.sources.list });
-  const upd = useMutation({ mutationFn: ({ id, enabled }: { id: number | string; enabled: boolean }) => api.sources.update(id, { enabled }), onSuccess: () => qc.invalidateQueries({ queryKey: ['sources'] }) });
+  const upd = useMutation({ mutationFn: ({ id, ...b }: Partial<Source> & { id: number | string }) => api.sources.update(id, b), onSuccess: () => qc.invalidateQueries({ queryKey: ['sources'] }), onError: (e) => toast(errText(e), true) });
   const parsed = sourceFromUrl(url.trim());
   const add = useMutation({
     mutationFn: () => api.sources.create({ ...parsed!, url: url.trim(), name: name.trim() || undefined, enabled: true } as never),
@@ -321,6 +321,16 @@ function Sources() {
               <div className="row row-between"><h3>{s.name || (s as { key?: string }).key || s.kind}</h3><Switch checked={s.enabled} onChange={(v) => upd.mutate({ id: s.id, enabled: v })} /></div>
               <div className="muted ellipsis" style={{ fontSize: 13 }}>{s.url || s.kind}</div>
               <div className="row gap-sm">{s.count !== undefined && <Badge tone="grey">{t('{n} объявлений', { n: s.count })}</Badge>}{s.last_run_at && <Badge tone="grey">{ago(s.last_run_at)}</Badge>}</div>
+              {/* our own agency channel can't be a competitor */}
+              {s.kind !== 'tg_agency' && (
+                <div className="row row-between row-wrap gap-sm">
+                  <Checkbox checked={!!s.options?.competitor} title={t('Объявления этого источника не попадут в «Новые объявления»: только в «Объекты → База → Конкуренты», при первом запуске парсер загрузит всю его историю')}
+                    onChange={(v) => upd.mutate({ id: s.id, options: { ...s.options, competitor: v } })}>{t('Конкурент')}</Checkbox>
+                  {s.options?.competitor && (s.options.backfilled_at
+                    ? <Badge tone="grey">{t('история загружена {d}', { d: fmtDateTime(s.options.backfilled_at) })}</Badge>
+                    : <Badge tone="blue" title={t('история загрузится при следующем запуске')}>{t('история загрузится')}</Badge>)}
+                </div>
+              )}
             </div>
           ))}
         </div>

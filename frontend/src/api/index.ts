@@ -61,7 +61,7 @@ export const api = {
     decideMatch: (id: string, pid: number, same: boolean) => http.post<{ ok: boolean; status: string }>(`/listings/${id}/matches/${pid}`, { same }),
     dismiss: (id: string) => http.post<{ ok: boolean }>(`/listings/${id}/dismiss`),
     agent: (id: string, body: { owner_name?: string; owner_phone?: string }) => http.post<Property>(`/listings/${id}/agent`, body),
-    facets: () => http.get<Record<'sources' | 'districts' | 'metros', { value: string; count: number; label?: string }[]>>('/listings/new/facets'),
+    facets: (competitor?: boolean) => http.get<Record<'sources' | 'districts' | 'metros', { value: string; count: number; label?: string }[]>>('/listings/new/facets', competitor ? { competitor: 1 } : undefined),
     get: (id: string) => then(http.get<Listing>(`/listings/${id}`), normListing),
   },
 
@@ -285,4 +285,4 @@ export const api = {
 };
 
 export type PropertyScope = { status?: string; agent_id?: number; mine?: number; base?: number; deal?: 'rent' | 'sale' };
-export type ListingFilter = { q?: string; source?: string[]; flag?: string; district?: string[]; metro?: string; bedrooms?: string; price_min?: string; price_max?: string; known?: string };
+export type ListingFilter = { q?: string; source?: string[]; flag?: string; district?: string[]; metro?: string; bedrooms?: string; price_min?: string; price_max?: string; known?: string; competitor?: string };

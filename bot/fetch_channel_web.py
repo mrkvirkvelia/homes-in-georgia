@@ -132,6 +132,21 @@ def fetch(c, user, kind, want, photos, scan, marker=None, old=None):
     return items
 
 
+def keep_history(ch, items, old):
+    """A competitor channel keeps every post it ever had (the backfill too), newest first; the rest: the latest `want`."""
+    if not ch.get("competitor"):
+        return items
+    ids = {i["id"] for i in items}
+    return sorted(items + [i for k, i in old.items() if k not in ids], key=lambda i: i["id"], reverse=True)
+
+
+def mark_backfilled(key):
+    """= db.backfill_mark (this fetcher doesn't import db: it also runs in the tg runtime as fetch_channel.py)."""
+    os.makedirs(OUT, exist_ok=True)
+    from datetime import datetime, timezone
+    open(f"{OUT}/backfill_{re.sub(r'[^A-Za-z0-9_.-]', '_', key)}.done", "w").write(datetime.now(timezone.utc).isoformat(timespec="seconds"))
+
+
 def main():
     os.chdir(ROOT)
     os.makedirs(f"{OUT}/img", exist_ok=True)
@@ -144,7 +159,7 @@ def main():
             user = ch["username"]
             if only and user.lower() not in only:
                 continue
-            o = {**cfg.get("telegram_defaults", {}), **ch}
+            o = {**cfg.get("telegram_defaults", {}), **ch, **ch.get("backfill", {})}  # competitor: one deep first walk
             want = int(os.environ.get("FETCH_WANT") or o["want"])
             photos = int(os.environ.get("FETCH_PHOTOS") or o["photos"])
             path = f"{OUT}/channel_{user}.json"
@@ -155,6 +170,9 @@ def main():
                 print(f"{user}: failed, keeping old file: {e}")
                 failed += 1
                 continue
+            if ch.get("backfill"):  # walked without an error (even if empty: a private channel is not retried each tick)
+                mark_backfilled(user)
+            items = keep_history(ch, items, old)
             if not items:
                 print(f"{user}: nothing found (private channel or web preview off?), keeping old file")
                 continue

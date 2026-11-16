@@ -178,19 +178,28 @@ def _beds(col, bedrooms: str):
     return or_(col.in_(picked - {4}), *([col >= 4] if 4 in picked else []))
 
 
+def competitor_sources():
+    """listings.source of the sources marked «Конкурент» (Управление → Источники, options.competitor): tg:<key>,
+    fb:<key>, ig:<key>. Their ads are not our inventory: only «Объекты → База → Конкуренты» lists them."""
+    prefix = case((Source.kind.like("tg_%"), "tg:"), (Source.kind == "fb_group", "fb:"), else_="ig:")
+    return select(prefix + Source.key).where(cast(Source.options, JSONB)["competitor"].astext == "true")
+
+
 def _untaken():
     taken = select(Property.listing_id).where(Property.listing_id.isnot(None), Property.status != "archived")
-    return (Listing.status.in_(("published", "pending_review")), Listing.source.not_in(("agency", "object")), Listing.id.not_in(taken))
+    return (Listing.status.in_(("published", "pending_review")), Listing.source.not_in(("agency", "object")), Listing.id.not_in(taken),
+            Listing.source.not_in(competitor_sources()))
 
 
 def new_listings(db: Session, q: str | None = None, source: str | list[str] | None = None, flag: str | None = None,
                  limit: int = 50, offset: int = 0, district: str | list[str] | None = None, metro: str | None = None,
                  price_min: int | None = None, price_max: int | None = None, bedrooms: str | None = None,
-                 known: bool = False) -> dict:
-    """Listings not yet taken into work, newest first. `source` is a type (ss, facebook…) or an exact source (fb:group);
+                 known: bool = False, competitor: bool = False) -> dict:
+    """Listings not yet taken into work, newest first. competitor=True: instead every ad of the competitor sources
+    (any status, the ones linked to our objects too: they show «Уже в базе»). `source` is a type (ss, facebook…) or an exact source (fb:group);
     `source` and `district` take one value or a list (any of them).
     Ads the matcher already linked to an object («уже известные») are hidden unless known=True; known_total counts them."""
-    stmt = select(Listing).where(*_untaken())
+    stmt = select(Listing).where(Listing.source.in_(competitor_sources())) if competitor else select(Listing).where(*_untaken())
     if q:
         like = f"%{q.strip()}%"
         stmt = stmt.where(or_(Listing.address.ilike(like), Listing.district.ilike(like), Listing.text.ilike(like),
@@ -227,7 +236,7 @@ def new_listings(db: Session, q: str | None = None, source: str | list[str] | No
     linked = select(PropertyListing.listing_id).join(Property, Property.id == PropertyListing.property_id).where(
         Property.listing_id.is_distinct_from(PropertyListing.listing_id))
     known_total = db.scalar(select(func.count()).select_from(stmt.where(Listing.id.in_(linked)).subquery()))
-    if not known:
+    if not known and not competitor:
         stmt = stmt.where(Listing.id.not_in(linked))
     total = db.scalar(select(func.count()).select_from(stmt.subquery()))
     rows = list(db.scalars(stmt.order_by(Listing.first_seen.desc(), Listing.id).limit(limit).offset(offset)))
@@ -235,7 +244,9 @@ def new_listings(db: Session, q: str | None = None, source: str | list[str] | No
     sim, refused, objs = similar_for(db, ids), refusals_for(db, ids), known_objects(db, ids)
     from app.services import demand
     want = demand.listing_counts(db, rows)  # stage 10: «Под этот объект подходят N активных клиентов»
+    comp = set(db.scalars(competitor_sources()))  # ingest dedupe adds a competitor's copy of the flat to dup_sources
     return {"items": [{**listing_out(r), "similar": sim.get(r.id, []), "refused": refused.get(r.id), "demand": want.get(r.id, 0),
+                       "at_competitor": [x for x in dict.fromkeys(jload(r.dup_sources, []) or []) if x in comp],
                        **objs.get(r.id, {"known_object": None, "matches": []})} for r in rows],
             "total": total, "known_total": known_total}
 
@@ -396,10 +407,12 @@ def mark_listing_agent(db: Session, listing_id: str, actor: User, name: str | No
     return owner_or_agent(db, p.id, actor, False, name, phone)
 
 
-def new_listing_facets(db: Session) -> dict:
-    """Filter options with counts over the same untaken listings: exact sources, districts, metro stations."""
+def new_listing_facets(db: Session, competitor: bool = False) -> dict:
+    """Filter options with counts over the same untaken listings (or the competitor ads): exact sources, districts, metro."""
+    scope = (Listing.source.in_(competitor_sources()),) if competitor else _untaken()
+
     def facet(col):
-        rows = db.execute(select(col, func.count()).where(*_untaken(), col.isnot(None), col != "")
+        rows = db.execute(select(col, func.count()).where(*scope, col.isnot(None), col != "")
                           .group_by(col).order_by(func.count().desc()))
         return [{"value": v, "count": n} for v, n in rows]
     # Threads is one search over every author (th:<author> per ad): one option, filtered by its type
@@ -419,6 +432,8 @@ def take(db: Session, listing_id: str | None, agent: User, manual_fields: dict |
     """"Беру в работу": the object is locked to this agent; 409 taken_by_other for anyone else."""
     if listing_id:
         listing = get_or_404(db, Listing, listing_id, "listing", lock=True)
+        if listing.source in set(db.scalars(competitor_sources())):
+            raise DomainError("competitor_listing", "a competitor's ad is not taken into work")
         existing = db.scalar(select(Property).where(Property.listing_id == listing_id).with_for_update())
         if existing is None:  # the matcher linked this ad to an object: take that object, don't create a twin
             pid = db.scalar(select(PropertyListing.property_id).where(PropertyListing.listing_id == listing_id))

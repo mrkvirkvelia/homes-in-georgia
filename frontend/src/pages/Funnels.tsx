@@ -12,14 +12,14 @@ import { Button, Field, Input, Modal, PageHead, Tabs, DistrictSelect } from '../
 import type { ReactNode } from 'react';
 import { ArchivedLeads, LeadStages } from '../features/leads/LeadBoard';
 import { LeadDetail } from '../features/leads/LeadDetail';
-import { DealContext, MyProperties, NewListings, PropertyList, WorkProperties, type Deal } from '../features/properties/lists';
+import { CompetitorListings, DealContext, MyProperties, NewListings, PropertyList, WorkProperties, type Deal } from '../features/properties/lists';
 import { metroLabel, PropertyDetail } from '../features/properties/PropertyDetail';
 import { ChangeRequestQueue } from '../features/properties/requests';
 import { distLabel, phoneInput } from '../lib/format';
 import { useNavigate } from 'react-router-dom';
 import { t } from '../lib/i18n';
 
-type ObjTab = 'new' | 'board' | 'review' | 'requests' | 'mine' | 'all' | 'archive';
+type ObjTab = 'new' | 'board' | 'review' | 'requests' | 'mine' | 'all' | 'archive' | 'competitors';
 
 /** «Объект вручную»: the owner came to the office himself. His contact makes the object «Собственник» at once (no call
  * step); the card then opens the post generator, where the agent fills everything (address, price, photos...). */
@@ -56,9 +56,9 @@ export function ManualProperty({ open, onClose, base = '', deal = 'rent' }: { op
 const OBJ_GROUPS: { key: string; label: string; icon: ReactNode; tabs: ObjTab[] }[] = [
   { key: 'in', label: t('Входящие'), icon: <Inbox size={20} />, tabs: ['new', 'requests'] },
   { key: 'work', label: t('Работа'), icon: <Briefcase size={20} />, tabs: ['board', 'review'] },
-  { key: 'base', label: t('База'), icon: <Database size={20} />, tabs: ['mine', 'all', 'archive'] },
+  { key: 'base', label: t('База'), icon: <Database size={20} />, tabs: ['mine', 'all', 'archive', 'competitors'] },
 ];
-const OBJ_TAB: Record<ObjTab, string> = { new: t('Новые объявления'), requests: t('Запросы'), board: t('В работе'), review: t('На публикацию'), mine: t('Мои объекты'), all: t('База объектов'), archive: t('Архив') };
+const OBJ_TAB: Record<ObjTab, string> = { new: t('Новые объявления'), requests: t('Запросы'), board: t('В работе'), review: t('На публикацию'), mine: t('Мои объекты'), all: t('База объектов'), archive: t('Архив'), competitors: t('Конкуренты') };
 
 export function ObjectsPage() {
   const { isStaff } = useAuth();
@@ -118,6 +118,7 @@ export function ObjectsPage() {
       {tab === 'mine' && (isStaff ? <PropertyList key={`mine-${deal}`} mine /> : <MyProperties key={deal} />)}
       {tab === 'all' && <PropertyList key={`all-${deal}`} />}
       {tab === 'archive' && <PropertyList key={`archive-${deal}`} archived />}
+      {tab === 'competitors' && <CompetitorListings />}
       <ManualProperty open={manual} onClose={() => setManual(false)} deal={deal} />
     </DealContext.Provider>
   );

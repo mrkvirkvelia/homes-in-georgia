@@ -41,7 +41,7 @@ for ch in cfg["telegram_channels"]:
     user, kind = ch["username"], ch["kind"]
     if only and user.lower() not in only:
         continue
-    o = {**cfg.get("telegram_defaults", {}), **ch}
+    o = {**cfg.get("telegram_defaults", {}), **ch, **ch.get("backfill", {})}  # competitor: one deep first walk (db.BACKFILL)
     want = int(os.environ.get("FETCH_WANT") or o["want"])
     photos = int(os.environ.get("FETCH_PHOTOS") or o["photos"])
     marker = o.get("caption_marker")  # agency: the caption is the message with 💰
@@ -85,7 +85,14 @@ for ch in cfg["telegram_channels"]:
                       **({"video": video} if video else {}),
                       **({"video_msg": min(v.id for v in a["videos"])} if a["videos"] else {})})
 
-    json.dump(items, open(f"{OUT}/channel_{user}.json", "w"), ensure_ascii=False)
+    path = f"{OUT}/channel_{user}.json"
+    if ch.get("competitor") and os.path.exists(path):  # = fetch_channel_web.keep_history: a competitor keeps every post
+        ids = {i["id"] for i in items}
+        items = sorted(items + [i for i in json.load(open(path)) if i["id"] not in ids], key=lambda i: i["id"], reverse=True)
+    json.dump(items, open(path, "w"), ensure_ascii=False)
+    if ch.get("backfill"):  # = db.backfill_mark
+        from datetime import datetime, timezone
+        open(f"{OUT}/backfill_{re.sub(r'[^A-Za-z0-9_.-]', '_', user)}.done", "w").write(datetime.now(timezone.utc).isoformat(timespec="seconds"))
     a_dates = sorted((a["date"] for a in albums.values() if a["text"] and a["photos"]), reverse=True)
     span = (a_dates[0] - a_dates[-1]).total_seconds() / 86400 if a_dates else 0
     print(f"{user} ({kind}): saved {len(items)} posts over {span:.1f} days, videos {sum('video' in i for i in items)}")

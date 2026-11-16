@@ -249,4 +249,10 @@ export const D: Record<string, [ka: string, en: string]> = {
   "Apify: один ключ (если не задан список выше)": ["Apify: ერთი გასაღები (თუ ზემოთ სია არ არის)", "Apify: a single key (if the list above is empty)"],
   "ИИ через API (OpenAI / ProxyAPI), когда LLM_PROVIDER=openai": ["AI API-ით (OpenAI / ProxyAPI), როცა LLM_PROVIDER=openai", "AI over the API (OpenAI / ProxyAPI) when LLM_PROVIDER=openai"],
   "MapTiler: карты в CRM и на сайте": ["MapTiler: რუკები CRM-სა და საიტზე", "MapTiler: maps in the CRM and on the site"],
+  // Источники: «Конкурент»
+  'Конкурент': ['კონკურენტი', 'Competitor'],
+  'Объявления этого источника не попадут в «Новые объявления»: только в «Объекты → База → Конкуренты», при первом запуске парсер загрузит всю его историю': ['ამ წყაროს განცხადებები «ახალ განცხადებებში» არ მოხვდება: მხოლოდ «ობიექტები → ბაზა → კონკურენტები», პირველ გაშვებაზე პარსერი მის მთელ ისტორიას ჩატვირთავს', 'Ads of this source skip «New ads»: they go to «Properties → Base → Competitors» only; on its first run the parser loads its whole history'],
+  'история загружена {d}': ['ისტორია ჩატვირთულია {d}', 'history loaded {d}'],
+  'история загрузится при следующем запуске': ['ისტორია ჩაიტვირთება შემდეგ გაშვებაზე', 'history loads on the next run'],
+  'история загрузится': ['ისტორია ჩაიტვირთება', 'history pending'],
 };

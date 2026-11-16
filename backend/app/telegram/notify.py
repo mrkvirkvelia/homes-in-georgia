@@ -191,16 +191,20 @@ def group_text(lead, timer=True):
     return t
 
 
-def group_kb(lead, stage):
+def group_kb(lead, stage=None):
+    """The lead card for operators (their DMs, or the group): «Взять» until an operator leads it, «Написать клиенту» /
+    «Написать агенту» (t.me links: need a @username), «Назначить агента» in the panel while there is none.
+    stage is kept for old callers; the buttons follow the lead itself."""
     lid = g(lead, "id")
 
     def make(private):
+        cl, ag = store.client(g(lead, "client_id")) or {}, store.user(g(lead, "agent_id")) or {}
         rows = []
-        if stage == "new":
+        if not g(lead, "operator_id") and g(lead, "status") in (None, "new", "operator_taken", "agent_assigned"):
             rows.append([cb("✋ Взять заявку", f"lg:take:{lid}")])
-        elif stage == "taken":
-            rows.append([cb("👤 Назначить агента", f"lg:assign:{lid}")])
-        rows.append([app_btn("📋 Открыть в панели", links.lead_app(lid), private)])
+        rows.append([url_btn("💬 Написать клиенту", cl.get("username") and links.tg_user(cl["username"])),
+                     url_btn("💬 Написать агенту", ag.get("username") and links.tg_user(ag["username"]))])
+        rows.append([app_btn("📋 Открыть в панели" if ag else "👤 Назначить агента", links.lead_app(lid), private)])
         return kb(rows)
     return make
 
@@ -234,7 +238,7 @@ def lead_assigned_agent(lead):
         log.warning("lead %s: agent %s has no Telegram id", lid, g(lead, "agent_id"))
         return
     own = i.get("id") and store.q("SELECT 1 FROM properties WHERE listing_id = %s AND agent_id = %s", (i["id"], ag["id"]), one=True)
-    t = (f"🆕 <b>Заявка #{lid}</b>" + (f" от оператора {e(staff_name(op))}" if op else "") +
+    t = (f"🆕 <b>Заявка #{lid}</b>" + (f" от оператора {e(staff_name(op))}" if op else " · ❤️ клиент выбрал эту квартиру") +
          f"\n⏱ {env_int('SLA_AGENT_SLOTS_MIN', 30)} мин, чтобы предложить время просмотра\n\n"
          f"🏠 <b>{e(address(i))}</b>\n{e(flat_line(i))}" + (" · ваш объект" if own else "") +
          f"\n\n{e(texts.profile_summary(cl.get('profile') or {}, 'ru') or 'анкета не заполнена')}\n\n"
@@ -245,9 +249,23 @@ def lead_assigned_agent(lead):
     if urls := i.get("urls"):
         t += "\n\n🔗 " + "\n".join(f'<a href="{e(u)}">{e(u)}</a>' for u in urls[:3])
     t += maps_line(i)
-    m = tg.send(ag["tg_id"], t, kb([[app_btn("🕐 Предложить время", links.lead_app(lid))]]))
+    rows = [[app_btn("🕐 Выбрать время", links.lead_app(lid))]]
+    if g(lead, "status") == "agent_assigned":
+        rows.append([cb("🏠 Уже сдана", f"lo:a:{lid}:gone")])
+    m = tg.send(ag["tg_id"], t, kb(rows))
     if m:
         store.remember("agent_lead", lid, m["chat"]["id"], m["message_id"])
+
+
+@safe
+def object_gone_staff(lead):
+    """The agent pressed «🏠 Уже сдана»: the lead's operator (else the operators) offers the client other options."""
+    cl, i, _ = ctx(lead)
+    lid, ag = g(lead, "id"), store.user(g(lead, "agent_id")) or {}
+    t = (f"🏠 <b>Заявка #{lid}: квартира уже сдана</b> (агент {e(staff_name(ag))})\n{e(address(i))}\n\n"
+         f"Объект закрыт как «Сдал сам». Предложите клиенту <b>{e(client_name(cl))}</b> другие варианты.")
+    to_lead_staff(lead, t, lambda private: kb([[url_btn("💬 Написать клиенту", cl.get("username") and links.tg_user(cl["username"]))],
+                                               [app_btn("📋 Открыть в панели", links.lead_app(lid), private)]]))
 
 
 def maps_line(i):

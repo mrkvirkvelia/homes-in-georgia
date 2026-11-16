@@ -249,3 +249,23 @@ def test_like_auto_assigns_the_objects_agent(db, client, sent):
     # agency listing without an object → operator assigns as before
     plain = leads.create_from_like(db, anna.id, make_listing(db).id)
     assert plain.status == "new" and plain.agent_id is None
+
+
+def test_agent_object_gone_closes_lead_and_object(db, sent):
+    """❤️ → the object's agent; «🏠 Уже сдана» closes the lead, the object goes «Сдал сам», the operator is told."""
+    from app.models import Property
+    georgiy = make_user(db, "agent", "Георгий", is_active=True)
+    listing = make_listing(db, "ss-gone", source="ss")
+    prop = Property(listing_id=listing.id, status="taken", agent_id=georgiy.id, fast_track_at=datetime.now(timezone.utc))
+    db.add(prop)
+    db.commit()
+    lead = leads.create_from_like(db, make_client(db).id, listing.id)
+    assert lead.status == "agent_assigned" and lead.agent_id == georgiy.id
+    with pytest.raises(Exception):
+        leads.set_outcome(db, lead.id, "agent", "gone", actor=make_user(db, "agent", "Леван"))
+    db.rollback()
+    lead = leads.set_outcome(db, lead.id, "agent", "gone", actor=georgiy)
+    assert lead.status == "refused" and lead.agent_outcome == "gone" and lead.sla_stage is None
+    db.refresh(prop)
+    assert prop.status == "archived" and prop.archive_reason == "rented_by_owner"
+    assert sent.of("object_gone_staff")

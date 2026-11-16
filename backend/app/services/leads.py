@@ -23,7 +23,7 @@ ACTIVE = ("new", "operator_taken", "agent_assigned", "slots_sent", "time_chosen"
 CONTRACT_FROM = ("time_chosen", "viewing_done", "thinking")
 DEAL_STAGES = CONTRACT_FROM + ("contract", "deal_pending")  # attach_deal moves these to deal_pending
 BOARD_COLUMNS = ACTIVE + ("rented", "refused")
-OUTCOMES = {"client": ("rented", "refused", "thinking"), "agent": ("rented", "refused", "thinking", "reschedule")}
+OUTCOMES = {"client": ("rented", "refused", "thinking"), "agent": ("rented", "refused", "thinking", "reschedule", "gone")}
 REFUSAL_REASONS = ("price", "location", "condition", "other")
 
 
@@ -349,6 +349,28 @@ def assign_agent(db: Session, lead_id: int, agent_id: int, actor: User | None) -
     return lead
 
 
+def object_gone(db: Session, lead_id: int, actor: User) -> Lead:
+    """The agent's «🏠 Уже сдана» on a new lead (before any viewing): the lead closes, the object goes to the archive as
+    «Сдал сам» (a verified object's agent sends that as a request to the operator), the operator offers the client others."""
+    from app.services import properties
+    lead = _lead(db, lead_id, lock=True)
+    _require_agent_or_staff(lead, actor)
+    _require_status(lead, "agent_assigned", "slots_sent")
+    db.query(LeadSlot).filter(LeadSlot.lead_id == lead.id).delete()
+    lead.agent_outcome = "gone"
+    _touch(lead, "refused")
+    _set_sla(db, lead, None)
+    _event(db, lead, "object_gone", actor)
+    db.commit()
+    if lead.property_id:
+        try:
+            properties.archive(db, lead.property_id, actor, "rented_by_owner", f"Агент: уже сдана (заявка #{lead.id})")
+        except DomainError:  # already archived
+            db.rollback()
+    _notify("object_gone_staff", lead)
+    return lead
+
+
 def reassign(db: Session, lead_id: int, agent_id: int, actor: User) -> Lead:
     """Change the agent at any active stage: slots and viewing are reset, the new agent enters time again."""
     lead = _lead(db, lead_id, lock=True)
@@ -497,6 +519,9 @@ def set_outcome(db: Session, lead_id: int, by: str, outcome: str, reason: str | 
     if outcome == "reschedule":
         db.rollback()
         return request_reschedule(db, lead_id, "agent", actor)
+    if outcome == "gone":
+        db.rollback()
+        return object_gone(db, lead_id, actor)
     _require_status(lead, "time_chosen", "viewing_done", "thinking", "contract", "deal_pending", "refused")
     if lead.status == "refused" and (_was_cancelled(db, lead) or (by == "client" and outcome == "rented")):
         raise DomainError("bad_status", "lead is closed")

@@ -585,7 +585,7 @@ async def on_group(update: Update, ctx):
     if act == "back":
         await answer(query)
         private = bool(query.message and query.message.chat.type == "private")
-        await query.edit_message_reply_markup(markup(notify.group_kb({"id": lead_id}, "taken")(private)["inline_keyboard"]))
+        await query.edit_message_reply_markup(markup((await th(lambda: notify.group_kb(lead_row(lead_id) or {"id": lead_id})(private)))["inline_keyboard"]))
         return
     if act == "assign" and len(parts) == 3:
         recs, err = await svc(leads.recommend_agents, lead_id)
@@ -1064,6 +1064,8 @@ async def on_agent_outcome(update: Update, ctx, parts):
         await ctx.bot.send_message(chat, "Понял. Клиенту предложим похожие варианты.")
     elif outcome == "thinking":
         await ctx.bot.send_message(chat, "Хорошо, напомним клиенту завтра.")
+    elif outcome == "gone":
+        await ctx.bot.send_message(chat, "Понял: объект закрываем как «Сдал сам», оператор предложит клиенту другие варианты.")
 
 
 # ---------- client cards for the operator's userbot (inline mode) ----------

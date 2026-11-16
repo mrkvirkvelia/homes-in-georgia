@@ -30,7 +30,7 @@ export const CONTRACT_STAGES: LeadStatus[] = ['time_chosen', 'viewing_done', 'th
 export const CONTRACT_FROM: LeadStatus[] = ['time_chosen', 'viewing_done', 'thinking'];
 
 export const OUTCOME_LABEL: Record<string, string> = tmap({
-  rented: 'Снимает', refused: 'Не подошло', thinking: 'Думает', reschedule: 'Перенос',
+  rented: 'Снимает', refused: 'Не подошло', thinking: 'Думает', reschedule: 'Перенос', gone: 'Уже сдана',
 });
 export const REFUSAL_LABEL: Record<string, string> = tmap({ price: 'Цена', location: 'Расположение', condition: 'Состояние', other: 'Другое' });
 /** why an object is in the archive (backend models.ARCHIVE_REASONS) */

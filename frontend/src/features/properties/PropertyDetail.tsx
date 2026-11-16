@@ -648,6 +648,7 @@ function Publications({ p }: { p: Property }) {
           <div className="grow">
             <div style={{ fontWeight: 700 }}>{t('Telegram-канал')}</div>
             <div className="muted" style={{ fontSize: 12 }}>{fmtDateTime(x.status === 'removed' ? x.removed_at : x.published_at)}</div>
+            {x.delete_error && <div className="alert alert-warn" style={{ fontSize: 12, marginTop: 4 }}>⚠️ {t('Не удалось удалить пост в канале — удалите его вручную')}</div>}
           </div>
           <Badge tone={PUB_STATUS[x.status]?.[1] || 'grey'}>{PUB_STATUS[x.status]?.[0] || x.status}</Badge>
           {x.url && <a className="btn btn-secondary btn-sm" href={x.url} target="_blank" rel="noreferrer"><ExternalLink size={14} />{t('Пост')}</a>}

@@ -127,6 +127,7 @@ export const D: Record<string, [ka: string, en: string]> = {
   "черновик": ["მონახაზი", "draft"],
   "Каналы": ["არხები", "Channels"],
   "Где опубликован": ["სად არის გამოქვეყნებული", "Where published"],
+  "Не удалось удалить пост в канале — удалите его вручную": ["არხში პოსტის წაშლა ვერ მოხერხდა — წაშალეთ ხელით", "Could not delete the post in the channel — delete it by hand"],
   "Пока нигде не опубликован": ["ჯერ არსად არის გამოქვეყნებული", "Not published anywhere yet"],
   "Telegram-канал": ["Telegram-არხი", "Telegram channel"],
   "Пост": ["პოსტი", "Post"],

@@ -220,6 +220,15 @@ def _post_link(msg: dict, source: str) -> str:
     return f"https://t.me/c/{str(msg['chat_id']).replace('-100', '', 1)}/{msg['message_id']}"
 
 
+def _rented(db: Session, cp: ChannelPost) -> None:
+    """A channel post turned #Rented; our published object of it -> «Сдано» (its posts then leave Telegram)."""
+    cp.status = "rented"
+    from app.models import Property
+    from app.services import properties
+    if cp.property_id and (p := db.get(Property, cp.property_id)) is not None and p.status == "published":
+        properties.mark_rented(db, p.id, None)
+
+
 def mark_rented_refs(db: Session, text: str) -> list[str]:
     """#Rented/#Сдано message that links listing posts (t.me/<channel>/<id>, t.me/c/<chat>/<id>) → those posts rented."""
     keys = []
@@ -233,7 +242,7 @@ def mark_rented_refs(db: Session, text: str) -> list[str]:
     for k in dict.fromkeys(keys):
         p = db.scalar(select(ChannelPost).where(ChannelPost.message_id == k))
         if p is not None and p.status != "rented":
-            p.status = "rented"
+            _rented(db, p)
             done.append(k)
     return done
 
@@ -247,7 +256,7 @@ def handle_listing(db: Session, msg: dict, source: str) -> dict | None:
     existing = db.scalar(select(ChannelPost).where(ChannelPost.message_id == key))
     if parsed is None or (existing is None and has_deal_tag(text)):  # a #Rented deal post is not a listing
         if existing is not None and any(t in text for t in RENTED_TAGS):  # an edit that turned the post into "#Rented"
-            existing.status = "rented"
+            _rented(db, existing)
         db.commit()
         return {"rented": rented_refs} if rented_refs else None
     aliases = agent_aliases(db)
@@ -269,7 +278,7 @@ def handle_listing(db: Session, msg: dict, source: str) -> dict | None:
     p.district, p.price, p.rooms, p.building = parsed["district"], parsed["price"] or None, parsed["rooms"], parsed["building"]
     p.is_exclusive, p.raw = parsed["is_exclusive"], text[:2000]
     if parsed["rented"]:
-        p.status = "rented"
+        _rented(db, p)
     elif existing is None:
         p.status = "active"
     if p.property_id is None:  # our own publication of a CRM object coming back as a channel post

@@ -344,6 +344,7 @@ const ACTION_TEXT: Record<string, string> = tmap({
   owner_transferred: 'Собственник передан агенту', owner_agent_override: 'Оператор привязал собственника другого агента',
   change_requested: 'Запрос оператору', change_request_approved: 'Запрос одобрен', change_request_rejected: 'Запрос отклонён',
   rent_cancelled: 'Сделка отменена · снова на рынке', resumed: 'Снят с паузы',
+  tg_reposted: 'Пост в Telegram обновлён · старый удалён', tg_removed: 'Посты удалены из Telegram',
   media_added: 'Добавлены фото / видео', media_deleted: 'Файл удалён', checklist: 'Чек-лист комнат', verified: 'Объект проверен оператором',
   from_deal: 'Создан из сделки', fast_track: 'Собственник согласен · объект показан клиентам',
   agent_bound: 'Собственник закреплён за агентом', agent_released: 'Собственник освобождён',
@@ -361,7 +362,8 @@ function eventText(e: EventItem): string {
   const reason = d.reason ? ARCHIVE_REASON[d.reason as string] || REFUSAL_LABEL[d.reason as string] || (d.reason as string) : '';
   const kind = e.action.startsWith('change_request') && d.kind ? CR_KIND[d.kind as string] || (d.kind as string) : '';
   const source = AD_EVENTS.includes(e.action) && d.source ? SOURCE_LABEL[d.source as string] || (d.source as string) : '';
-  const extra = (d.comment || d.note || d.to || [outcome, reason, source, kind].filter(Boolean).join(', ') || '') as string;
+  const unposted = Array.isArray(d.failed) && d.failed.length ? t('не удалось удалить: {n}', { n: d.failed.length }) : '';
+  const extra = (d.comment || d.note || d.to || [outcome, reason, source, kind, unposted].filter(Boolean).join(', ') || '') as string;
   return extra ? `${base}: ${extra}` : base;
 }
 

@@ -720,6 +720,8 @@ def _archive_now(db: Session, p: Property, actor: User | None, reason: str, comm
         jobs.cancel(db, kind, p.id)
     _status(db, p, "archived", actor, action, reason=reason, comment=p.archive_comment,
             **({"duplicate_of": duplicate_of} if duplicate_of else {}))
+    if reason in RENTED_REASONS:
+        _unpost_later(db, p)
 
 
 def archive(db: Session, pid: int, actor: User, reason: str | None = None, comment: str | None = None,
@@ -1719,6 +1721,64 @@ def record_publication(db: Session, p: Property, channel: str, url: str | None, 
     return pub
 
 
+RENTED_REASONS = ("rented_by_us", "rented_by_owner")  # «Сдано» (and «Сдал сам»): the posts leave Telegram
+TG_LINK = re.compile(r"t\.me/(c/)?(\w+)/(?:\d+/)?(\d+)")  # t.me/<channel>/<id>, t.me/c/<chat>[/<topic>]/<id>
+
+
+def _post_ref(pub: PropertyPublication):
+    """(chat, message ids, album) of our post: every id stored at publishing (notify.publish_post), else a legacy post's
+    one message from its link (album=True: the userbot finds the rest of the album). None: nothing to go by."""
+    m = pub.messages or {}
+    if m.get("ids"):
+        return m["chat"], m["ids"], False
+    if u := TG_LINK.search(pub.url or ""):
+        return ("-100" + u[2] if u[1] else "@" + u[2]), [int(u[3])], True
+    return None
+
+
+def _legacy_pub(db: Session, p: Property) -> None:
+    """A post known only as properties.post_url (old base, before property_publications) gets its row, so unpost sees it."""
+    if (p.post_url or "").strip() and not db.scalar(select(PropertyPublication.id).where(
+            PropertyPublication.property_id == p.id, PropertyPublication.url == p.post_url)):
+        db.add(PropertyPublication(property_id=p.id, channel="tg", url=p.post_url, message_id=p.post_message_id,
+                                   published_at=p.published_at))
+        db.flush()
+
+
+def unpost(db: Session, p: Property, actor: User | None, keep: int | None = None, action: str = "tg_removed") -> dict:
+    """Deletes our Telegram posts of the object — every published tg publication except `keep` (the fresh repost):
+    deleted -> removed; one Telegram refused, or a legacy row without a message id, keeps «published» with
+    delete_error (the object card shows it). Logs `action` when there was anything to delete. Never raises, no commit."""
+    _legacy_pub(db, p)
+    pubs = db.scalars(select(PropertyPublication).where(
+        PropertyPublication.property_id == p.id, PropertyPublication.channel == "tg",
+        PropertyPublication.status == "published", PropertyPublication.id != (keep or 0))).all()
+    deleted, failed = [], []
+    for pub in pubs:
+        ref = _post_ref(pub)
+        ok = bool(ref) and _notify("delete_post", *ref)
+        if ok:
+            pub.status, pub.removed_at, pub.delete_error = "removed", now(), None
+            deleted.append(pub.url)
+        else:
+            pub.delete_error = "Telegram refused" if ref else "no message id"
+            failed.append(pub.url or f"#{pub.id}")
+            log.warning("property %s: post %s not deleted (%s)", p.id, pub.url, pub.delete_error)
+    if keep is None and p.post_url in deleted:
+        p.post_url = p.post_message_id = None
+    if pubs:
+        log_event(db, "property", p.id, action, actor, deleted=len(deleted), failed=failed)
+    db.flush()
+    return {"deleted": len(deleted), "failed": failed}
+
+
+def _unpost_later(db: Session, p: Property) -> None:
+    """Rented: the worker deletes the posts (job tg_unpost) — the status change never waits on Telegram."""
+    jobs.schedule(db, "tg_unpost", p.id, now())
+    from app.services import site_feed
+    site_feed.clear_cache()
+
+
 def hashtags(text: str) -> list[str]:
     return list(dict.fromkeys(re.findall(r"#\w+", text or "")))
 
@@ -1752,6 +1812,7 @@ def publish(db: Session, pid: int, actor: User, text: str | None = None, media_i
         # the rich post is built from the fields: a caption the operator rewrote by hand goes out as the plain album
         p.post_rich = (lambda ids: post_rich(db, p, ids)) if p.post_text == auto and not is_sale(p) else None
         p.post_media_ids = media_ids
+        _legacy_pub(db, p)  # before post_url turns into the new post's link
         ref = _notify("publish_post", p)
         dry_run = ref is None and not env.BOT_TOKEN and env.APP_ENV == "dev"
         if ref is None and not dry_run:
@@ -1768,7 +1829,11 @@ def publish(db: Session, pid: int, actor: User, text: str | None = None, media_i
         p.review_comment, p.reviewed_by, p.reviewed_at = comment, actor.id, now()
         log_event(db, "property", p.id, "approved", actor, comment=comment)
     if tg:
-        record_publication(db, p, channel, p.post_url if ref else None, p.post_message_id if ref else None)
+        pub = record_publication(db, p, channel, p.post_url if ref else None, p.post_message_id if ref else None)
+        if ref and len(ref) > 3:
+            pub.messages = {"chat": str(ref[2]), "ids": ref[3]}
+        if ref:  # a repost: the old post leaves the channel (Stanislav 11-16)
+            unpost(db, p, actor, keep=pub.id, action="tg_reposted")
     _status(db, p, "published", actor, post_url=p.post_url if ref else None, channel=channel if tg else None,
             site=not p.site_hidden, **({"dry_run": True} if dry_run else {}))
     db.commit()
@@ -1814,6 +1879,7 @@ def mark_rented(db: Session, pid: int, actor: User | None) -> None:
     if p and p.status != "rented":
         p.archive_reason = "rented_by_us"
         _status(db, p, "rented", actor, reason="rented_by_us")
+        _unpost_later(db, p)
 
 
 def unmark_rented(db: Session, pid: int, actor: User | None) -> None:
@@ -1822,6 +1888,7 @@ def unmark_rented(db: Session, pid: int, actor: User | None) -> None:
     if p and p.status == "rented":
         p.archive_reason = None
         _status(db, p, "published", actor, "rent_cancelled")
+        jobs.cancel(db, "tg_unpost", p.id)  # not deleted yet: the posts stay
 
 
 # ---------------------------------------------------------------- exclusives (stage 4)
@@ -2074,7 +2141,7 @@ def card(db: Session, p: Property, user: User) -> dict:
                           "price": float(dl.price) if dl.price is not None else None, "agent": names.get(dl.agent_id),
                           "rent_from": iso(dl.rent_from), "rent_to": iso(dl.rent_to), "created_at": iso(dl.created_at)})
     return {"publications": [{"id": x.id, "channel": x.channel, "status": x.status, "url": x.url, "message_id": x.message_id,
-                              "published_at": iso(x.published_at), "removed_at": iso(x.removed_at)} for x in pubs],
+                              "published_at": iso(x.published_at), "removed_at": iso(x.removed_at), "delete_error": x.delete_error} for x in pubs],
             "listings": ads, "deals": deals}
 
 

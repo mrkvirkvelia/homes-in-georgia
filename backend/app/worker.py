@@ -164,6 +164,17 @@ def nda_drive(db: Session, job: Job):
     return nda.drive_upload(db, _ref_id(job))
 
 
+@handler("tg_unpost")
+def tg_unpost(db: Session, job: Job):
+    """Rented («Сдано» / «Сдал сам»): our Telegram posts of the object are deleted (properties.unpost)."""
+    from app.services import properties
+    p = db.get(Property, _ref_id(job))
+    if p is None or not (p.status == "rented" or p.archive_reason in properties.RENTED_REASONS):
+        return "noop"  # back on the market before the worker came to it
+    r = properties.unpost(db, p, None)
+    return "ok" if not r["failed"] else f"not deleted: {', '.join(r['failed'])}"[:500]
+
+
 @handler("review_batch")
 def review_batch(db: Session, job: Job):
     return "noop"  # the bot's own review loop handles catalog moderation cards

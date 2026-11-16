@@ -1078,7 +1078,8 @@ def publish_post(prop):
     (≤10 picked photos/videos, photos watermarked) with the caption on the first item, or a text post, into
     PUBLISH_TOPIC_ALBUM; the files without watermark as documents into PUBLISH_TOPIC_ORIGINALS; the owner's contact
     with the post link into PUBLISH_TOPIC_OWNER (topics only when set). Caption: prop.post_text (services.properties.
-    publish) or the description; the footer lines become links. -> (message_id, url) or None."""
+    publish) or the description; the footer lines become links. -> (message_id, url, chat, [every message id of the
+    post: originals, album, owner card]) or None; the ids let properties.unpost delete the whole post later."""
     chat = agency_chat()
     _, album_topic = chat_and_topic("PUBLISH_CHAT_ID", "PUBLISH_TOPIC_ALBUM")
     _, originals_topic = chat_and_topic("PUBLISH_CHAT_ID", "PUBLISH_TOPIC_ORIGINALS")
@@ -1090,8 +1091,9 @@ def publish_post(prop):
     with tempfile.TemporaryDirectory() as tmp:  # [(photo|video, storage key)]: sale objects and cars keep keys in the row
         media = ([(k, p) for k, key in keys[:10] if (p := storage.fetch(key, tmp))] if keys is not None
                  else media_paths(g(prop, "id"), tmp, g(prop, "post_media_ids")))
+        sent = []
         if media and originals_topic:
-            send_group(chat, originals_topic, [("document", p) for _, p in media])
+            sent += send_group(chat, originals_topic, [("document", p) for _, p in media]) or []
         m = None
         ready = _bot_media(media, tmp)  # once: a squeezed video is reused by the album fallback
         # RICH_POSTS=1: the post as a rich message (Irakli 2026-11-09), unless the operator rewrote the caption by hand;
@@ -1103,19 +1105,35 @@ def publish_post(prop):
         elif media:
             res = send_group(chat, album_topic, ready, caption)
             m = res[0] if res else None
+            sent += res[1:] if res else []
         else:
             m = tg.send(chat, caption, thread_id=album_topic)
     if not m:
         return None
+    sent.append(m)
     url = post_link(m, chat)
     owner = store.q("SELECT name, phone FROM owners WHERE id = %s", (g(prop, "owner_id"),)) if g(prop, "owner_id") else []
     if owner_topic and owner and (owner[0]["name"] or owner[0]["phone"]):
         o = owner[0]
-        tg.send(chat, "\n".join(x for x in ("🏠 <b>Owner Information</b>", g(prop, "address") and f"📍 {e(g(prop, 'address'))}",
+        sent.append(tg.send(chat, "\n".join(x for x in ("🏠 <b>Owner Information</b>", g(prop, "address") and f"📍 {e(g(prop, 'address'))}",
                                             o["name"] and f"👤 {e(o['name'])}", o["phone"] and f"📞 {e(o['phone'])}",
                                             url and f'🔗 <a href="{e(url)}">Ссылка на объявление</a>') if x),
-                thread_id=owner_topic)
-    return m["message_id"], url
+                            thread_id=owner_topic))
+    return m["message_id"], url, chat, [x["message_id"] for x in sent if x]
+
+
+@safe
+def delete_post(chat, ids, album=False):
+    """Deletes our post's messages -> True when they are gone. The bot first (deleteMessages, ≤100 ids; ids already
+    gone are skipped): an admin with «delete messages» removes posts of any age in a channel / supergroup — the 48 h
+    limit is for basic groups and private chats. The bot refused -> the operator userbot (Telethon delete_messages,
+    needs the same admin right). album: a legacy post known by one message id — the userbot finds the rest of its album
+    (grouped_id) first, the bot can only delete that one message."""
+    if not album and tg.call("deleteMessages", chat_id=chat, message_ids=ids):
+        return True
+    if userbot.delete(chat, ids, album):
+        return True
+    return bool(album and tg.call("deleteMessages", chat_id=chat, message_ids=ids))
 
 
 @safe

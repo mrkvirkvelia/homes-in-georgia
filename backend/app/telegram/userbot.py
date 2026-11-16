@@ -174,6 +174,23 @@ def send_files(text, files, client_id=None, peer=None):
         return None
 
 
+def delete(chat, ids, album=False):
+    """Deletes messages in a channel/group through the userbot (USERBOT_URL; the operator must be its admin with
+    «delete messages») -> the deleted ids or None. album: also the rest of each message's album (notify.delete_post)."""
+    url = conf("USERBOT_URL").strip().rstrip("/")
+    if not url:
+        return None
+    try:
+        import httpx
+        r = httpx.post(f"{url}/delete", json={"chat": str(chat), "ids": [int(i) for i in ids], "album": album},
+                       headers={"X-Userbot-Token": conf("SECRET_KEY")}, timeout=60)
+        body = r.json()
+        return body.get("ids") if r.status_code == 200 and body.get("ok") else None
+    except Exception as e:  # noqa: BLE001 — the caller reports it
+        log.warning("userbot delete in %s failed: %r", chat, e)
+        return None
+
+
 def send_to_client(cl, text, options=None, choice=None, inline=None):
     """Send through the userbot (USERBOT_URL) -> {"message_id": …} or None (not configured / failed). inline: the bot's
     inline query to send as the message (options are then the numbered fallback)."""
@@ -339,6 +356,19 @@ async def _peer_entity(client, peer):
         return await client.get_input_entity(res.users[0])
 
 
+async def delete_messages(client, chat, ids, album=False):
+    """Telethon side of delete(): «@name» / «-100…» -> the ids deleted (album: + the same grouped_id within ±9 ids)."""
+    ent = await client.get_input_entity(int(chat) if chat.lstrip("-").isdigit() else chat.lstrip("@"))
+    ids = [int(i) for i in ids]
+    if album:
+        groups = {m.grouped_id for m in await client.get_messages(ent, ids=ids) if m and m.grouped_id}
+        if groups:
+            near = await client.get_messages(ent, ids=sorted({i + d for i in ids for d in range(-9, 10) if i + d > 0}))
+            ids = sorted({*ids, *(m.id for m in near if m and m.grouped_id in groups)})
+    await client.delete_messages(ent, ids)
+    return ids
+
+
 async def send(client, client_id, text, options=None, choice=None, inline=None, peer=None, files=None):
     """Telethon send to a client -> message id. StringSession keeps no access hashes across restarts: a user not in the
     cache is found by @username (or after get_dialogs at start). inline: the bot's inline query whose first result is
@@ -439,7 +469,7 @@ def serve_http(client, loop, port):
 
         def do_POST(self):
             reply = self.reply
-            if self.path not in ("/send", "/login", "/password", "/logout") or not self.allowed():
+            if self.path not in ("/send", "/delete", "/login", "/password", "/logout") or not self.allowed():
                 return reply(403, {"ok": False})
             p = json.loads(self.rfile.read(int(self.headers.get("Content-Length") or 0)) or b"{}")
             if self.path == "/login":
@@ -462,6 +492,13 @@ def serve_http(client, loop, port):
             c = STATE["client"]
             if not STATE["me"] and client is None:
                 return reply(503, {"ok": False, "error": "operator account is not logged in"})
+            if self.path == "/delete":
+                try:
+                    ids = asyncio.run_coroutine_threadsafe(delete_messages(c, p["chat"], p["ids"], p.get("album")), loop).result(50)
+                    return reply(200, {"ok": True, "ids": ids})
+                except Exception as e:  # noqa: BLE001
+                    log.warning("userbot /delete failed: %r", e)
+                    return reply(502, {"ok": False, "error": repr(e)})
             try:
                 cid = int(p["client_id"]) if p.get("client_id") else None
                 mid = asyncio.run_coroutine_threadsafe(send(c, cid, p["text"], p.get("options"), p.get("choice"), p.get("inline"),

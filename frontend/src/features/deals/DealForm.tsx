@@ -296,7 +296,7 @@ export function DealForm({ leadId, propertyId, onDone }: { leadId?: number; prop
                   <div style={{ fontWeight: 700 }}>Объект #{pid} · {obj?.address || '…'}</div>
                   {obj && <div className="row row-wrap gap-sm mt"><PropertyStatusBadge status={obj.status} />{obj.agent_tag && <span className="muted" style={{ fontSize: 12 }}>{obj.agent_tag}</span>}{obj.needs_check && <Badge tone="warn">на проверке</Badge>}</div>}
                 </div>
-                <Link to={objLink(pid)} className="btn btn-secondary btn-sm"><ExternalLink size={14} />Открыть</Link>
+                {obj?.can_open !== false && <Link to={objLink(pid)} className="btn btn-secondary btn-sm"><ExternalLink size={14} />Открыть</Link>}
                 <Button size="sm" variant="secondary" onClick={() => pick(null)}>Сменить</Button>
               </div>
             ) : manual ? (

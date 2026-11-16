@@ -2022,6 +2022,26 @@ def can_see_owner(p: Property, user: User) -> bool:
     return at_least(user, "operator") or p.agent_id == user.id
 
 
+def can_open(db: Session, p: Property, user: User) -> bool:
+    """The object card and its reads: staff; the object's agent; an agent whose lead / showing, deal or contract is on it
+    (a client's ❤ lead assigned to him by an operator). Everyone else — other agents' and platform objects: closed
+    (Stanislav 11-16; free objects are taken from the ad, «Беру в работу», not from the card)."""
+    if can_see_owner(p, user):
+        return True
+    return db.scalar(select(Lead.id).where(Lead.property_id == p.id, Lead.agent_id == user.id).limit(1)) is not None \
+        or db.scalar(select(Deal.id).where(Deal.property_id == p.id, or_(Deal.agent_id == user.id, Deal.recruit_id == user.id))
+                     .limit(1)) is not None \
+        or db.scalar(select(Contract.id).where(Contract.property_id == p.id, Contract.created_by == user.id).limit(1)) is not None
+
+
+def get_visible(db: Session, pid: int, user: User) -> Property:
+    """The object, or 404 «объект не найден» for an agent who can't open it (not 403: don't confirm it exists)."""
+    p = _prop(db, pid)
+    if not can_open(db, p, user):
+        raise DomainError("not_found", "property not found")
+    return p
+
+
 def prefetch(db: Session, rows: list[Property], cache: dict) -> None:
     """Batch-load agents, owners and media counts for out() (lists/boards without N+1)."""
     def load(model, ids):
@@ -2325,7 +2345,8 @@ def deal_search(db: Session, user: User, q: str | None = None, pid: int | None =
         agent = db.get(User, p.agent_id) if p.agent_id else None
         out.append({"id": p.id, "address": p.address, "district": p.district, "status": p.status, "bedrooms": p.bedrooms,
                     "agent_tag": users_svc.tag_of(agent) if agent else None, "needs_check": needs_check(p),
-                    "blocked": blocked, "fields": None if blocked else deal_fields(db, p, user, deal_type)})
+                    "blocked": blocked, "fields": None if blocked else deal_fields(db, p, user, deal_type),
+                    "can_open": can_open(db, p, user)})  # the «Открыть» link: only a card he may open
         if pid and not blocked:  # «Оформить сделку» from the object card: its agent and the lead in work on it
             out[-1].update(agent_id=p.agent_id, lead_id=_deal_lead(db, p, user))
     return out

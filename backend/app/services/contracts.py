@@ -289,6 +289,7 @@ def _own_object(db: Session, pid: int, user: User) -> Property:
 def property_prefill(db: Session, pid: int, user: User) -> dict:
     """The object card → the wizard (CxData keys); the owner only for those who see him (properties.deal_fields)."""
     from app.services import properties
+    properties.get_visible(db, pid, user)  # a card he can't open: 404, as the card
     p = _own_object(db, pid, user)
     f = properties.deal_fields(db, p, user)
     num = lambda v: f"{float(v):g}" if v else ""  # noqa: E731

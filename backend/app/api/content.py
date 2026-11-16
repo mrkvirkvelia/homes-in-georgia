@@ -2,6 +2,7 @@
 import json
 import mimetypes
 import os
+import re
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, Query
@@ -472,6 +473,10 @@ def media_file(path: str, preview: bool = Query(False, alias="p"), user: User = 
         if not prop or not P.can_see_owner(prop, user):
             raise DomainError("not_found", "file not found")
         preview = False
+    elif not at_least(user, "operator") and (m := re.match(r"(?:previews/)?properties/(\d+)/", path)):
+        prop = db.get(Property, int(m[1]))  # an object's photos / video: only for those who may open its card
+        if prop is None or not P.can_open(db, prop, user):
+            raise DomainError("not_found", "file not found")
     if storage.is_s3():
         if path.startswith("/") or ".." in path.split("/"):
             raise DomainError("not_found", "file not found")

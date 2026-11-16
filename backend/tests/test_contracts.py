@@ -271,7 +271,7 @@ def test_contract_from_object_card(db, client):
     pre = client.get(f"/api/properties/{p.id}/contract", headers=h).json()
     assert pre["type"] == "rent" and pre["data"] == {**pre["data"], "street_house": "Paliashvili 10", "cadastral_code": "01.14.12.003.045",
                                                     "floor": "4", "apartment_area": "72.5", "price_usd": "1200"}
-    assert client.get(f"/api/properties/{p.id}/contract", headers=auth(other)).status_code == 403
+    assert client.get(f"/api/properties/{p.id}/contract", headers=auth(other)).status_code == 404  # as the card (11-16)
     assert client.post("/api/contracts/draft", json={"property_id": p.id, "data": {"x": "1"}}, headers=auth(other)).status_code == 403
     d = client.post("/api/contracts/draft", json={"kind": "rent", "property_id": p.id, "data": {"x": "1"}}, headers=h).json()
     assert d["property_id"] == p.id and d["lead_id"] is None

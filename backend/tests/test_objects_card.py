@@ -53,9 +53,7 @@ def test_card_payload_and_contact_rules(db, client):
     assert "client_phone" not in mine["deals"][0]
     assert mine["publications"] == []
 
-    foreign = client.get(f"/api/properties/{pid}", headers=auth(levan)).json()
-    assert all(a["url"] is None for a in foreign["listings"]) and foreign["deals"] == []
-    assert len(foreign["listings"]) == 2
+    assert client.get(f"/api/properties/{pid}", headers=auth(levan)).status_code == 404  # another agent's card: closed (11-16)
 
 
 def test_base_search_words_order_and_counts(db, client):

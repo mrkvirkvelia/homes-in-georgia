@@ -529,6 +529,7 @@ export interface Deal {
 export interface DealPick {
   id: number; address?: string | null; district?: string | null; status: PropertyStatus; bedrooms?: number | null;
   agent_tag?: string | null; needs_check: boolean; blocked?: string | null; agent_id?: number | null; lead_id?: number | null;
+  can_open?: boolean; // «Открыть»: a card this user may open (11-16)
   fields: { address?: string; cadastral?: string; metro?: string; ad_link?: string; owner_name?: string; owner_phone?: string; is_exclusive?: boolean; price?: number } | null;
 }
 

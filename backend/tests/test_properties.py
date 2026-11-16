@@ -49,7 +49,7 @@ def test_property_funnel_end_to_end(db, client, sent):
     r = client.post(f"/api/properties/{pid}/owner", json={"is_owner": True, "owner_name": "Гиорги",
                                                            "owner_phone": "+995 555 12-34-56"}, headers=auth(georgiy)).json()
     assert r["status"] == "owner_confirmed" and r["dup_check"] == "added" and r["owner"]["phone"]
-    assert client.get(f"/api/properties/{pid}", headers=auth(levan)).json()["owner"]["phone"] is None
+    assert client.get(f"/api/properties/{pid}", headers=auth(levan)).status_code == 404  # another agent's card: closed (11-16)
     assert client.get(f"/api/properties/{pid}", headers=auth(nino)).json()["owner"]["phone"]
     assert db.query(Owner).one().phone_norm == "555123456"
     shoot = (datetime.now(timezone.utc) + timedelta(days=1)).isoformat()

@@ -206,6 +206,8 @@ def check_duplicate(body: DupIn, db: Session = Depends(get_db, scope="function")
         for r in res.get("results", []):
             if r.get("source") == "owners" and r.get("owner_id") not in mine:
                 r["phone"] = r["owner"] = None
+            if r.get("property_id") and not P.can_open(db, P._prop(db, r["property_id"]), user):
+                r["property_id"] = None  # no link to a card he can't open; the match itself still shows
     return res
 
 
@@ -234,7 +236,7 @@ def geo_point(lat: float = Query(..., ge=40, le=44), lng: float = Query(..., ge=
 
 @router.get("/properties/{pid}")
 def properties_get(pid: int, db: Session = Depends(get_db, scope="function"), user: User = Depends(current_user)):
-    return P.out(db, get_or_404(db, Property, pid, "property"), user, full=True)
+    return P.out(db, P.get_visible(db, pid, user), user, full=True)
 
 
 @router.patch("/properties/{pid}")
@@ -259,7 +261,7 @@ def properties_call(pid: int, body: CallIn, db: Session = Depends(get_db, scope=
 @router.get("/properties/{pid}/demand")
 def properties_demand(pid: int, db: Session = Depends(get_db, scope="function"), user: User = Depends(current_user)):
     """Stage 10: active clients this object fits (agents: anonymized profiles, staff: who)."""
-    return demand.for_property(db, get_or_404(db, Property, pid, "property"), user)
+    return demand.for_property(db, P.get_visible(db, pid, user), user)
 
 
 @router.post("/properties/{pid}/fast-track")
@@ -483,7 +485,7 @@ def properties_verify(pid: int, db: Session = Depends(get_db, scope="function"),
 def properties_post(pid: int, db: Session = Depends(get_db, scope="function"), user: User = Depends(current_user)):
     """The card's post generator: the channel caption built from the object, its hashtags, the channels to post to.
     Staff, and the object's agent (he fills the generator and sees the post before sending it to moderation)."""
-    p = get_or_404(db, Property, pid, "property")
+    p = P.get_visible(db, pid, user)
     if not at_least(user, "operator") and p.agent_id != user.id:
         raise forbidden("only the object's agent or staff")
     text = P.post_text(db, p)
@@ -528,7 +530,7 @@ def properties_site(pid: int, body: SiteIn, db: Session = Depends(get_db, scope=
 @router.get("/properties/{pid}/elsewhere")
 def properties_elsewhere(pid: int, db: Session = Depends(get_db, scope="function"), user: User = Depends(current_user)):
     """Where else the object is advertised (the exclusive toggle shows it). Links only for staff / the object's agent."""
-    p = get_or_404(db, Property, pid, "property")
+    p = P.get_visible(db, pid, user)
     show = P.can_see_owner(p, user)
     return {"items": [{**a, "url": a["url"] if show else None} for a in matching.elsewhere(db, p)]}
 
@@ -576,7 +578,7 @@ def change_requests_decide(rid: int, body: DecideIn, db: Session = Depends(get_d
 
 @router.get("/properties/{pid}/history")
 def properties_history(pid: int, db: Session = Depends(get_db, scope="function"), user: User = Depends(current_user)):
-    get_or_404(db, Property, pid, "property")
+    P.get_visible(db, pid, user)
     return P.history(db, pid)
 
 

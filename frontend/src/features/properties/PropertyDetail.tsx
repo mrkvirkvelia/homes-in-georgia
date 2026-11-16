@@ -4,15 +4,15 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Link, useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Archive, ArrowRightLeft, Camera, CheckCircle2, Copy, FileText, ChevronDown, Clock, ExternalLink, Globe, Home, Pencil, Phone, PhoneOff, Play, RotateCcw, Send, Sparkles, Trash2, Upload, Wand2 } from 'lucide-react';
+import { Archive, ArrowRightLeft, Camera, CheckCircle2, Copy, FileText, ChevronDown, Clock, ExternalLink, Globe, Home, Lock, Pencil, Phone, PhoneOff, Play, RotateCcw, Send, Sparkles, Trash2, Upload, Wand2 } from 'lucide-react';
 import { api, type PublishProgress } from '../../api';
-import { itemsOf, mediaUrl, thumbUrl } from '../../api/client';
+import { ApiError, itemsOf, mediaUrl, thumbUrl } from '../../api/client';
 import type { Media, PostFields, Property } from '../../api/types';
 import { FIELD_FILTER, atLeast } from '../../api/types';
 import { useAuth } from '../../auth/AuthContext';
 import { AiFlagBadges, CopyPhone, DupCheck, ExclusiveConflictBadge, PropertyStatusBadge, Timeline } from '../../components/domain';
 import { errText, useToast } from '../../components/toast';
-import { Badge, Button, Card, Checkbox, ErrorBox, Field, Input, KV, Lightbox, Loading, Modal, Seg, Select, Switch, Textarea, DistrictSelect } from '../../components/ui';
+import { Badge, Button, Card, Checkbox, Empty, ErrorBox, Field, Input, KV, Lightbox, Loading, Modal, Seg, Select, Switch, Textarea, DistrictSelect } from '../../components/ui';
 import { ARCHIVE_REASON, agentLabel, distLabel, districtLabel, SOURCE_LABEL, bedroomsLabel, demandLabel, fmtDate, fmtDateTime, formatPhone, isoToLocal, localToIso, money, phoneInput } from '../../lib/format';
 import { DealStatusBadge } from '../../pages/Deals';
 import { RequestRow } from './requests';
@@ -1307,6 +1307,9 @@ export function PropertyDetail({ id, compact }: { id: number; compact?: boolean 
   const step = useMemo(() => (p ? stepOf(p) : 0), [p]);
 
   if (isLoading) return <Loading />;
+  // another agent's / the platform's object: the API answers 404 without saying whether it exists (11-16)
+  if (error instanceof ApiError && error.status === 404)
+    return <Empty icon={<Lock size={32} />} text={t('Нет доступа к объекту')}><div className="muted" style={{ fontSize: 13 }}>{t('Объект закреплён за другим агентом или не найден.')}</div></Empty>;
   if (error || !p) return <ErrorBox error={error} />;
   const mine = p.agent_id === user?.id || p.agent?.id === user?.id;
   const canWork = mine || isStaff;

@@ -7,14 +7,15 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.config import settings
-from app.models import FIELD_SQL, ROLES, SUPER, User, at_least
+from app.models import FIELD, FIELD_SQL, ROLES, SUPER, User, at_least
 from app.services.common import get_or_404, log_event
 from app.services.errors import DomainError
 
 EDITABLE = ("name", "first_name", "last_name", "username", "phone", "role", "level", "mentor_id", "districts", "is_active", "login", "photo_url",
-            "birth_date", "email", "plans", "tg_id", "exclusive_deals", "agent_tag", "works_as_agent")
+            "birth_date", "email", "plans", "tg_id", "exclusive_deals", "agent_tag", "works_as_agent", "ie_number")
 # the employee profile Irakli asked for (11-12): «чтобы дни рождения не пропускали»
 PROFILE = ("first_name", "last_name", "birth_date", "phone", "email")
+IE_RE = re.compile(r"\d{9}|\d{11}")  # ი/მ: the personal number (11 digits) or an older 9-digit identification code
 EMAIL_RE = re.compile(r"[^@\s]+@[^@\s]+\.[^@\s]{2,}")
 TAG_RE = re.compile(r"[A-Za-z][A-Za-z0-9]{1,31}")
 _TR = dict(zip("абвгдеёжзийклмнопрстуфхцчшщъыьэюяაბგდევზთიკლმნოპჟრსტუფქღყშჩცძწჭხჯჰ",
@@ -123,11 +124,14 @@ def tag_of(user: User | None) -> str:
     return f"#{user.agent_tag or user.name.split()[0]}"
 
 
-def missing(u) -> list[str]:
-    """Profile fields still to fill: name (first + last), birth_date, phone, email."""
+def missing(u, ie: bool = True) -> list[str]:
+    """Profile fields still to fill: name (first + last), birth_date, phone, email; ie_number (the ИП number for the
+    platform agreement) for field users — asked in the cabinet, never blocks a save (ie=False: the save gates)."""
     get = (lambda k: u.get(k)) if isinstance(u, dict) else (lambda k: getattr(u, k, None))
     out = [] if get("first_name") and get("last_name") else ["name"]
-    return out + [k for k in PROFILE[2:] if not get(k)]
+    out += [k for k in PROFILE[2:] if not get(k)]
+    field = get("role") in FIELD or bool(get("works_as_agent"))
+    return out + (["ie_number"] if ie and field and not get("ie_number") else [])
 
 
 def _clean_profile(data: dict, u: User | None = None):
@@ -151,6 +155,10 @@ def _clean_profile(data: dict, u: User | None = None):
         data["email"] = data["email"].lower()
         if not EMAIL_RE.fullmatch(data["email"]):
             raise DomainError("bad_email", "Неверный email")
+    if "ie_number" in data:
+        data["ie_number"] = re.sub(r"[\s-]", "", str(data["ie_number"] or "")) or None
+        if data["ie_number"] and not IE_RE.fullmatch(data["ie_number"]):
+            raise DomainError("bad_ie", "Номер ИП (ი/მ): 11 цифр (личный номер) или 9 цифр")
     if "birth_date" in data:
         bd = data["birth_date"] if isinstance(data["birth_date"], date) else date.fromisoformat(data["birth_date"])
         if not date(1920, 1, 1) <= bd <= date.today():
@@ -158,7 +166,7 @@ def _clean_profile(data: dict, u: User | None = None):
         data["birth_date"] = bd
 
 
-PROFILE_LABEL = {"name": "имя и фамилия", "first_name": "имя", "last_name": "фамилия", "birth_date": "дата рождения", "phone": "телефон", "email": "email"}
+PROFILE_LABEL = {"ie_number": "номер ИП", "name": "имя и фамилия", "first_name": "имя", "last_name": "фамилия", "birth_date": "дата рождения", "phone": "телефон", "email": "email"}
 
 
 def _check(data: dict):
@@ -193,7 +201,7 @@ def create(db: Session, data: dict, actor: User | None = None) -> User:
     _check(data)
     _guard(db, actor, None, data)
     _clean_profile(data)
-    if gaps := missing(data):
+    if gaps := missing(data, ie=False):
         raise DomainError("profile_required", "Заполните: " + ", ".join(PROFILE_LABEL[k] for k in gaps))
     if data.get("tg_id") and by_tg(db, data["tg_id"]):
         raise DomainError("conflict", "tg_id already registered")
@@ -223,7 +231,7 @@ def update(db: Session, uid: int, data: dict, actor: User | None = None, full_pr
     _guard(db, actor, u, data)
     _clean_profile(data, u)
     if full_profile and any(k in data for k in PROFILE) and (
-            gaps := missing({k: data.get(k, getattr(u, k)) for k in PROFILE})):
+            gaps := missing({k: data.get(k, getattr(u, k)) for k in PROFILE}, ie=False)):
         raise DomainError("profile_required", "Заполните: " + ", ".join(PROFILE_LABEL[k] for k in gaps))
     if data.get("tg_id"):
         other = by_tg(db, data["tg_id"])
@@ -245,6 +253,9 @@ def update(db: Session, uid: int, data: dict, actor: User | None = None, full_pr
         changed["password"] = "***"
     log_event(db, "user", u.id, "updated", actor, **changed)
     db.commit()
+    if changed.get("ie_number"):
+        from app.services import nda
+        nda.apply_ie(db, u, actor)
     return u
 
 

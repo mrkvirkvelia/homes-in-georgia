@@ -15,7 +15,7 @@ import { parseMetrics } from '../lib/useUserNames';
 import { ANALYTICS_METRICS, ANALYTICS_SECTIONS } from '../features/deals/Analytics';
 import { t } from '../lib/i18n';
 
-const MISSING: Record<string, string> = { name: t('фамилия'), birth_date: t('ДР'), phone: t('телефон'), email: 'email' };
+const MISSING: Record<string, string> = { name: t('фамилия'), birth_date: t('ДР'), phone: t('телефон'), email: 'email', ie_number: t('ИП') };
 const ROLES: Role[] = ['superadmin', 'admin', 'operator', 'agent', 'recruit', 'daily_rent_manager', 'car_operator'];
 const FIELDLESS: Role[] = ['daily_rent_manager', 'car_operator'];  // no level / agent hashtag: only the Daily Rent tab
 
@@ -29,7 +29,7 @@ function UserForm({ user, all, onDone }: { user?: User; all: User[]; onDone: () 
     mutationFn: () => {
       const body = { first_name: f.first_name?.trim(), last_name: f.last_name?.trim(), role: f.role, level: f.level, is_active: f.is_active, districts: f.districts, mentor_id: f.mentor_id || null,
         tg_id: f.tg_id ? Number(f.tg_id) : null, username: f.username, phone: f.phone, plans: f.plans,
-        birth_date: f.birth_date || null, email: f.email?.trim() || null,
+        birth_date: f.birth_date || null, email: f.email?.trim() || null, ie_number: f.ie_number?.trim() || null,
         agent_tag: f.agent_tag || '', works_as_agent: !!f.works_as_agent };  // login / password: Telegram-only sign-in, not shown
       return user ? api.users.update(user.id, body) : api.users.create(body);
     },
@@ -54,6 +54,7 @@ function UserForm({ user, all, onDone }: { user?: User; all: User[]; onDone: () 
         {f.role && FIELDLESS.includes(f.role) ? <div /> : <Field label={t('Уровень')}><Seg value={f.level ?? 0} onChange={(v) => set('level', v || null)} options={[{ value: 0, label: '—' }, { value: 50, label: '50%' }, { value: 70, label: '70%' }, { value: 90, label: '90%' }]} /></Field>}
         <Field label="Telegram ID"><Input value={f.tg_id ?? ''} onChange={(e) => set('tg_id', e.target.value ? Number(e.target.value) : null)} inputMode="numeric" /></Field>
         <Field label="@username"><Input value={f.username || ''} onChange={(e) => set('username', e.target.value)} /></Field>
+        {!(f.role && FIELDLESS.includes(f.role)) && <Field label={t('Номер ИП (ი/მ)')} hint={t('Для агентов; при сохранении попадает в его соглашение (NDA)')}><Input inputMode="numeric" value={f.ie_number || ''} onChange={(e) => set('ie_number', e.target.value)} /></Field>}
         <Field label={t('Телефон *')}><Input type="tel" value={f.phone || ''} onFocus={phoneFocus} onBlur={phoneBlur} onChange={(e) => set('phone', phoneInput(e))} inputMode="tel" /></Field>
         {f.role && FIELDLESS.includes(f.role) ? <div className="faint" style={{ fontSize: 13, alignSelf: 'center' }}>{t('Видит только «Посуточная аренда»')}</div> : <Field label={t('Хэштег агента')} hint={t('В конце каждого поста: имя латиницей (#Zaza), при совпадении имён + буква фамилии (#ArturB)')}>
           <div className="row gap-sm">

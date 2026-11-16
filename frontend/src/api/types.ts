@@ -43,8 +43,10 @@ export interface User {
   birthday?: string | null;
   /** admins and the user himself only */
   email?: string | null;
-  /** profile fields still empty: name (first + last) / birth_date / phone / email */
-  profile_missing?: ('name' | 'birth_date' | 'phone' | 'email')[];
+  /** profile fields still empty: name (first + last) / birth_date / phone / email; ie_number for field users */
+  profile_missing?: ('name' | 'birth_date' | 'phone' | 'email' | 'ie_number')[];
+  /** ИП (ი/მ) registration number: admins and the user himself only */
+  ie_number?: string | null;
   exclusive_deals: number;
   plans?: Plans;
   /** the agent's post hashtag without '#' (Zaza, ArturB), unique */

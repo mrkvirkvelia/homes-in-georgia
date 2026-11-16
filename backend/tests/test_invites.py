@@ -44,7 +44,7 @@ def test_create_accept_web(client, db, monkeypatch):
     me = r.json()["user"]
     assert me["tg_id"] == 777 and me["name"] == "Нино" and me["last_name"] == "Беридзе" and me["role"] == "agent" and me["level"] == 50
     assert me["agent_tag"] == "Nino" and me["districts"] == ["Ваке"]
-    assert me["profile_missing"] == ["birth_date", "phone", "email"]  # → «Заполните профиль»
+    assert me["profile_missing"] == ["birth_date", "phone", "email", "ie_number"]  # → «Заполните профиль»
     row = client.get("/api/invites", headers=h).json()["items"][0]
     assert row["status"] == "accepted" and row["used_by"]["name"] == "Нино" and row["created_by"] == "Иракли"
     acts = {(e.entity, e.action) for e in db.query(Event).all()}

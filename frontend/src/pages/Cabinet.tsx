@@ -39,6 +39,7 @@ export function AvatarEdit({ user, size }: { user: Pick<User, 'id' | 'name' | 'p
 
 const CNT: [string, string][] = [['photo', t('Фото')], ['showing', t('Показы')], ['stickers', t('Расклейка')], ['rental', t('Сдачи')]];
 
+export const IE_RE = /^(\d{9}|\d{11})$/;  // ИП (ი/მ): backend users.IE_RE
 export const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]{2,}$/;
 const MONTHS = lx(['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'],
   ['იანვარი', 'თებერვალი', 'მარტი', 'აპრილი', 'მაისი', 'ივნისი', 'ივლისი', 'აგვისტო', 'სექტემბერი', 'ოქტომბერი', 'ნოემბერი', 'დეკემბერი'],
@@ -51,13 +52,14 @@ function ProfilePrompt({ u }: { u: User }) {
   const { setMe } = useAuth();
   const qc = useQueryClient();
   const toast = useToast();
-  const [f, setF] = useState({ first_name: u.first_name || '', last_name: u.last_name || '', birth_date: u.birth_date || '', phone: u.phone || '', email: u.email || '' });
+  const [f, setF] = useState({ first_name: u.first_name || '', last_name: u.last_name || '', birth_date: u.birth_date || '', phone: u.phone || '', email: u.email || '', ie_number: u.ie_number || '' });
   const save = useMutation({
-    mutationFn: () => api.auth.updateMe({ first_name: f.first_name.trim(), last_name: f.last_name.trim(), birth_date: f.birth_date || null, phone: f.phone || null, email: f.email.trim() || null }),
+    mutationFn: () => api.auth.updateMe({ first_name: f.first_name.trim(), last_name: f.last_name.trim(), birth_date: f.birth_date || null, phone: f.phone || null, email: f.email.trim() || null, ...(u.field ? { ie_number: f.ie_number.trim() || null } : {}) }),
     onSuccess: (me) => { setMe(me); qc.invalidateQueries({ queryKey: ['cabinet'] }); toast(t('Профиль сохранён')); },
     onError: (e) => toast(errText(e), true),
   });
-  const ok = !!f.first_name.trim() && !!f.last_name.trim() && !!f.birth_date && f.phone.replace(/\D/g, '').length >= 9 && EMAIL_RE.test(f.email.trim());
+  const ok = !!f.first_name.trim() && !!f.last_name.trim() && !!f.birth_date && f.phone.replace(/\D/g, '').length >= 9 && EMAIL_RE.test(f.email.trim())
+    && (!u.field || IE_RE.test(f.ie_number.replace(/[\s-]/g, '')));
   return (
     <Card label={t('Профиль')} title={t('Заполните профиль')}>
       <div className="muted" style={{ fontSize: 13, marginBottom: 10 }}>{t('Нужно агентству: чтобы связаться с вами и не пропустить ваш день рождения. Email видят только администраторы.')}</div>
@@ -67,6 +69,7 @@ function ProfilePrompt({ u }: { u: User }) {
         <Field label={t('Дата рождения')}><Input type="date" value={f.birth_date} max={new Date().toISOString().slice(0, 10)} onChange={(e) => setF({ ...f, birth_date: e.target.value })} /></Field>
         <Field label={t('Телефон')}><Input type="tel" inputMode="tel" value={f.phone} onFocus={phoneFocus} onBlur={phoneBlur} onChange={(e) => { const v = phoneInput(e); setF((x) => ({ ...x, phone: v })); }} /></Field>
         <Field label={t('Email')}><Input type="email" inputMode="email" value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} placeholder="name@mail.com" /></Field>
+        {u.field && <Field label={t('Номер ИП (ი/მ)')} hint={t('11 цифр (личный номер) или 9 цифр. Внесём в ваше соглашение с платформой')}><Input inputMode="numeric" value={f.ie_number} onChange={(e) => setF({ ...f, ie_number: e.target.value })} /></Field>}
       </div>
       <div className="mt"><Button disabled={!ok} loading={save.isPending} onClick={() => save.mutate()}>{t('Сохранить')}</Button></div>
     </Card>

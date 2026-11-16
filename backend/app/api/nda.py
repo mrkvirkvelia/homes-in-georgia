@@ -61,7 +61,7 @@ def ndas_create(body: NdaIn, db: Session = Depends(get_db, scope="function"), us
 def ndas_company_signature(user: User = Depends(current_user)):
     N._staff(user)
     d = N.company_signature()
-    return {"signature": d and d["signature"], "at": d and d.get("at"), "by_name": d and d.get("by_name")}
+    return {"signature": d and d["signature"], "at": d and d.get("at"), "by_name": d and d.get("by_name"), "edition": N.EDITION}
 
 
 @router.put("/ndas/company-signature")
@@ -97,9 +97,9 @@ def ndas_cancel(nid: int, db: Session = Depends(get_db, scope="function"), user:
 
 
 @router.get("/ndas/{nid}/pdf")
-def ndas_pdf(nid: int, download: bool = False, db: Session = Depends(get_db, scope="function"), user: User = Depends(current_user)):
+def ndas_pdf(nid: int, download: bool = False, amended: bool = False, db: Session = Depends(get_db, scope="function"), user: User = Depends(current_user)):
     n = N.get(db, nid, user)
-    return _pdf(N.pdf_bytes(n), N.filename(n), download)
+    return _pdf(N.pdf_bytes(n, amended), N.filename(n).replace(".pdf", " IE.pdf") if amended else N.filename(n), download)
 
 
 # the agent's page: no login, the unguessable token is the access

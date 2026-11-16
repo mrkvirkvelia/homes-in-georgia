@@ -177,7 +177,7 @@ export function DashboardPage() {
       <PageHead label={t('Добрый день, {name}', { name: user?.name || '' })} title={t('Главная')} />
       {!!user?.profile_missing?.length && (
         <Link to="/me" className="card row" style={{ padding: '10px 14px', marginBottom: 14, color: 'inherit', textDecoration: 'none', borderColor: 'var(--accent)' }}>
-          <span className="grow"><b>{t('Заполните профиль')}</b> <span className="muted">· {t('имя и фамилия, дата рождения, телефон, email')}</span></span>
+          <span className="grow"><b>{t('Заполните профиль')}</b> <span className="muted">· {user.profile_missing.join() === 'ie_number' ? t('номер ИП для соглашения') : t('имя и фамилия, дата рождения, телефон, email')}</span></span>
           <ArrowRight size={16} color="var(--faint)" />
         </Link>
       )}

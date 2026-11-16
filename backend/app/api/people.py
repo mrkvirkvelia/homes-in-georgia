@@ -38,6 +38,7 @@ class UserIn(BaseModel):
     plans: dict | None = None
     agent_tag: str | None = None
     works_as_agent: bool = False
+    ie_number: str | None = None
 
 
 class UserPatch(BaseModel):
@@ -61,6 +62,7 @@ class UserPatch(BaseModel):
     exclusive_deals: int | None = None
     agent_tag: str | None = None
     works_as_agent: bool | None = None
+    ie_number: str | None = None
 
 
 class PromoteIn(BaseModel):

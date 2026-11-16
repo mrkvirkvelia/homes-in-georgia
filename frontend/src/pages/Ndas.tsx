@@ -17,8 +17,9 @@ interface Nda {
   full_name: string; personal_id: string; phone: string | null; telegram: string | null; role: string | null;
   path: string | null; created_at: string; created_by: { id: number; name: string } | null; signed_at: string | null;
   tg_username: string | null; has_pdf: boolean; number: string;
+  details: { ie?: string; ie_amended?: { ie: string; at: string } };
 }
-interface CompanySig { signature: string | null; at: string | null; by_name: string | null }
+interface CompanySig { signature: string | null; at: string | null; by_name: string | null; edition?: string }
 const LANGS = [{ value: 'KA-RU', label: 'ქართული + Русский' }, { value: 'KA-EN', label: 'ქართული + English' }, { value: 'KA', label: 'ქართული' }];
 const TONE = { sent: 'blue', signed: 'ok', cancelled: 'grey' } as const;
 const absolute = (p: string) => `${window.location.origin}${p}`;
@@ -96,15 +97,16 @@ function NewNda({ onMade }: { onMade: (n: Nda) => void }) {
     onSuccess: (n) => { onMade(n); setF({ ...f, ...blank, access: today() }); toast('Соглашение создано — отправьте ссылку агенту'); },
     onError: (e) => toast(errText(e), true),
   });
+  const sig = useQuery({ queryKey: ['nda-company-sig'], queryFn: () => http.get<CompanySig>('/ndas/company-signature') });
   const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => setF({ ...f, [k]: e.target.value });
   const role = (e: React.ChangeEvent<HTMLSelectElement>) => setF({ ...f, role: e.target.value, level: e.target.value === 'recruit' ? '25' : f.level === '25' ? '50' : f.level });
   return (
-    <Card label="Новому агенту" title="Соглашение о подключении к платформе (ред. 1.1)">
+    <Card label="Новому агенту" title={t('Соглашение о подключении к платформе (ред. {ed})', { ed: sig.data?.edition ?? '…' })}>
       <div className="form-grid">
         <Field label="ФИО агента *" hint="Латиницей или кириллицей, как в паспорте"><Input value={f.full_name} onChange={set('full_name')} placeholder="Nino Beridze" /></Field>
         <Field label="ФИО по-грузински" hint="Для грузинского текста; пусто — как выше"><Input value={f.full_name_ka} onChange={set('full_name_ka')} placeholder="ნინო ბერიძე" /></Field>
         <Field label="Личный номер *"><Input value={f.personal_id} onChange={set('personal_id')} /></Field>
-        <Field label="Номер ИП (ი/მ)"><Input value={f.ie} onChange={set('ie')} /></Field>
+        <Field label="Номер ИП (ი/მ)" hint={t('Пусто — агент добавит в профиле, договор обновится')}><Input value={f.ie} onChange={set('ie')} /></Field>
         <Field label="Юридический адрес"><Input value={f.address} onChange={set('address')} /></Field>
         <Field label="Телефон"><Input type="tel" value={f.phone} onChange={(e) => setF({ ...f, phone: phoneInput(e) })} /></Field>
         <Field label="Email"><Input type="email" value={f.email} onChange={set('email')} /></Field>
@@ -249,8 +251,8 @@ export function NdasPage() {
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['ndas'] }); toast('Соглашение отменено, ссылка больше не работает'); },
     onError: (e) => toast(errText(e), true),
   });
-  const pdf = async (n: Nda) => {
-    const url = URL.createObjectURL(await fetchBlob(`/ndas/${n.id}/pdf`));
+  const pdf = async (n: Nda, amended = false) => {
+    const url = URL.createObjectURL(await fetchBlob(`/ndas/${n.id}/pdf${amended ? '?amended=true' : ''}`));
     window.open(url, '_blank');
     setTimeout(() => URL.revokeObjectURL(url), 60_000);
   };
@@ -289,6 +291,7 @@ export function NdasPage() {
                   {n.status === 'sent' && admin && <Button size="sm" variant="ghost" onClick={() => setEditing(n)}><FileText size={14} />{t('Текст')}</Button>}
                   {n.status === 'sent' && <Button size="sm" variant="ghost" loading={cancel.isPending} onClick={() => { if (window.confirm(`Отменить соглашение для ${n.full_name}? Ссылка перестанет работать.`)) cancel.mutate(n.id); }}><XCircle size={14} />Отменить</Button>}
                   {n.has_pdf && <Button size="sm" variant="secondary" onClick={() => pdf(n).catch((e) => toast(errText(e), true))}><Download size={14} />PDF</Button>}
+                  {n.details?.ie_amended && <Button size="sm" variant="secondary" title={t('Подписанное соглашение + дополнение: номер ИП {ie} из профиля', { ie: n.details.ie_amended.ie })} onClick={() => pdf(n, true).catch((e) => toast(errText(e), true))}><Download size={14} />{t('PDF + ИП')}</Button>}
                 </div>
               </div>
             ))}

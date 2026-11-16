@@ -181,3 +181,61 @@ def test_edit_text(db, client):
     row.status = "signed"
     db.commit()
     assert client.put(f"/api/ndas/{n['id']}/text", json=body, headers=auth(boss)).status_code == 409
+
+
+def test_ie_number_from_profile(db, client, fake_chrome, tg_sent):
+    """ИП in the profile (Stanislav 11-16): required for field users (badge / cabinet), never blocks a save; an NDA made
+    for a user takes it; a signed NDA without it gets an amended PDF (original kept), an unsigned one is re-rendered."""
+    boss = make_user(db, "superadmin", tg_id=111)
+    ag = make_user(db, "agent", username="Nino_Agent", first_name="Nino", last_name="B", phone="+995555112233",
+                   email="n@x.ge")
+    from datetime import date
+    ag.birth_date = date(1990, 1, 1)
+    db.commit()
+    assert client.get("/api/auth/me", headers=auth(ag)).json()["profile_missing"] == ["ie_number"]
+    assert "ie_number" not in client.get("/api/auth/me", headers=auth(boss)).json()["profile_missing"]
+    client.put("/api/ndas/company-signature", json={"signature": SIG}, headers=auth(boss))
+    body = {"lang": "KA-RU", "full_name": "Nino B", "personal_id": "01001055555", "telegram": "nino_agent"}
+    signed = client.post("/api/ndas", json=body, headers=auth(boss)).json()
+    assert signed["details"]["ie"] == ""
+    token = signed["path"].split("/")[-1]
+    client.post(f"/api/public/nda/{token}/telegram", json=_widget())
+    v = client.get(f"/api/public/nda/{token}").json()
+    assert client.post(f"/api/public/nda/{token}", json={"signature": SIG, "consent": True, "doc_sha256": v["doc_sha256"]}).status_code == 200
+    unsigned = client.post("/api/ndas", json=body, headers=auth(boss)).json()
+    old_hash = client.get(f"/api/public/nda/{unsigned['path'].split('/')[-1]}").json()["doc_sha256"]
+    original = db.get(AgentNda, signed["id"]).html
+    tg_sent.clear()
+
+    assert client.patch("/api/auth/me", json={"ie_number": "12ab"}, headers=auth(ag)).status_code == 400
+    r = client.patch("/api/auth/me", json={"ie_number": "010 0105 5555"}, headers=auth(ag))
+    assert r.status_code == 200 and r.json()["ie_number"] == "01001055555" and r.json()["profile_missing"] == []
+    db.expire_all()
+    s = db.get(AgentNda, signed["id"])
+    assert s.html == original and s.pdf_path and s.details.get("ie") is None or s.details.get("ie") == ""  # signed text kept
+    am = s.details["ie_amended"]
+    assert am["ie"] == "01001055555" and am["pdf"] != s.pdf_path
+    page = fake_chrome[-1]
+    assert "Дополнение: реквизиты участника" in page and "01001055555" in page and "Номер ИП внесён" in page
+    assert client.get(f"/api/ndas/{s.id}/pdf?amended=true", headers=auth(boss)).content == PDF
+    assert [chat for _, chat, _ in tg_sent] == ["777001"]
+    u = db.get(AgentNda, unsigned["id"])
+    assert "01001055555" in u.html and u.doc_sha256 != old_hash and u.status == "sent"
+    # saving the same number again changes nothing; a new NDA for him is prefilled
+    tg_sent.clear()
+    client.patch("/api/auth/me", json={"ie_number": "01001055555"}, headers=auth(ag))
+    assert tg_sent == []
+    assert client.post("/api/ndas", json=body, headers=auth(boss)).json()["details"]["ie"] == "01001055555"
+
+
+def test_ie_from_signed_nda_to_profile(db, client):
+    boss = make_user(db, "superadmin")
+    ag = make_user(db, "agent", tg_id=777001)
+    client.put("/api/ndas/company-signature", json={"signature": SIG}, headers=auth(boss))
+    n = client.post("/api/ndas", json={"full_name": "N", "personal_id": "1", "ie": "406112233"}, headers=auth(boss)).json()
+    token = n["path"].split("/")[-1]
+    client.post(f"/api/public/nda/{token}/telegram", json=_widget())
+    v = client.get(f"/api/public/nda/{token}").json()
+    client.post(f"/api/public/nda/{token}", json={"signature": SIG, "consent": True, "doc_sha256": v["doc_sha256"]})
+    db.expire_all()
+    assert db.get(type(ag), ag.id).ie_number == "406112233"

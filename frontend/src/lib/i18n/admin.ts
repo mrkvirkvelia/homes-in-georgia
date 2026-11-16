@@ -323,4 +323,14 @@ export const D: Record<string, [ka: string, en: string]> = {
   'Текст уже изменён': ['ტექსტი უკვე შეცვლილია', 'The text is already edited'],
   'Удалить «{n}» из этого соглашения?': ['წავშალოთ «{n}» ამ შეთანხმებიდან?', 'Remove «{n}» from this agreement?'],
   'не переведено': ['არ არის თარგმნილი', 'not translated'],
+  // ИП (ი/მ) in the profile (Stanislav 11-16)
+  'ИП': ['ი/მ', 'IE'],
+  'Номер ИП (ი/მ)': ['ი/მ ნომერი', 'IE number (ი/მ)'],
+  '11 цифр (личный номер) или 9 цифр. Внесём в ваше соглашение с платформой': ['11 ციფრი (პირადი ნომერი) ან 9 ციფრი. შევიტანთ თქვენს შეთანხმებაში პლატფორმასთან', '11 digits (personal number) or 9 digits. We add it to your platform agreement'],
+  'Для агентов; при сохранении попадает в его соглашение (NDA)': ['აგენტებისთვის; შენახვისას ჩაიწერება მის შეთანხმებაში (NDA)', 'For agents; on save it goes into their agreement (NDA)'],
+  'номер ИП для соглашения': ['ი/მ ნომერი შეთანხმებისთვის', 'IE number for the agreement'],
+  'Соглашение о подключении к платформе (ред. {ed})': ['პლატფორმასთან მიერთების შეთანხმება (რედ. {ed})', 'Platform onboarding agreement (ed. {ed})'],
+  'Пусто — агент добавит в профиле, договор обновится': ['ცარიელი — აგენტი დაამატებს პროფილში, შეთანხმება განახლდება', 'Empty — the agent adds it in the profile, the agreement updates'],
+  'Подписанное соглашение + дополнение: номер ИП {ie} из профиля': ['ხელმოწერილი შეთანხმება + დამატება: ი/მ ნომერი {ie} პროფილიდან', 'Signed agreement + addendum: IE number {ie} from the profile'],
+  'PDF + ИП': ['PDF + ი/მ', 'PDF + IE'],
 };

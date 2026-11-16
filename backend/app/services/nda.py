@@ -21,7 +21,7 @@ import struct
 from datetime import datetime, timedelta, timezone
 
 import httpx
-from sqlalchemy import select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app import storage
@@ -257,6 +257,8 @@ def create(db: Session, body: dict, user: User) -> AgentNda:
     d["level"] = d["level"] if d["level"] in LEVELS else ("25" if role == "recruit" else "50")
     d["access"] = _date(d["access"]) or now().astimezone(TZ).strftime("%d.%m.%Y")
     d["role"] = role
+    if not d["ie"] and (u := _user_by_username(db, f["telegram"])):
+        d["ie"] = u.ie_number or ""  # the profile's ИП number (users.ie_number)
     comp = company_signature()
     if not comp:
         raise DomainError("no_company_signature", "Сначала Давид должен один раз расписаться за компанию (NDA → «Подпись компании»)", 409)
@@ -366,8 +368,9 @@ def set_text(db: Session, nid: int, body: dict, user: User, save: bool = True) -
     return out(db, n, full=True)
 
 
-def pdf_bytes(n: AgentNda) -> bytes:
-    data = storage.read(n.pdf_path) if n.pdf_path else None
+def pdf_bytes(n: AgentNda, amended: bool = False) -> bytes:
+    key = ((n.details or {}).get("ie_amended") or {}).get("pdf") if amended else n.pdf_path
+    data = storage.read(key) if key else None
     if not data:
         raise DomainError("not_found", "PDF ещё не готов")
     return data
@@ -458,6 +461,10 @@ def sign(db: Session, token: str, data: dict, ip: str | None, user_agent: str | 
     n.signature, n.signed_at = data["signature"], now()
     n.ip, n.user_agent = (ip or "")[:100] or None, (user_agent or "")[:300] or None
     n.status = "signed"
+    ie = (n.details or {}).get("ie")
+    if ie and (u := _user_of(db, n)) and not u.ie_number and re.fullmatch(r"\d{9}|\d{11}", ie):
+        u.ie_number = ie  # the agreement's ИП → the profile
+        log_event(db, "user", u.id, "updated", None, ie_number=ie, source=f"nda {n.id}")
     log_event(db, "nda", n.id, "signed", None, label=n.full_name, tg_id=n.tg_id, tg_username=n.tg_username, ip=n.ip,
               user_agent=n.user_agent, doc_sha256=n.doc_sha256)
     db.commit()
@@ -564,3 +571,72 @@ def signed_pdf(db: Session, token: str) -> tuple[AgentNda, bytes]:
     if n.status != "signed":
         raise DomainError("not_found", "NDA ещё не подписано")
     return n, pdf_bytes(n)
+
+
+# ---------------------------------------------------------------- the ИП number added later in the profile (Stanislav 11-16)
+# An NDA is the user's when it was confirmed with his Telegram account (tg_id) or names his @username.
+
+def _user_by_username(db: Session, username: str | None) -> User | None:
+    if not username:
+        return None
+    return db.scalar(select(User).where(func.lower(User.username) == username.lower(), User.deleted_at.is_(None))
+                     .order_by(User.id).limit(1))
+
+
+def _user_of(db: Session, n: AgentNda) -> User | None:
+    u = db.scalar(select(User).where(User.tg_id == int(n.tg_id))) if n.tg_id and n.tg_id.isdigit() and n.tg_id != "0" else None
+    return u or _user_by_username(db, n.telegram)
+
+
+def _addendum(n: AgentNda, ie: str, at) -> str:
+    """The page appended to the signed agreement: the participant's ИП number, added from his profile."""
+    second = SECOND[n.lang] or "en"
+    day = at.astimezone(TZ).strftime("%d.%m.%Y")
+    title = {"ka": "დამატება: მონაწილის რეკვიზიტები", "ru": "Дополнение: реквизиты участника", "en": "Addendum: the participant's details"}
+    note = {"ka": f"ი/მ ნომერი შეტანილია {day} მონაწილის მიერ პროფილში მითითებული მონაცემების საფუძველზე. ხელმოწერილი ტექსტი არ შეცვლილა.",
+            "ru": f"Номер ИП внесён {day} на основании данных участника в профиле. Подписанный текст не изменён.",
+            "en": f"The IE number was added on {day} from the participant's details in his profile. The signed text is unchanged."}
+    ie_l = {"ka": "ი/მ ნომერი", "ru": "Номер ИП", "en": "IE number"}
+    e = H.escape
+    return (f'<section class="rec"><h2>{e(title["ka"])} / {e(title[second])}</h2><table>'
+            f'<tr><td>{e(SHORT["ka"])} / {e(SHORT[second])}</td><td>№ {number(n)} · {e(n.lang)} · {EDITION}</td></tr>'
+            f'<tr><td>{e(ie_l["ka"])} / {e(ie_l[second])}</td><td><b>{e(ie)}</b></td></tr>'
+            f'<tr><td>SHA-256</td><td class="mono">{n.doc_sha256}</td></tr></table>'
+            f'<p>{e(note["ka"])}</p><p>{e(note[second])}</p></section>')
+
+
+def apply_ie(db: Session, u: User, actor: User | None) -> None:
+    """The user's ИП number set / changed in the profile → his NDAs: an unsigned one is re-rendered with it (new hash: an
+    open signing page asks to reload); a signed one that went without it keeps its signed PDF and gets a second,
+    amended PDF (the signed one + an «Addendum: the participant's details» page), sent to him like the signed one."""
+    ie = u.ie_number
+    if not ie:
+        return
+    conds = ([AgentNda.tg_id == str(u.tg_id)] if u.tg_id else []) + \
+        ([func.lower(AgentNda.telegram) == u.username.lower()] if u.username else [])
+    if not conds:
+        return
+    for n in list(db.scalars(select(AgentNda).where(or_(*conds), AgentNda.status.in_(("sent", "signed"))).with_for_update())):
+        d = dict(n.details or {})
+        if n.status == "sent" and d.get("ie") != ie:
+            n.details = {**d, "ie": ie}
+            page = _page(n)
+            n.html, n.doc_sha256 = page, doc_hash(page)
+            log_event(db, "nda", n.id, "ie_added", actor, label=n.full_name, ie=ie, doc_sha256=n.doc_sha256)
+        elif n.status == "signed" and n.pdf_path and not d.get("ie") and (d.get("ie_amended") or {}).get("ie") != ie:
+            at = now()
+            try:
+                pdf = C.render_pdf(signed_html(n, db.get(User, n.created_by) if n.created_by else None)
+                                   .replace("</body>", _addendum(n, ie, at) + "</body>", 1))
+            except Exception:  # noqa: BLE001 — the profile is saved; saving the number again retries
+                log.exception("nda %s: amended PDF failed", n.id)
+                continue
+            key = f"private/nda/{n.id}/{secrets.token_hex(8)}-ie.pdf"
+            storage.put(key, pdf)
+            n.details = {**d, "ie_amended": {"ie": ie, "at": at.isoformat(), "pdf": key}}
+            log_event(db, "nda", n.id, "ie_amended", actor, label=n.full_name, ie=ie,
+                      pdf_sha256=hashlib.sha256(pdf).hexdigest())
+            db.commit()
+            _send(env.LOGIN_BOT_TOKEN or env.BOT_TOKEN, n.tg_id if n.tg_id and n.tg_id != "0" else None,
+                  "Homes in Georgia: NDA + IE number / NDA + ი/მ ნომერი", filename(n).replace(".pdf", " IE.pdf"), pdf)
+    db.commit()

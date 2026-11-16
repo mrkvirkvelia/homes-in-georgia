@@ -66,7 +66,8 @@ def user_out(u: User, viewer: User | None = None) -> dict:
             "level": users.effective_level(u) if is_field(u) else u.level, "mentor_id": u.mentor_id,
             "districts": u.districts, "is_active": u.is_active, "login": u.login, "photo_url": u.photo_url,
             "birth_date": bd.isoformat() if bd and own else None, "exclusive_deals": u.exclusive_deals,
-            "plans": u.plans, "agent_tag": u.agent_tag, "works_as_agent": u.works_as_agent, "field": is_field(u), "created_at": u.created_at.isoformat() if u.created_at else None,
+            "plans": u.plans, "agent_tag": u.agent_tag, "works_as_agent": u.works_as_agent,
+            "ie_number": u.ie_number if own else None, "field": is_field(u), "created_at": u.created_at.isoformat() if u.created_at else None,
             "last_login_at": u.last_login_at.isoformat() if u.last_login_at else None}
 
 
@@ -179,6 +180,7 @@ class ProfileIn(BaseModel):
     birth_date: date | None = None
     phone: str | None = None
     email: str | None = None
+    ie_number: str | None = None
 
 
 @router.patch("/me")

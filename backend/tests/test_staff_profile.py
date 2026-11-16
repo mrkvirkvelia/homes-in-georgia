@@ -22,7 +22,7 @@ def test_create_requires_full_profile(client, db):
     assert post(birth_date=(date.today() + timedelta(days=1)).isoformat()).json()["code"] == "bad_birth_date"
     r = post(email=" Nino@Homes.GE ")
     assert r.status_code == 200, r.text
-    assert r.json()["email"] == "nino@homes.ge" and r.json()["profile_missing"] == []
+    assert r.json()["email"] == "nino@homes.ge" and r.json()["profile_missing"] == ["ie_number"]  # ИП: asked, never blocks a save
 
 
 def test_edit_keeps_old_users_working(client, db):
@@ -37,13 +37,13 @@ def test_edit_keeps_old_users_working(client, db):
 def test_me_fills_own_profile(client, db):
     me = make_user(db, "agent", name="Заза", login="zaza")
     h = auth(me)
-    assert client.get("/api/auth/me", headers=h).json()["profile_missing"] == ["name", "birth_date", "phone", "email"]
+    assert client.get("/api/auth/me", headers=h).json()["profile_missing"] == ["name", "birth_date", "phone", "email", "ie_number"]
     r = client.patch("/api/auth/me", json={"birth_date": "1991-02-28"}, headers=h)  # a field at a time
-    assert r.status_code == 200 and r.json()["profile_missing"] == ["name", "phone", "email"]
+    assert r.status_code == 200 and r.json()["profile_missing"] == ["name", "phone", "email", "ie_number"]
     assert client.patch("/api/auth/me", json={"email": "bad"}, headers=h).json()["code"] == "bad_email"
     assert client.patch("/api/auth/me", json={"phone": ""}, headers=h).json()["code"] == "profile_required"
     r = client.patch("/api/auth/me", json={"name": "Заза Беридзе", "phone": "599111222", "email": "z@homes.ge"}, headers=h)
-    assert r.json()["profile_missing"] == [] and r.json()["email"] == "z@homes.ge"
+    assert r.json()["profile_missing"] == ["ie_number"] and r.json()["email"] == "z@homes.ge"
     assert client.patch("/api/auth/me", json={"role": "superadmin"}, headers=h).status_code == 200  # ignored field
     db.refresh(me)
     assert me.role == "agent"

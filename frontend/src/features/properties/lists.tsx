@@ -101,10 +101,18 @@ export function NewListings({ base = '' }: { base?: string }) {
   return <RentListings base={base} />;
 }
 
-function RentListings({ base = '' }: { base?: string }) {
-  const [f, setF0] = usePageState<ListingFilter>('feed-filter', { q: '', flag: '' });
-  const [limit, setLimit] = usePageState('feed-limit', PAGE);
-  const [view, setView] = usePageState<'list' | 'map'>('feed-view', 'list');
+/** «Объекты → База → Конкуренты»: every ad of the sources marked «Конкурент» (Управление → Источники), read only:
+ * not our inventory, so no «Беру в работу» (never in the work board, never published, not on the site). */
+export function CompetitorListings({ base = '' }: { base?: string }) {
+  if (useDeal() === 'sale') return <Empty text={t('Объявления о продаже пока не собираем: объект продажи добавляется кнопкой «Объект вручную»')} />;
+  return <RentListings base={base} competitor />;
+}
+
+function RentListings({ base = '', competitor = false }: { base?: string; competitor?: boolean }) {
+  const pk = competitor ? 'rival' : 'feed';
+  const [f, setF0] = usePageState<ListingFilter>(`${pk}-filter`, { q: '', flag: '' });
+  const [limit, setLimit] = usePageState(`${pk}-limit`, PAGE);
+  const [view, setView] = usePageState<'list' | 'map'>(`${pk}-view`, 'list');
   // the map's pin opens the full ad window (?ad=<id>, as a card does), not a small preview (11-13)
   const [params, setParams] = useSearchParams();
   const openAd = (id: string) => setParams((p) => { const n = new URLSearchParams(p); n.set('ad', id); return n; }, { replace: true });
@@ -115,8 +123,9 @@ function RentListings({ base = '' }: { base?: string }) {
   const toast = useToast();
   const navigate = useNavigate();
   const [peek, setPeek] = useState<{ id: number; listing: Listing; reasons?: string[] } | null>(null);
-  const { data, isLoading, isFetching, error } = useQuery({ queryKey: ['listings', 'new', f, view === 'map' ? MAP_LIMIT : limit], queryFn: () => api.listings.new(f, view === 'map' ? MAP_LIMIT : limit), placeholderData: (p) => p });
-  const { data: facets } = useQuery({ queryKey: ['listings', 'facets'], queryFn: () => api.listings.facets(), staleTime: 60_000 });
+  const q = competitor ? { ...f, flag: '', known: '', competitor: '1' } : f;
+  const { data, isLoading, isFetching, error } = useQuery({ queryKey: ['listings', 'new', q, view === 'map' ? MAP_LIMIT : limit], queryFn: () => api.listings.new(q, view === 'map' ? MAP_LIMIT : limit), placeholderData: (p) => p });
+  const { data: facets } = useQuery({ queryKey: ['listings', 'facets', competitor], queryFn: () => api.listings.facets(competitor), staleTime: 60_000 });
   const filtered = Object.entries(f).some(([k, v]) => (Array.isArray(v) ? v.length : v) && k !== 'q' && k !== 'known');
   const take = useMutation({
     mutationFn: (id: string) => api.properties.take(id),
@@ -148,8 +157,9 @@ function RentListings({ base = '' }: { base?: string }) {
   const items = itemsOf(data);
   const card = (l: Listing) => {
             const lockedByOther = !!l.taken_by && l.taken_by.id !== user?.id;
-            const chips = (l.known_object || !!l.matches?.length) && (
+            const chips = (l.known_object || !!l.matches?.length || !!l.at_competitor?.length) && (
               <>
+                {(l.at_competitor || []).map((s) => <Badge key={s} tone="warn" title={t('Это объявление уже у конкурента')}>{t('У конкурента · {name}', { name: sourceName(s) })}</Badge>)}
                 {l.known_object && (
                   <ChipButton tone="ok" onClick={() => setPeek({ id: l.known_object!.id, listing: l })}>
                     {t('Уже в базе · #{id}', { id: l.known_object.id })}{l.known_object.address ? ` · ${l.known_object.address}` : ''}
@@ -163,8 +173,10 @@ function RentListings({ base = '' }: { base?: string }) {
               </>
             );
             return (
-              <ListingCard key={l.id} listing={l} locked={lockedByOther ? t('Взял {name}', { name: l.taken_by?.name ?? '' }) : undefined} chips={chips || undefined}
-                footer={
+              <ListingCard key={l.id} listing={competitor ? { ...l, ai_flags: null } : l} locked={lockedByOther ? t('Взял {name}', { name: l.taken_by?.name ?? '' }) : undefined} chips={chips || undefined}
+                footer={competitor ? (l.url ? (
+                  <a className="btn btn-secondary btn-block" href={l.url} target="_blank" rel="noreferrer"><ExternalLink size={16} />{t('Открыть источник')}</a>
+                ) : undefined) :
                   <div className="col gap-sm">
                     {!!l.demand && <div className="alert alert-info row gap-sm" style={{ fontSize: 12, fontWeight: 700 }}><Users size={14} />{demandLabel(l.demand)}</div>}
                     <div className="row">
@@ -194,19 +206,20 @@ function RentListings({ base = '' }: { base?: string }) {
         </form>
       </Modal>
       <FeedFilters f={f} patch={(p) => setF((o) => ({ ...o, ...p }))} view={view} onView={setView} facets={facets} sourceLabel={sourceName}
-        seg={{ value: f.flag || '', onChange: set('flag'), options: [
+        seg={competitor ? undefined : { value: f.flag || '', onChange: set('flag'), options: [
           { value: '', label: t('Все') }, { value: 'owner', label: t('Собственник') }, { value: 'agent_suspect', label: t('Агент?') },
           // the card's red label «В базе / В архиве по этому адресу» (11-13; the old «Дубль» = agency channel matched nothing)
           { value: 'in_base', label: t('В базе') }, { value: 'in_archive', label: t('В архиве') }] }}
         found={data ? t('Найдено: {n}', { n: data.total ?? itemsOf(data).length }) : ''} filtered={filtered} onReset={() => setF({ q: f.q, flag: '', known: f.known })}
-        actions={(!!data?.known_total || f.known) && (
+        actions={!competitor && (!!data?.known_total || f.known) && (
           <Button size="sm" variant={f.known ? 'primary' : 'secondary'} aria-pressed={!!f.known} onClick={() => set('known')(f.known ? '' : '1')} title={KNOWN_HINT}>
             {t('Уже в базе ({n})', { n: data?.known_total ?? 0 })}
           </Button>
         )}>
-        {f.known && <div className="muted" style={{ fontSize: 12 }}>{KNOWN_HINT}</div>}
+        {competitor ? <div className="muted" style={{ fontSize: 12 }}>{t('Объявления источников, отмеченных «Конкурент» в Управление → Источники. Это не наша база: в работу их не берут.')}</div>
+          : f.known && <div className="muted" style={{ fontSize: 12 }}>{KNOWN_HINT}</div>}
       </FeedFilters>
-      {isLoading ? <Loading /> : error ? <ErrorBox error={error} /> : items.length === 0 ? <Empty text={t('Новых объявлений нет')} /> : view === 'map' ? (
+      {isLoading ? <Loading /> : error ? <ErrorBox error={error} /> : items.length === 0 ? <Empty text={competitor ? t('Объявлений конкурентов нет: отметьте источник «Конкурент» в Управление → Источники') : t('Новых объявлений нет')} /> : view === 'map' ? (
         <>
           <ListingsMap items={items} card={card} onPick={(l) => openAd(l.id)} />
           {/* the picked ad's card stays hidden: it renders its full window (with its buttons) from ?ad= */}

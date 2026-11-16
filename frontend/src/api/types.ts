@@ -94,6 +94,8 @@ export interface Listing {
   refused?: { by?: string | null; at: string; comment?: string | null } | null;
   /** the matcher linked this ad to an object already in the base */
   known_object?: { id: number; address?: string | null } | null;
+  /** sources marked «Конкурент» that posted the same flat (ingest dedupe) */
+  at_competitor?: string[];
   /** «похож»: objects an operator should compare with (pending) */
   matches?: ListingMatch[];
   /** active clients whose questionnaire fits this ad (stage 10) */
@@ -629,7 +631,9 @@ export interface SourceSchedule {
   paid: { per_run: number; per_hour: number | null; spent_7d: number; runs_7d: number; posts_7d: number } | null;
 }
 
-export interface Source { id: number | string; name: string; kind?: string | null; url?: string | null; enabled: boolean; last_run_at?: string | null; count?: number }
+export interface Source { id: number | string; name: string; key?: string; kind?: string | null; url?: string | null; enabled: boolean; last_run_at?: string | null; count?: number;
+  /** competitor: «Конкурент» (its ads only in Объекты → База → Конкуренты); backfilled_at: its history loaded */
+  options?: { competitor?: boolean; backfilled_at?: string; [k: string]: unknown } }
 
 export interface AgentStat {
   first_name?: string | null;

@@ -306,7 +306,12 @@ export const sources: Source[] = [
   { id: 2, name: 'myhome.ge', kind: 'myhome', url: 'https://myhome.ge', enabled: true, count: 388, last_run_at: iso(-40 * min) },
   { id: 3, name: 'Facebook группы', kind: 'facebook', enabled: false, count: 57, last_run_at: iso(-3 * day) },
   { id: 4, name: 'Telegram-каналы', kind: 'telegram', enabled: true, count: 140, last_run_at: iso(-2 * hour) },
+  { id: 5, name: 'Rival Flats', kind: 'tg_competitor', key: 'rival_flats', url: 'https://t.me/rival_flats', enabled: true, options: { competitor: true, backfilled_at: iso(-1 * day) } },
+  { id: 6, name: 'Tbilisi Rent Group', kind: 'fb_group', key: '1234567890', url: 'https://facebook.com/groups/1234567890', enabled: true, options: { competitor: true } },
 ];
+/** ads of the «Конкурент» sources (Объекты → База → Конкуренты); L1002 is the same flat as R1 (its «У конкурента» chip) */
+export const rivalListings: Listing[] = listings.slice(2, 5).map((l, i) => ({ ...l, id: `R${i + 1}`, property_id: null, source: i < 2 ? 'tg:rival_flats' : 'fb:1234567890', url: `https://t.me/rival_flats/${100 + i}` }));
+listings[2].at_competitor = ['tg:rival_flats'];
 
 export const moderation: Listing[] = [
   { ...listings[1], id: 'M1', ai_flags: { agent_suspect: true, reasons: ['Номер встречается в 9 объявлениях'] } },

@@ -27,14 +27,15 @@ router = APIRouter(tags=["objects"])
 def listings_new(q: str | None = None, source: list[str] | None = Query(None), flag: str | None = None,
                  district: list[str] | None = Query(None), metro: str | None = None, bedrooms: str | None = None,
                  price_min: int | None = Query(None, ge=0), price_max: int | None = Query(None, ge=0),
-                 limit: int = Query(50, ge=0, le=500), offset: int = Query(0, ge=0), known: int = 0,
+                 limit: int = Query(50, ge=0, le=500), offset: int = Query(0, ge=0), known: int = 0, competitor: int = 0,
                  db: Session = Depends(get_db, scope="function"), user: User = Depends(current_user)):
-    return P.new_listings(db, q, source, flag, limit, offset, district, metro, price_min, price_max, bedrooms, bool(known))
+    return P.new_listings(db, q, source, flag, limit, offset, district, metro, price_min, price_max, bedrooms, bool(known),
+                          bool(competitor))
 
 
 @router.get("/listings/new/facets")
-def listings_new_facets(db: Session = Depends(get_db, scope="function"), user: User = Depends(current_user)):
-    return P.new_listing_facets(db)
+def listings_new_facets(competitor: int = 0, db: Session = Depends(get_db, scope="function"), user: User = Depends(current_user)):
+    return P.new_listing_facets(db, bool(competitor))
 
 
 @router.get("/listings/{listing_id}")

@@ -188,6 +188,10 @@ def main():
 
     days = a.days or d.get("days_back", 7)
     kept = json.load(open(RAW)) if os.path.exists(RAW) else []
+    key_by_id = {}
+    for g in cfg["facebook_groups"]:
+        key_by_id[g.get("id") or g["url"].rstrip("/").split("/")[-1]] = g["key"]
+    rivals = {g["key"] for g in cfg["facebook_groups"] if g.get("competitor")}  # their posts are kept past days_back
     if a.reuse:
         data = kept
     else:
@@ -195,16 +199,27 @@ def main():
         last = None if a.full or not os.path.exists(STATE) else json.load(open(STATE)).get("last_run")
         hours = days * 24 if last is None else min(days * 24, (started - last) / 3600 + OVERLAP_H)
         new = apify_run(groups, a.posts or d.get("posts_per_group", 30), hours)
-        cut = started - days * 86400  # merge by post id, keep the rolling window
+        db.record_run("facebook", LAST_USD[0], len(new), hours)
+        # a competitor group marked in the CRM: once, its history (db.BACKFILL caps the depth and so the price)
+        for g in [g for g in groups if g.get("backfill")]:
+            b = g["backfill"]
+            try:
+                deep = apify_run([g], b["posts"], b["days"] * 24)
+            except NoUsage as e:
+                print(f"facebook backfill {g['key']}: {e}, next run")
+                continue
+            db.record_run("facebook", LAST_USD[0], len(deep), 0)
+            new += deep
+            os.makedirs("raw", exist_ok=True)
+            open(db.backfill_mark(g["key"]), "w").write(time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))
+            print(f"facebook backfill {g['key']}: {len(deep)} posts, ${LAST_USD[0]:.3f}")
+        cut = started - days * 86400  # merge by post id, keep the rolling window (competitor groups: everything)
         by_id = {x.get("post_id"): x for x in kept + new if x.get("post_id")}
-        data = [x for x in by_id.values() if (x.get("creation_timestamp") or started) >= cut]
+        data = [x for x in by_id.values() if (x.get("creation_timestamp") or started) >= cut
+                or key_by_id.get(x.get("group_id"), x.get("group_id")) in rivals]
         json.dump(data, open(RAW, "w"), ensure_ascii=False)
         json.dump({"last_run": started}, open(STATE, "w"))
         print(f"facebook: {len(new)} posts from the last {hours:.2f} h, {len(data)} kept for {days} days")
-        db.record_run("facebook", LAST_USD[0], len(new), hours)
-    key_by_id = {}
-    for g in cfg["facebook_groups"]:
-        key_by_id[g.get("id") or g["url"].rstrip("/").split("/")[-1]] = g["key"]
 
     # one owner often posts the same flat into several groups: collapse to one record with all post links
     posts, seen = [], {}

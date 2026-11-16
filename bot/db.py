@@ -264,11 +264,34 @@ def import_sources(c, cfg):
         n += 1
 
 
+# A source marked «Конкурент» (options.competitor, Управление → Источники) loads its whole history once, then updates as
+# usual and keeps every post (its raw file only grows). Caps of that one backfill: Telegram is free (t.me/s pages, 1 s
+# apart, or Telethon), Facebook is Apify: $0.0007 a delivered rental post + $0.002 a run -> at most ~$0.21 a group.
+BACKFILL = {"telegram": {"want": 500, "scan": 10000}, "facebook": {"posts": 300, "days": 365}}
+
+
+def backfill_mark(key):
+    """The fetcher writes it (the time, ISO) after a source's backfill; export_sources copies it into options.backfilled_at."""
+    return f"raw/backfill_{re.sub(r'[^A-Za-z0-9_.-]', '_', key)}.done"
+
+
 def sources_config(c):
-    """Enabled sources in the sources.json format the fetchers read."""
+    """Enabled sources in the sources.json format the fetchers read. A competitor source waiting for its one-time full
+    load gets "backfill" (BACKFILL caps)."""
     rows = c.execute("SELECT * FROM sources WHERE enabled = 1 ORDER BY position, id").fetchall()
-    tg = [{"username": r["key"], "kind": r["kind"][3:], **json.loads(r["options"])} for r in rows if r["kind"].startswith("tg_")]
-    fb = [{"key": r["key"], **json.loads(r["options"]), "url": r["url"], "lang": r["lang"], "name": r["name"]}
+    for r in rows:  # the fetchers mark a done backfill with a file: remember it in the source (shown in the CRM)
+        o = json.loads(r["options"] or "{}")
+        if o.get("competitor") and not o.get("backfilled_at") and os.path.exists(backfill_mark(r["key"])):
+            o["backfilled_at"] = Path(backfill_mark(r["key"])).read_text().strip()
+            c.execute("UPDATE sources SET options = ? WHERE id = ?", (json.dumps(o, ensure_ascii=False), r["id"]))
+    rows = c.execute("SELECT * FROM sources WHERE enabled = 1 ORDER BY position, id").fetchall()
+
+    def bf(r, kind):
+        o = json.loads(r["options"] or "{}")
+        return {"backfill": BACKFILL[kind]} if o.get("competitor") and not o.get("backfilled_at") else {}
+    tg = [{"username": r["key"], "kind": r["kind"][3:], **json.loads(r["options"]), **bf(r, "telegram")}
+          for r in rows if r["kind"].startswith("tg_")]
+    fb = [{"key": r["key"], **json.loads(r["options"]), "url": r["url"], "lang": r["lang"], "name": r["name"], **bf(r, "facebook")}
           for r in rows if r["kind"] == "fb_group"]
     ig = [{"key": r["key"], "name": r["name"]} for r in rows if r["kind"] == "ig_account"]
     return {"telegram_defaults": {**TELEGRAM_DEFAULTS, **json.loads(get_setting("telegram_defaults", c) or "{}")}, "telegram_channels": tg,
@@ -317,6 +340,9 @@ def export_sources(path="sources.json"):
     with tx() as c:  # refresh.sh sources it: EVERY_<fetcher>=<minutes>
         Path("data").mkdir(exist_ok=True)
         Path("data/schedule.sh").write_text("".join(f"EVERY_{k}={v}\n" for k, v in schedule(c).items()))
+    # a new competitor channel waits for its history: Telegram is free, fetch it this tick (Facebook, paid: on schedule)
+    if any(ch.get("backfill") for ch in cfg["telegram_channels"]):
+        Path("data/last_telegram").unlink(missing_ok=True)
     return cfg
 
 
@@ -331,6 +357,9 @@ AGENT_TEXT = re.compile(r"აგენტის განცხადება|�
                         r"we are an agency|i am an agent\b|i'?m an agent\b", re.I)
 FIELDS = ("source", "owner_id", "price_usd", "area", "floor", "bedrooms", "address", "district", "geo_precision",
           "description_ru", "pets", "renovation", "style", "light", "furniture", "impression", "looks", "text")
+
+
+COMPETITOR = "источник-конкурент"
 
 
 def classify(it, moderate_all):
@@ -390,6 +419,8 @@ def sync(listings_path="listings.json", dropped_path="raw/dropped_agents.json", 
             old = c.execute("SELECT decision, status_reason FROM listings WHERE id = ?", (it["id"],)).fetchone()
             if old and old["decision"]:  # a human already decided: keep it (and its reason, e.g. "неактуально")
                 status, reason = ("published", None) if old["decision"] == "approved" else ("rejected", old["status_reason"] or "отклонено агентом")
+            if it.get("competitor"):  # not our inventory: never in the bot's search or the review queue (CRM: «Конкуренты»)
+                status, reason = "rejected", COMPETITOR
             latlng = it.get("latlng") or (None, None)
             vals = {k: it.get(k) for k in FIELDS}
             vals.update({k: json.dumps(it.get(k) or ({} if k == "details" else []), ensure_ascii=False) for k in JSON_COLS},

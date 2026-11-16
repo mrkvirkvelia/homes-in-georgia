@@ -287,15 +287,27 @@ def same_flat(a, b):
             and abs(a["price_usd"] - b["price_usd"]) <= 0.1 * max(a["price_usd"], b["price_usd"]))
 
 
+def competitor_sources():
+    """Sources marked «Конкурент» in the CRM (sources.json "competitor"): listing sources tg:<key> / fb:<key>."""
+    cfg = json.load(open("sources.json")) if os.path.exists("sources.json") else {}
+    return ({f"tg:{c['username']}" for c in cfg.get("telegram_channels", []) if c.get("competitor")}
+            | {f"fb:{g['key']}" for g in cfg.get("facebook_groups", []) if g.get("competitor")})
+
+
 def dedupe(items):
+    """A competitor's ad (it["competitor"], they come last) is never merged away and absorbs nothing: it stays its own
+    listing (CRM «Конкуренты») and only adds its source to the dup_sources of our ad of the same flat («уже у конкурента»)."""
     # ponytail: O(n^2) pairwise scan, fine for hundreds; bucket by (floor, bedrooms) for thousands
     out = []
     for it in items:
         # across sites: same params or a shared photo. Within one site same params are usually two different cheap flats,
         # and one shared photo can be a common building shot; 2+ shared photos = the same post published twice
-        dup = next((o for o in out if (o["source"] != it["source"] and (same_flat(o, it) or same_photo(o, it)))
-                    or shared_photos(o, it) >= 2), None)
-        if dup:
+        dup = next((o for o in out if not o.get("competitor") and (
+                    (o["source"] != it["source"] and (same_flat(o, it) or same_photo(o, it))) or shared_photos(o, it) >= 2)), None)
+        if dup and it.get("competitor"):
+            dup["dup_sources"] = dup.get("dup_sources", []) + [it["source"]]
+            out.append(it)
+        elif dup:
             dup["urls"] += it["urls"]
             dup["dup_sources"] = dup.get("dup_sources", []) + [it["source"]]
             # the kept copy also takes the other copy's facts (its own win), exact pin and video
@@ -565,13 +577,21 @@ def main():
                                          ("raw/instagram.json", from_instagram), ("raw/threads.json", from_threads)]
              if os.path.exists(path) for i in json.load(open(path))]
     items += channel_items("competitor")
+    rivals = competitor_sources()
+    for it in items:
+        it["competitor"] = it["source"] in rivals
+    items.sort(key=lambda i: i["competitor"])  # stable: our sources keep their order, competitors' go last (dedupe)
     counts = Counter(i["source"] for i in items)
     with ThreadPoolExecutor(16) as ex:
         list(ex.map(download_photos, items))
         list(ex.map(download_site_video, items))
     for it in items:
         it["hashes"] = [dhash(p) for p in it["photos"]]
-    agent_signals(items)  # before dedupe: the same flat on two sites is not "the same text twice"
+    # before dedupe: the same flat on two sites is not "the same text twice"; a competitor reposting an owner's photos
+    # doesn't make the owner an agent
+    agent_signals([i for i in items if not i["competitor"]])
+    for it in items:
+        it.setdefault("agent_reasons", [])
     items = dedupe(items)
     print("collected:", dict(counts), "| after dedupe:", len(items), f"(merged {sum(counts.values()) - len(items)})")
 
@@ -596,7 +616,7 @@ def main():
         p = profiles.get(it["id"])
         if not p:
             continue
-        if p["agent_suspect"] and it["source"] != "agency" and not it["source"].startswith(("tg:", "ig:")):
+        if p["agent_suspect"] and it["source"] != "agency" and not it["source"].startswith(("tg:", "ig:")) and not it["competitor"]:
             it["agent_reasons"].append("ИИ: " + p["agent_reason"])
         apply_profile(it, p)
         it.pop("photo_urls", None)
@@ -623,6 +643,10 @@ def test():
     two, one = {"hashes": [0b1011, 0xF0F0]}, {"hashes": [0b1011, 0x0F0F0000]}  # one channel posted a flat twice / a common photo
     assert len(dedupe([{**a, "urls": ["x"], "source": "agency", **two}, {**a, "floor": 2, "urls": ["y"], "source": "agency", **two}])) == 1
     assert len(dedupe([{**a, "urls": ["x"], "source": "agency", **two}, {**a, "floor": 2, "urls": ["y"], "source": "agency", **one}])) == 2
+    # a competitor's copy stays its own listing and marks ours «уже у конкурента»; two competitors are not merged
+    ours, rival = {**a, "urls": ["x"], "source": "ss.ge", "competitor": False}, {**a, "urls": ["y"], "source": "tg:r", "competitor": True}
+    out = dedupe([ours, rival, {**rival, "source": "tg:q", "urls": ["z"]}])
+    assert len(out) == 3 and out[0]["dup_sources"] == ["tg:r", "tg:q"] and out[0]["urls"] == ["x"] and "dup_sources" not in out[1]
     assert phones("call +995 599 12 34 56 or 5.8.5.8.9.0.3.2.7") == {"599123456", "585890327"}
     # competitor channel posts (real formats from tbilisi_apartments / crescotbilisi)
     tg = {"id": 1, "channel": "x", "url": "https://t.me/x/1", "photos": []}

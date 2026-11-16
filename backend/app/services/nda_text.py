@@ -1,5 +1,5 @@
 """The agent agreement (docs/NDA.md): «Agreement on connection to and participation in the cloud platform for independent
-real estate entrepreneurs», edition 1.1 — the text of Soglashenie-KA / KA-RU / KA-EN-red-1.1-shablon.pdf (2026-11-14) as
+real estate entrepreneurs», edition 1.2 (1.1 PDFs + clause 13.8) — the text of Soglashenie-KA / KA-RU / KA-EN-red-1.1-shablon.pdf (2026-11-14) as
 data. Generated from the PDFs, then kept here: to change the wording edit this file (all three languages); new agreements
 carry it, sent and signed ones keep their own frozen text.
 
@@ -12,7 +12,7 @@ Fields filled by the system: {num} {date} {name_ka} {name2} (the name in the sec
 The parties' details and signatures (after chapter 24, before the appendices) are built by services/nda.py from
 COMPANY / REQUISITES / SIGNATURES below."""
 
-EDITION = "1.1"
+EDITION = "1.2"
 
 TITLE = {
     "ka": "შეთანხმება უძრავი ქონების სფეროში დამოუკიდებელი მეწარმეებისთვის ღრუბლოვან პლატფორმასთან მიერთებისა და მასში "
@@ -67,9 +67,9 @@ SIGNATURES = {
 
 BLOCKS: list[dict] = [
     {"k": "p", "n": "",
-     "ka": "ხელშეკრულება № {num} · ქ. თბილისი · {date} · რედაქცია 1.1",
-     "ru": "Договор № {num} · г. Тбилиси · {date} · Редакция 1.1",
-     "en": "Agreement No. {num} · Tbilisi · {date} · Version 1.1"},
+     "ka": "ხელშეკრულება № {num} · ქ. თბილისი · {date} · რედაქცია 1.2",
+     "ru": "Договор № {num} · г. Тбилиси · {date} · Редакция 1.2",
+     "en": "Agreement No. {num} · Tbilisi · {date} · Version 1.2"},
     {"k": "n", "n": "0.1",
      "ka": "ინდივიდუალური მეწარმე **დავით თიბელაშვილი**, საიდენტიფიკაციო ნომერი **326129853**, იურიდიული მისამართი: **საქართველო, ქ. თბილისი, მერაბ კოსტავას ქ. №14**, ღრუბლოვანი პლატფორმის ოპერატორი, რომელიც მოქმედებს კომერციული აღნიშვნებით Homes in Georgia, Rent in Tbilisi და ოპერატორის სხვა პროექტებით (შემდგომში — „ოპერატორი“), ერთი მხრივ, და",
      "ru": "Индивидуальный предприниматель **Давид Тибелашвили**, регистрационный номер **326129853**, юридический адрес: **Грузия, г. Тбилиси, ул. Мераба Костава, 14**, оператор облачной платформы, работающей под коммерческими обозначениями Homes in Georgia, Rent in Tbilisi и другими проектами Оператора (далее — «Оператор»), с одной стороны, и",
@@ -526,6 +526,10 @@ BLOCKS: list[dict] = [
      "ka": "მონაცემების საერთაშორისო გადაცემა დასაშვებია მხოლოდ კანონიერი საფუძვლის არსებობისას. თითოეული მხარე პასუხს აგებს პერსონალური მონაცემების შესახებ კანონმდებლობის საკუთარ დარღვევებზე.",
      "ru": "Международная передача данных допускается только при наличии законного основания. Каждая Сторона отвечает за собственные нарушения законодательства о персональных данных.",
      "en": "International transfer of data is allowed only on a lawful basis. Each Party is liable for its own breaches of personal data legislation."},
+    {"k": "n", "n": "13.8",
+     "ka": "მონაწილე ვალდებულია უზრუნველყოს პლატფორმაზე წვდომის მონაცემების (პაროლები, კოდები, მოწყობილობები) დაცულობა. პლატფორმისთვის გამოყენებულ ანგარიშზე (CRM, Telegram, ელ. ფოსტა, ტელეფონის ნომერი) უნებართვო წვდომის (გატეხვის), წვდომის დაკარგვის ან მათი საფუძვლიანი ეჭვის შემთხვევაში მონაწილე ვალდებულია აღმოჩენიდან ან ეჭვის გაჩენიდან არაუგვიანეს 48 საათისა აცნობოს ამის შესახებ ოპერატორს და ითანამშრომლოს წვდომის აღდგენასა და დაცვაში. ოპერატორისთვის შეტყობინებამდე მონაწილის ანგარიშიდან შესრულებული მოქმედებები მონაწილის მოქმედებებად ითვლება.",
+     "ru": "Участник обязан обеспечивать сохранность данных доступа к Платформе (пароли, коды, устройства). При взломе, потере доступа или обоснованном подозрении на них в отношении учётных записей, используемых для Платформы (CRM, Telegram, email, номер телефона), Участник обязан уведомить Оператора не позднее 48 часов с момента обнаружения или возникновения подозрения и содействовать восстановлению и защите доступа. До уведомления Оператора действия, совершённые из учётной записи Участника, считаются действиями Участника.",
+     "en": "The Participant must keep its Platform access credentials (passwords, codes, devices) secure. In the event of hacking, loss of access, or a reasonable suspicion of either, affecting the accounts used for the Platform (CRM, Telegram, email, phone number), the Participant must notify the Operator no later than 48 hours after discovery or after the suspicion arises, and assist in restoring and securing access. Until the Operator is notified, actions made from the Participant’s account are deemed the Participant’s own actions."},
     {"k": "h", "n": "14",
      "ka": "ფოტოები და ინტელექტუალური საკუთრება",
      "ru": "Фотографии и интеллектуальная собственность",

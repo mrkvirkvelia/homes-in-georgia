@@ -71,6 +71,7 @@ class Property(Base):
     checklist = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
     post_fields = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))  # services.properties.POST_FIELDS
     ai_flags = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    sign_draft = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))  # services.properties.save_sign_draft
     duplicate_of = Column(Integer, ForeignKey("properties.id", ondelete="SET NULL"))
     dup_check = Column(Text)
     review_comment = Column(Text)

@@ -717,6 +717,26 @@ on('POST', '/public/esign/:token', (m, b) => {
   return esView(m[1]);
 });
 
+// the owner's exclusive sign page /sign/mock-ex (backend properties.sign_view / save_sign_draft): the draft survives a
+// reload here too (localStorage), so «continue where he stopped» can be checked in the mock
+const EX_KEY = 'mock_ex_draft';
+const exDraft = (): Record<string, unknown> => { try { return JSON.parse(localStorage.getItem(EX_KEY) || '{}'); } catch { return {}; } };
+const exSave = (kv: Record<string, unknown>) => { const d = { ...exDraft(), ...kv, saved_at: new Date().toISOString() }; localStorage.setItem(EX_KEY, JSON.stringify(d)); return d; };
+const exView = () => ({ id: 101, address: 'თბილისი, პეკინის გამზ. 7', cadastral_code: '', owner_name: 'Гиорги', owner_phone: '+995 555 12 34 56',
+  signed_at: exDraft().signed_at || null, draft: exDraft().signed_at ? null : exDraft() });
+on('GET', '/public/exclusive/:token', () => exView());
+on('PUT', '/public/exclusive/:token/draft', (_m, b) => exSave(Object.fromEntries(['full_name', 'personal_id', 'phone', 'cadastral_code', 'lang', 'registry_app'].filter((k) => k in b).map((k) => [k, b[k]]))));
+on('POST', '/public/exclusive/:token/id-doc', (_m, b) => exSave({ id_doc_name: (b.__files as { name: string }[] | undefined)?.[0]?.name || 'id.jpg' }));
+on('POST', '/public/exclusive/:token/extract-code', (_m, b) => { const name = (b.__files as { name: string }[] | undefined)?.[0]?.name || 'extract.pdf'; exSave({ extract_name: name, cadastral_code: '01.10.14.016.017.01.001' }); return { cadastral_code: '01.10.14.016.017.01.001', name }; });
+on('POST', '/public/exclusive/:token/extract-from-url', (_m, b) => {
+  if (!/napr\.gov\.ge|reestri\.gov\.ge/.test(String(b.url))) throw new ApiError(422, 'Ссылка не на выписку NAPR: нужна ссылка вида https://bs.napr.gov.ge/GetBlob?…');
+  exSave({ extract_name: 'extract.pdf', extract_url: b.url, cadastral_code: '01.10.14.016.017.01.001' });
+  return { url: b.url, name: 'extract.pdf', cadastral_code: '01.10.14.016.017.01.001', fields: { cadastral_code: '01.10.14.016.017.01.001', owner_full_name: 'Демо Собственник', owner_personal_number: '01001000001' } };
+});
+on('GET', '/public/exclusive/:token/registry', () => ({ total: 1, page: 1, lastpage: 1, items: [{ app_id: '1', reg_number: '892026010466', date: new Date().toISOString(),
+  type: 'ამონაწერის მომზადება უძრავ ნივთზე', address: 'ქალაქი თბილისი', status: 'სარეგისტრაციო წარმოება დასრულებულია', done: true, applicants: [], url: 'https://napr.gov.ge' }] }));
+on('POST', '/public/exclusive/:token', () => { exSave({ signed_at: new Date().toISOString() }); return exView(); });
+
 // the registry (services/registry.py): one NAPR application for any owner ID; an extract link fills demo fields
 // any owner ID: one object the CRM already knows (the «Уже есть в базе CRM» card, «Подставить» / «Стереть»)
 on('GET', '/registry/known', () => ({ items: [{ cadastral: '01.14.12.003.045.01.017', address: 'თბილისი, ჭავჭავაძის გამზ. 12', floor: '4',

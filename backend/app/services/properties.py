@@ -445,10 +445,13 @@ def take(db: Session, listing_id: str | None, agent: User, manual_fields: dict |
                 return existing
             if existing.agent_id and existing.status != "archived":
                 raise DomainError("taken_by_other", "object already taken by another agent")
+            from_feed = existing.status == "archived"  # its ad was back in «Новые объявления»
             existing.agent_id, existing.taken_at = agent.id, now()
             existing.archive_reason = existing.archive_comment = existing.archived_at = None
             _bind_owner(db, existing, db.get(Owner, existing.owner_id) if existing.owner_id else None, agent)
             _status(db, existing, "taken", agent, "taken")
+            if from_feed:
+                plan_take_idle(db, existing)
             db.commit()
             return existing
         urls = jload(listing.urls, []) or []
@@ -471,6 +474,8 @@ def take(db: Session, listing_id: str | None, agent: User, manual_fields: dict |
     if listing_id:
         link_listing(db, p, listing)
     log_event(db, "property", p.id, "taken", agent, listing_id=listing_id)
+    if listing_id:
+        plan_take_idle(db, p)
     if commit:
         db.commit()
     return p
@@ -660,14 +665,74 @@ def owner_refused(db: Session, pid: int, agent: User, comment: str | None = None
     _require_owner(p, agent)
     _require_status(p, "taken", "call_failed", "owner_confirmed", "shoot_scheduled")
     _archive_now(db, p, agent, "owner_refused", comment, action="owner_refused")
+    _release_owner(db, p, agent)
+    db.commit()
+    return p
+
+
+def _release_owner(db: Session, p: Property, actor: User | None) -> None:
+    """The object's owner is freed from its agent unless he has other live objects of that agent (he never became ours)."""
     o = db.get(Owner, p.owner_id) if p.owner_id else None
-    if o is not None and o.agent_id == p.agent_id and not db.scalar(select(Property.id).where(  # he never became ours
+    if o is not None and o.agent_id and o.agent_id == p.agent_id and not db.scalar(select(Property.id).where(
             Property.owner_id == o.id, Property.id != p.id, Property.agent_id == o.agent_id,
             Property.status != "archived").limit(1)):
         o.agent_id = None
-        log_event(db, "owner", o.id, "agent_released", agent, property_id=p.id)
-    db.commit()
-    return p
+        log_event(db, "owner", o.id, "agent_released", actor, property_id=p.id)
+
+
+# ------------------------------------------------- «Взят» with no action → back to the feed (Stanislav 11-16)
+TAKE_IDLE_WARN_BEFORE = 15  # minutes before the return the agent is warned
+IDLE_NOT_ACTIONS = ("taken", "listing_linked")  # logged by the take itself / the matcher
+
+
+def take_idle_minutes(db: Session) -> int:
+    try:
+        return max(0, int(settings_svc.get(db, "take_idle_min") or 0))
+    except ValueError:
+        return 0
+
+
+def plan_take_idle(db: Session, p: Property) -> None:
+    """An object taken from «Новые объявления»: a warning ~15 min before, then the return (worker job take_idle).
+    Only this take path plans it: hand assignments, own exclusives and manual objects never go back. No commit."""
+    n = take_idle_minutes(db)
+    if n <= 0:
+        return
+    ret = aware(p.taken_at) + timedelta(minutes=n)
+    warn = n > TAKE_IDLE_WARN_BEFORE
+    jobs.schedule(db, "take_idle", p.id, ret - timedelta(minutes=TAKE_IDLE_WARN_BEFORE) if warn else ret,
+                  {"agent_id": p.agent_id, "taken_at": aware(p.taken_at).isoformat(), "return_at": ret.isoformat(),
+                   "minutes": n, "phase": "warn" if warn else "return"})
+
+
+def idle_since_take(db: Session, p: Property) -> bool:
+    """Still «Взят» and its agent did nothing on the card since the take: an action is any event he logged on the object
+    (call result, owner / contact, field edit, media, checklist, archive, any status change ...)."""
+    if p.status != "taken" or not p.agent_id or not p.taken_at:
+        return False
+    return not db.scalar(select(Event.id).where(
+        Event.entity == "property", Event.entity_id == str(p.id), Event.actor_id == p.agent_id,
+        Event.at > aware(p.taken_at), Event.action.not_in(IDLE_NOT_ACTIONS)).limit(1))
+
+
+def idle_return_at(db: Session, p: Property) -> str | None:
+    """When the object goes back if nothing is done (the card's timer), else None."""
+    if take_idle_minutes(db) <= 0 or not idle_since_take(db, p):
+        return None
+    job = next((j for j in jobs.pending(db, "take_idle", p.id)), None)
+    return (job.payload or {}).get("return_at") if job else None
+
+
+def return_idle(db: Session, p: Property, minutes: int) -> int:
+    """Back to the feed: archived as «Возвращён: нет действий» (its ad shows in «Новые объявления» again, a re-take
+    reuses this object), agent cleared, his owner binding released. Returns the agent id. No commit."""
+    agent = db.get(User, p.agent_id)
+    span = f"{minutes // 60} ч" if minutes % 60 == 0 else f"{minutes} мин"
+    _release_owner(db, p, None)
+    _archive_now(db, p, None, "idle_return", f"{span} без действий (агент {users_svc.tag_of(agent)})",
+                 action="idle_returned")
+    agent_id, p.agent_id = p.agent_id, None
+    return agent_id
 
 
 def owner_thinking(db: Session, pid: int, agent: User, until, comment: str | None = None) -> Property:
@@ -2183,6 +2248,7 @@ def out(db: Session, p: Property, user: User, full: bool = False, cache: dict | 
         listing = db.get(Listing, p.listing_id) if p.listing_id else None
         d["listing"] = listing_out(listing, full=can_see_owner(p, user)) if listing else None
         d.update(card(db, p, user))
+        d["idle_return_at"] = idle_return_at(db, p)
         if can_see_owner(p, user):
             from app.services import change_requests
             d["change_requests"] = change_requests.outs(db, change_requests.pending_for(db, p))

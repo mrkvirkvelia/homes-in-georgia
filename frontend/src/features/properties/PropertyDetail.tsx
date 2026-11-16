@@ -81,6 +81,14 @@ function OwnerPhone({ p }: { p: Property }) {
   return <span className="row gap-sm" style={{ display: 'inline-flex' }}><a href={`tel:${phone.replace(/[^+\d]/g, '')}`} style={{ fontWeight: 700, whiteSpace: 'nowrap' }}>{formatPhone(phone)}</a><CopyPhone phone={phone} /></span>;
 }
 
+/** «Взят» from the feed, nothing done yet: the object goes back when this runs out (worker job take_idle) */
+function IdleTimer({ at }: { at: string }) {
+  const [, tick] = useState(0);
+  useEffect(() => { const id = setInterval(() => tick((x) => x + 1), 30_000); return () => clearInterval(id); }, []);
+  const n = Math.max(0, Math.ceil((new Date(at).getTime() - Date.now()) / 60_000));
+  return <div className="alert alert-warn">⏳ {t('вернётся в «Новые объявления» через {n} мин, если не будет действий', { n })}</div>;
+}
+
 function CallStep({ p }: { p: Property }) {
   const { toast, set } = useProp(p.id);
   const [reached, setReached] = useState(false);
@@ -105,6 +113,7 @@ function CallStep({ p }: { p: Property }) {
         <OwnerPhone p={p} />
         {p.call_attempts ? <Badge tone="grey">{t('попыток: {n}', { n: p.call_attempts })}</Badge> : null}
       </div>
+      {p.status === 'taken' && p.idle_return_at && <IdleTimer at={p.idle_return_at} />}
       {p.status === 'call_failed' && p.next_call_at && <div className="alert alert-info">{t('Не дозвонились · бот напомнит в {at}', { at: fmtDateTime(p.next_call_at) })}</div>}
       <div className="alert alert-info" style={{ fontWeight: 500 }}>
         <Sparkles size={16} style={{ flex: 'none', marginTop: 2 }} />
@@ -1335,7 +1344,7 @@ function ArchiveModal({ p, open, onClose, preset = '' }: { p: Property; open: bo
   return (
     <Modal open={open} onClose={onClose} title={preset ? ARCHIVE_REASON[preset] : t('В архив')}>
       <div className="col gap-lg">
-        <Field label={t('Причина')}><Select value={reason} placeholder="—" onChange={(e) => setReason(e.target.value)} options={Object.entries(ARCHIVE_REASON).map(([value, label]) => ({ value, label }))} /></Field>
+        <Field label={t('Причина')}><Select value={reason} placeholder="—" onChange={(e) => setReason(e.target.value)} options={Object.entries(ARCHIVE_REASON).filter(([value]) => value !== 'idle_return').map(([value, label]) => ({ value, label }))} /></Field>
         {reason === 'duplicate' && <Field label={t('Дубль объекта №')} hint={t('Номер объекта, который остаётся в базе. Этот объект будет удалён, его заявки, показы и сделки перейдут туда')}><Input inputMode="numeric" value={dup} placeholder="#123" onChange={(e) => setDup(e.target.value)} /></Field>}
         <Field label={reason === 'other' ? t('Комментарий (обязательно)') : t('Комментарий')}><Input value={comment} onChange={(e) => setComment(e.target.value)} /></Field>
         {(p.locked_fields || []).length > 0 && <div className="alert alert-info" style={{ fontSize: 13 }}>{t('Объект проверен оператором: архивация уйдёт оператору на проверку.')}</div>}

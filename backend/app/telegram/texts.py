@@ -2,7 +2,7 @@
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
-from app import districts
+from app import countries, districts
 
 # questionnaire options (A1a-A1c); the codes are what clients.profile stores (ARCHITECTURE §4.3)
 def _same(x):
@@ -165,7 +165,8 @@ def profile_summary(p, lang="ru", one_line=False):
     lang, p = lang_of(lang), p or {}
     if not any(v not in (None, [], "", 0) for v in p.values()):
         return ""
-    rows = [[("👥", p.get("residents") and _people(p["residents"], lang)), ("", p.get("pets") and pets_text(p["pets"], lang))],
+    rows = [[("", countries.label(p.get("country")))],
+            [("👥", p.get("residents") and _people(p["residents"], lang)), ("", p.get("pets") and pets_text(p["pets"], lang))],
             [("🕐", p.get("terms") and terms_text(p["terms"], lang)), ("💰", budget_text(p, lang))],
             [("🛏", p.get("bedrooms") and _bedrooms(p["bedrooms"], lang))],
             [("📍", place_text(p, lang))]]

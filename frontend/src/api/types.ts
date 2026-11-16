@@ -252,6 +252,7 @@ export interface EventItem {
 }
 
 export interface ClientProfile {
+  country?: { code: string | null; name: string } | null;
   residents?: string;
   pets?: string[];
   terms?: string[];

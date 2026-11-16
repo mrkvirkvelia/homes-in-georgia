@@ -18,6 +18,7 @@ from telegram.error import BadRequest, TelegramError
 
 import core
 import db
+from app import countries
 from app.models import at_least
 from app.telegram import client as tgc
 from app.telegram import links, notify, store, texts, userbot
@@ -202,6 +203,13 @@ def checked(rows):
 STEPS = ("res", "pets", "terms", "bud", "beds", "place")
 OPTS = {"res": texts.RESIDENTS, "pets": texts.PETS, "terms": texts.TERMS, "bud": texts.BUDGETS, "beds": texts.BEDROOMS}
 MULTI = {"pets": "pets", "terms": "terms", "beds": "bedrooms"}
+
+
+def steps_of(cl):
+    """English-speaking clients are first asked where they are from (Stanislav 11-16), unnumbered: the rest stays «1 of 6»."""
+    return ("country",) + STEPS if L(cl) == "en" else STEPS
+
+
 Q = {  # (ru, en, ka)
     "intro": ("Здравствуйте, {name}! 👋\nЯ помогу найти квартиру в Тбилиси без комиссии.\n\nОтветьте на 6 коротких вопросов, это займёт "
               "минуту. Где подходит несколько ответов, выберите все и нажмите «Готово».",
@@ -209,6 +217,9 @@ Q = {  # (ru, en, ka)
               "Where several answers fit, pick them all and tap «Done».",
               "გამარჯობა, {name}! 👋\nდაგეხმარებით თბილისში ბინის პოვნაში საკომისიოს გარეშე.\n\nუპასუხეთ 6 მოკლე კითხვას, ამას ერთი "
               "წუთი დასჭირდება. სადაც რამდენიმე პასუხი გერგებათ, აირჩიეთ ყველა და დააჭირეთ „მზადაა“."),
+    "country": ("<b>Откуда вы?</b> 🌍", "<b>Where are you from?</b> 🌍", "<b>საიდან ხართ?</b> 🌍"),
+    "other": ("✏️ Другая страна", "✏️ Other", "✏️ სხვა ქვეყანა"), "skip": ("Пропустить ➜", "Skip ➜", "გამოტოვება ➜"),
+    "other_ask": ("Напишите страну.", "Type your country.", "დაწერეთ ქვეყანა."),
     "res": ("<b>1 из 6.</b> Сколько человек будет жить?", "<b>1 of 6.</b> How many people will live there?",
             "<b>1 / 6.</b> რამდენი ადამიანი იცხოვრებს?"),
     "pets": ("<b>2 из 6.</b> Будут ли животные? Можно несколько.", "<b>2 of 6.</b> Any pets? You can pick several.",
@@ -262,6 +273,10 @@ def selected(cl, step):
 
 
 def question_kb(cl, step):
+    if step == "country":
+        cur = ((cl.get("profile") or {}).get("country") or {}).get("code")
+        btns = [cb(("✓ " if c == cur else "") + f"{countries.flag(c)} {countries.NAMES[c]}", f"q:country:{c}") for c in countries.TOP]
+        return markup([btns[i:i + 3] for i in range(0, len(btns), 3)] + [[cb(q(cl, "other"), "q:country:own"), cb(q(cl, "skip"), "q:country:skip")]])
     if step == "place":
         return markup([[cb(q(cl, "map"), "q:place:map")], [cb(q(cl, "districts"), "q:place:districts")], [cb(q(cl, "any"), "q:place:any")]])
     if step == "dist":
@@ -278,13 +293,14 @@ def question_kb(cl, step):
     return markup(rows)
 
 
-ICON = {"res": "👥", "pets": "🐾", "terms": "🕐", "bud": "💰", "beds": "🛏", "place": "📍"}
+ICON = {"country": "🌍", "res": "👥", "pets": "🐾", "terms": "🕐", "bud": "💰", "beds": "🛏", "place": "📍"}
 
 
 def answer_of(cl, step):
     """A finished step as the summary at the top of the questionnaire message shows it."""
     p, lang = cl.get("profile") or {}, L(cl)
-    return {"res": lambda: p.get("residents") and texts._people(p["residents"], lang),
+    return {"country": lambda: (p.get("country") or {}).get("name"),
+            "res": lambda: p.get("residents") and texts._people(p["residents"], lang),
             "pets": lambda: p.get("pets") and texts.pets_text(p["pets"], lang),
             "terms": lambda: p.get("terms") and texts.terms_text(p["terms"], lang),
             "bud": lambda: texts.budget_text(p, lang),
@@ -295,7 +311,8 @@ def answer_of(cl, step):
 def question_text(cl, step, note=None):
     """✓ answers of the steps before `step`, then the current question (+ the picked options, + a note)."""
     cur = "place" if step == "dist" else step
-    done = [f"✓ {ICON[s]} {e(answer_of(cl, s))}" for s in STEPS[:STEPS.index(cur)]]
+    steps = steps_of(cl)
+    done = [f"✓ {ICON[s]} {e(answer_of(cl, s))}" for s in steps[:steps.index(cur)]]
     t = q(cl, step)
     if step in MULTI or step == "dist":
         labels = selected_labels(cl, step)
@@ -340,7 +357,7 @@ async def start_questionnaire(bot, cl, name):
     await th(set_done, cl, False)
     await th(core.update, cl, lambda st, r: st.update(qmsg=None))  # a fresh questionnaire message
     await bot.send_message(int(cl["chat_id"]), q(cl, "intro", name=e(name or "")).replace(", !", "!"))
-    await ask(bot, cl, "res")
+    await ask(bot, cl, steps_of(cl)[0])
 
 
 def summary_kb(cl):
@@ -383,7 +400,7 @@ async def on_q(update: Update, ctx, cl):
     if step == "edit":
         await answer(query)
         await th(set_done, cl, False)
-        await ask(bot, cl, "res", query)
+        await ask(bot, cl, steps_of(cl)[0], query)
         return
     if step in MULTI and val != "done":  # toggle; «Нет» (pets) excludes the rest
         code = OPTS[step][int(val)][0]
@@ -419,6 +436,14 @@ async def on_q(update: Update, ctx, cl):
         if step == "dist" and not selected_labels(cl, step):
             await th(save_profile, cl, lambda p: p.update(districts=["any"], pin=None))
         return await finish(bot, cl, query) if step == "dist" else await ask(bot, cl, next_step(step), query)
+    if step == "country":
+        if val == "own":
+            await th(set_await, cl, "country")
+            return await ask(bot, cl, "country", query, note=q(cl, "other_ask"))
+        if val in countries.NAMES:
+            await th(save_profile, cl, lambda p: p.update(country=countries.of(val)))
+        await th(set_await, cl)
+        return await ask(bot, cl, "res", query)
     if step == "res":
         code = OPTS["res"][int(val)][0]
         await th(save_profile, cl, lambda p: p.update(residents=code))
@@ -475,6 +500,15 @@ async def on_budget_text(bot, cl, text):
     await th(save_profile, cl, lambda p: p.update(budget_min=got[0], budget_max=got[1]))
     await th(set_await, cl)
     await ask(bot, cl, "beds")
+
+
+async def on_country_text(bot, cl, text):
+    """«Other» country typed: saved as typed when it isn't a known name; the questionnaire message moves on."""
+    c = countries.parse(text)
+    if c:
+        await th(save_profile, cl, lambda p: p.update(country=c))
+    await th(set_await, cl)
+    await ask(bot, cl, "res")
 
 
 async def on_pin(bot, cl, lat, lng, radius, label):
@@ -1030,12 +1064,12 @@ async def on_t14(update, ctx, cl, parts):
 
 
 async def on_client_text(update: Update, ctx, cl):
-    """Free text the client's state is waiting for in the bot (the budget). -> True if handled."""
+    """Free text the client's state is waiting for in the bot (the budget, the «Other» country). -> True if handled."""
     kind, _ = awaiting(cl)
     text = update.effective_message and update.effective_message.text
-    if kind != "budget" or not text:
+    if kind not in ("budget", "country") or not text:
         return False
-    await on_budget_text(ctx.bot, cl, text)
+    await (on_budget_text if kind == "budget" else on_country_text)(ctx.bot, cl, text)
     return True
 
 

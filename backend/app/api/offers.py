@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import current_user
 from app.db import get_db
-from app.models import CAR_DEALS, CARS_ONLY, OFFER_STATUSES, Car, User, at_least
+from app.models import CAR_DEALS, OFFER_STATUSES, Car, User, can_cars
 from app.services import offers as O
 from app.services.common import get_or_404
 from app.services.errors import DomainError
@@ -73,9 +73,9 @@ def _body(kind: str, body: dict, new: bool) -> dict:
 
 
 def _agent_or_car_operator(user: User = Depends(current_user)) -> User:
-    """Agents and up, and the «Оператор авто» (Stanislav 11-16: sees only the cars, api/deps keeps him there)."""
-    if not (at_least(user, "agent") or user.role == CARS_ONLY):
-        raise DomainError("forbidden", "requires role agent or higher")
+    """Superadmin, admin and the «Оператор авто» only (Stanislav 11-16, like Daily Rent; models.can_cars)."""
+    if not can_cars(user):
+        raise DomainError("forbidden", "cars: admins and the car operator only")
     return user
 
 

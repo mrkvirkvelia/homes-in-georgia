@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import { Link, Navigate, Route, Routes, useLocation, useParams } from 'react-router-dom';
 import type { Role } from './api/types';
-import { ADMIN_ROLES, DAILY_RENT_ROLES, STAFF_ROLES, SUPER_ROLES } from './api/types';
+import { ADMIN_ROLES, CARS_ROLES, DAILY_RENT_ROLES, STAFF_ROLES, SUPER_ROLES } from './api/types';
 import { useAuth } from './auth/AuthContext';
 import { Empty, Loading } from './components/ui';
 import { t } from './lib/i18n';
@@ -73,8 +73,6 @@ function NotFound() {
 }
 
 const STAFF = STAFF_ROLES;
-const AGENT_UP: Role[] = [...STAFF_ROLES, 'agent'];
-const CARS_ROLES: Role[] = [...AGENT_UP, 'car_operator'];  // + «Оператор авто» (11-16); the site's own objects: recruits no (backend api/offers.py)
 
 export function App() {
   return (

@@ -12,6 +12,7 @@ export const DAILY_RENT_ONLY: Role = 'daily_rent_manager';
 export const DAILY_RENT_ROLES: Role[] = [...ADMIN_ROLES, DAILY_RENT_ONLY];
 /** «Оператор авто» (Stanislav 11-16): sees only «Авто» (backend api/deps.py). */
 export const CARS_ONLY: Role = 'car_operator';
+export const CARS_ROLES: Role[] = [...ADMIN_ROLES, CARS_ONLY];  // «Авто»: superadmin, admin, car operator only (11-16)
 /** users.list role filter for agent pickers: agents, recruits and staff with «Работает как агент» (works_as_agent). */
 export const FIELD_FILTER = 'field';
 

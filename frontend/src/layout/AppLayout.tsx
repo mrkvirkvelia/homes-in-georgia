@@ -6,7 +6,7 @@ import {
   Car, Settings, Trophy, UsersRound,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
-import { ADMIN_ROLES, CARS_ONLY, DAILY_RENT_ONLY, DAILY_RENT_ROLES, STAFF_ROLES, SUPER_ROLES, atLeast } from '../api/types';
+import { ADMIN_ROLES, CARS_ONLY, CARS_ROLES, DAILY_RENT_ONLY, DAILY_RENT_ROLES, STAFF_ROLES, SUPER_ROLES, atLeast } from '../api/types';
 import { api } from '../api';
 import { itemsOf, IS_MOCK } from '../api/client';
 import type { Role } from '../api/types';
@@ -26,7 +26,7 @@ export const NAV: NavItem[] = [
   { to: '/contracts', label: t('Договоры'), icon: FileText, roles: AGENT_UP },
   { to: '/calendar', label: t('Календарь'), icon: CalendarDays },
   // hge.ge's cars (sales are objects: «Объекты» → Продажа, Stanislav 11-15)
-  { to: '/cars', label: t('Авто'), icon: Car, roles: [...AGENT_UP, 'car_operator'] },
+  { to: '/cars', label: t('Авто'), icon: Car, roles: CARS_ROLES },
   { to: '/clients', label: t('Люди'), icon: UsersRound, roles: STAFF, also: ['/owners'] },
   { to: '/team', label: t('Команда'), icon: Trophy },
   { to: '/reports', label: t('Отчёты'), icon: ClipboardList },

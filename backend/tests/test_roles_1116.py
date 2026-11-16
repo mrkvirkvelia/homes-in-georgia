@@ -20,6 +20,10 @@ def test_car_operator_sees_only_cars(db, client):
     # and the Daily Rent operator still can't see the cars
     dr = make_user(db, "daily_rent_manager", "Нино")
     assert client.get("/api/offers/car", headers=auth(dr)).status_code == 403
+    # «Авто» like Daily Rent (11-16): admins yes, operators / agents / recruits no
+    assert client.get("/api/offers/car", headers=auth(make_user(db, "admin", "Иракли"))).status_code == 200
+    for role in ("operator", "agent", "recruit"):
+        assert client.get("/api/offers/car", headers=auth(make_user(db, role, role))).status_code == 403, role
 
 
 def test_remove_inactive_user(db, client):

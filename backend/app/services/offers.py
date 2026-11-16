@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 from app import storage
 from app.config import settings as env
 from app.api.deps import paginate
-from app.models import CARS_ONLY, Car, User, at_least
+from app.models import Car, User, can_cars
 from app.services import properties as P
 from app.services import jobs, site_feed
 from app.services.common import get_or_404, log_event, now
@@ -44,8 +44,8 @@ def out(o) -> dict:
 
 
 def _op(actor: User | None) -> bool:
-    """Operator rights over the cars: operators and up, and the «Оператор авто» (Stanislav 11-16)."""
-    return at_least(actor, "operator") or getattr(actor, "role", None) == CARS_ONLY
+    """Operator rights over the cars: admins and the «Оператор авто» (Stanislav 11-16; models.can_cars)."""
+    return can_cars(actor)
 
 
 def listing(db: Session, model, status: str | None, q: str | None, limit: int, offset: int) -> dict:

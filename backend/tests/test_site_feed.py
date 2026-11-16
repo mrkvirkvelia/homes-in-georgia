@@ -164,7 +164,7 @@ def up(client, h, kind, oid, n=1, name="a.jpg"):
 
 
 def test_crm_car_and_validation(db, client):
-    agent = make_user(db, "agent")
+    agent = make_user(db, "car_operator")
     h = auth(agent)
     assert client.post("/api/offers/car", headers=h, json={"title": "X"}).status_code == 422  # no deal
     assert client.post("/api/offers/car", headers=h, json={"deal": "lease", "title": "X"}).status_code == 422
@@ -186,13 +186,12 @@ def test_crm_car_and_validation(db, client):
 def test_crm_access(db, client):
     assert client.get("/api/offers/car").status_code == 401
     assert client.get("/api/offers/sale", headers=auth(make_user(db, "admin"))).status_code == 422  # sales are properties now
-    for role, code in (("recruit", 403), ("daily_rent_manager", 403), ("agent", 200), ("operator", 200), ("admin", 200)):
+    for role, code in (("recruit", 403), ("daily_rent_manager", 403), ("agent", 403), ("operator", 403), ("car_operator", 200), ("admin", 200)):
         assert client.get("/api/offers/car", headers=auth(make_user(db, role))).status_code == code, role
-    a = make_user(db, "agent")
-    b = make_user(db, "operator")
+    a = make_user(db, "car_operator")
+    b = make_user(db, "admin")
     o = client.post("/api/offers/car", headers=auth(a), json={"deal": "rent", "title": "A", "agent_id": b.id}).json()
-    assert o["agent_id"] == a.id  # an agent cannot hand it to somebody else
-    assert client.patch(f"/api/offers/car/{o['id']}", headers=auth(b), json={"agent_id": b.id}).json()["agent_id"] == b.id
+    assert o["agent_id"] == b.id  # the car operator can assign it (admin rights over the cars)
 
 
 # ---------------------------------------------------------------- the two publications: Telegram and the site
@@ -262,7 +261,7 @@ def test_old_sale_ids_keep_resolving(db, client):
 def test_car_telegram_post_and_failure(db, client, sent, monkeypatch):
     from app.config import settings
     from app.telegram import notify
-    op = make_user(db, "operator")
+    op = make_user(db, "car_operator")
     cid = client.post("/api/offers/car", headers=auth(op), json={"deal": "sale", "title": "Toyota Camry", "year": 2018,
                       "price": 14500, "gearbox": "auto", "fuel": "hybrid", "body": "sedan", "seats": 5, "mileage": 76538,
                       "is_exclusive": True}).json()["id"]

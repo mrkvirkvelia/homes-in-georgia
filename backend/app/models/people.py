@@ -14,6 +14,8 @@ DAILY_RENT_ONLY = "daily_rent_manager"
 DAILY_RENT_ROLES = ("superadmin", "admin", DAILY_RENT_ONLY)
 # «Оператор авто» (Stanislav 11-16): outside the ladder too, sees only «Авто» (the cars); api/deps refuses the rest
 CARS_ONLY = "car_operator"
+# «Авто» is for superadmin, admin and the car operator only (Stanislav 11-16, same as Daily Rent): agents/operators have no access
+CARS_ROLES = ("superadmin", "admin", CARS_ONLY)
 SUPER = ("superadmin",)
 ADMINS = SUPER + ("admin",)
 STAFF = ADMINS + ("operator",)
@@ -85,6 +87,10 @@ def role_level(u) -> int:
 
 def at_least(u, role: str) -> bool:
     return u is not None and role_level(u) >= LEVELS[role]
+
+
+def can_cars(u) -> bool:
+    return u is not None and getattr(u, "role", None) in CARS_ROLES
 
 
 def can_daily_rent(u) -> bool:

@@ -57,17 +57,19 @@ def test_full_flow(db, client, fake_chrome, tg_sent):
             "address": "Tbilisi, Vake 1", "email": "nino@example.com", "access": "2026-11-20", "iban_gel": "GE00TB0000000000000001"}
     # no company signature yet; only a superadmin sets it; agents can't make NDAs
     assert client.post("/api/ndas", json=body, headers=auth(op)).status_code == 409
+    assert client.post("/api/ndas", json={**body, "full_name": "Arthur"}, headers=auth(op)).status_code == 400  # no surname
+    assert client.post("/api/ndas", json={**body, "full_name_ka": "Baloyan"}, headers=auth(op)).status_code == 400  # not Georgian
     assert client.put("/api/ndas/company-signature", json={"signature": SIG}, headers=auth(op)).status_code == 403
     assert client.put("/api/ndas/company-signature", json={"signature": SIG}, headers=auth(boss)).status_code == 200
     assert client.post("/api/ndas", json=body, headers=auth(ag)).status_code == 403
     r = client.post("/api/ndas", json=body, headers=auth(op))
     assert r.status_code == 200, r.text
     n = r.json()
-    assert n["status"] == "sent" and n["telegram"] == "Nino_Agent" and n["full_name"] == "Nino Test" and n["role"] == "Рекрут"
-    assert n["details"]["level"] == "25" and n["number"].endswith(f"-{n['id']:04d}")
+    assert n["status"] == "sent" and n["telegram"] == "Nino_Agent" and n["full_name"] == "Nino Test" and n["role"] == "Агент"  # a «recruit» in the body is ignored: always Агент
+    assert n["details"]["level"] == "50" and n["number"].endswith(f"-{n['id']:04d}")
     h = n["html"]
     for s in ("Nino Test", "ნინო ტესტი", "01001055555", "@Nino_Agent", "406112233", "Tbilisi, Vake 1", "nino@example.com",
-              "20.11.2026", "GE00TB0000000000000001", "რეკრუტი", "Рекрут", n["number"], "326129853", "GE89TB7085336010100094"):
+              "20.11.2026", "GE00TB0000000000000001", "აგენტი", "Агент", n["number"], "326129853", "GE89TB7085336010100094"):
         assert s in h, s
     assert "Участник" in h and "მონაწილე" in h and "русском" in h and "Приложение 5" in h  # two columns, chapter 24, appendices
     assert "{" not in h.split("<body>")[1]  # every field filled
@@ -109,15 +111,15 @@ def test_any_account_when_no_username_cancel_and_languages(db, client):
     boss = make_user(db, "superadmin")
     client.put("/api/ndas/company-signature", json={"signature": SIG}, headers=auth(boss))
     for lang, needle, absent in (("KA", "მონაწილე", "Участник"), ("KA-EN", "Participant", "Участник")):
-        n = client.post("/api/ndas", json={"lang": lang, "full_name": "A", "personal_id": "1"}, headers=auth(boss)).json()
+        n = client.post("/api/ndas", json={"lang": lang, "full_name": "A Test", "personal_id": "1"}, headers=auth(boss)).json()
         assert needle in n["html"] and absent not in n["html"] and n["role"] == "Агент" and n["details"]["level"] == "50"
         assert ("ინგლისურ" in n["html"]) == (lang == "KA-EN")  # chapter 24 «Language»: bilingual only
-    n = client.post("/api/ndas", json={"lang": "KA", "full_name": "A", "personal_id": "1"}, headers=auth(boss)).json()
+    n = client.post("/api/ndas", json={"lang": "KA", "full_name": "A Test", "personal_id": "1"}, headers=auth(boss)).json()
     token = n["path"].split("/")[-1]
     assert client.post(f"/api/public/nda/{token}/telegram", json=_widget(username="whoever")).status_code == 200
     assert client.post(f"/api/ndas/{n['id']}/cancel", headers=auth(boss)).json()["status"] == "cancelled"
     assert client.get(f"/api/public/nda/{token}").status_code == 404
-    assert client.post("/api/ndas", json={"lang": "XX", "full_name": "A", "personal_id": "1"}, headers=auth(boss)).status_code == 400
+    assert client.post("/api/ndas", json={"lang": "XX", "full_name": "A Test", "personal_id": "1"}, headers=auth(boss)).status_code == 400
 
 
 def test_test_mode_confirmation_and_pdf_retry(db, client, monkeypatch):
@@ -125,7 +127,7 @@ def test_test_mode_confirmation_and_pdf_retry(db, client, monkeypatch):
     from app.services.errors import DomainError
     boss = make_user(db, "superadmin")
     client.put("/api/ndas/company-signature", json={"signature": SIG}, headers=auth(boss))
-    n = client.post("/api/ndas", json={"iban_gel": "GE00TB0000000000000001", "lang": "KA-EN", "full_name": "B", "personal_id": "2", "telegram": "b_agent"},
+    n = client.post("/api/ndas", json={"iban_gel": "GE00TB0000000000000001", "lang": "KA-EN", "full_name": "B Test", "personal_id": "2", "telegram": "b_agent"},
                     headers=auth(boss)).json()
     token = n["path"].split("/")[-1]
     monkeypatch.setattr(N, "_test_mode", lambda: True)
@@ -149,7 +151,7 @@ def test_edit_text(db, client):
     signing page must reload; operators can't; a signed NDA is frozen; null → the standard text back."""
     boss, op = make_user(db, "superadmin", tg_id=111), make_user(db, "operator", tg_id=222)
     client.put("/api/ndas/company-signature", json={"signature": SIG}, headers=auth(boss))
-    n = client.post("/api/ndas", json={"lang": "KA-RU", "full_name": "Nino", "personal_id": "01001055555"},
+    n = client.post("/api/ndas", json={"lang": "KA-RU", "full_name": "Nino Test", "personal_id": "01001055555"},
                     headers=auth(op)).json()
     t = client.get(f"/api/ndas/{n['id']}/text", headers=auth(op)).json()
     assert t["edited"] is False and t["edition"] == N.EDITION
@@ -232,7 +234,7 @@ def test_ie_from_signed_nda_to_profile(db, client):
     boss = make_user(db, "superadmin")
     ag = make_user(db, "agent", tg_id=777001)
     client.put("/api/ndas/company-signature", json={"signature": SIG}, headers=auth(boss))
-    n = client.post("/api/ndas", json={"iban_gel": "GE00TB0000000000000001", "full_name": "N", "personal_id": "1", "ie": "406112233"}, headers=auth(boss)).json()
+    n = client.post("/api/ndas", json={"iban_gel": "GE00TB0000000000000001", "full_name": "N Test", "personal_id": "1", "ie": "406112233"}, headers=auth(boss)).json()
     token = n["path"].split("/")[-1]
     client.post(f"/api/public/nda/{token}/telegram", json=_widget())
     v = client.get(f"/api/public/nda/{token}").json()

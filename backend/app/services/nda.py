@@ -255,9 +255,13 @@ def create(db: Session, body: dict, user: User) -> AgentNda:
     f["telegram"] = f["telegram"].lstrip("@").split("/")[-1] or ""  # «@name» or «t.me/name» → «name»
     if not f["full_name"] or not f["personal_id"]:
         raise DomainError("missing_fields", "Укажите ФИО и личный номер агента")
-    role = body.get("role") if body.get("role") in ROLES else "agent"
+    role = "agent"  # every agreement is «Агент» (Stanislav 11-16): no role in the form, level 50 / 70 / 90
     d = {k: _clean(body.get(k)) for k in DETAILS}
-    d["level"] = d["level"] if d["level"] in LEVELS else ("25" if role == "recruit" else "50")
+    if len(f["full_name"].split()) < 2:
+        raise DomainError("bad_name", "ФИО агента: имя и фамилия, как в паспорте")
+    if d["full_name_ka"] and not re.search(r"[\u10a0-\u10ff]", d["full_name_ka"]):
+        raise DomainError("bad_name_ka", "ФИО по-грузински — грузинскими буквами (или оставьте пустым)")
+    d["level"] = d["level"] if d["level"] in LEVELS and d["level"] != "25" else "50"
     d["access"] = _date(d["access"]) or now().astimezone(TZ).strftime("%d.%m.%Y")
     d["role"] = role
     if member:  # a team member: one open agreement at a time — «Отправить снова» or «Пересоздать» (replace)
@@ -706,11 +710,11 @@ def prefill(u: User) -> dict:
     """The NDA form from the profile; what the profile lacks stays empty for staff to fill. The agreement's role is always
     Агент (no role / level in the form, Stanislav 11-16); the level from the profile, else 50."""
     role = "agent"
-    level = str(u.level) if str(u.level) in LEVELS else "50"
+    level = str(u.level) if str(u.level) in LEVELS and u.level != 25 else "50"
     return {"user_id": u.id, "lang": "KA-RU", "full_name": " ".join(x for x in (u.first_name, u.last_name) if x) or u.name,
             "full_name_ka": "", "personal_id": u.personal_id or "", "ie": u.ie_number or "", "address": "",
             "phone": u.phone or "", "email": u.email or "", "telegram": f"@{u.username}" if u.username else "",
-            "role": role, "level": level, "access": (u.created_at or now()).astimezone(TZ).strftime("%Y-%m-%d"),
+            "role": role, "level": level, "access": now().astimezone(TZ).strftime("%Y-%m-%d"),
             "iban_gel": u.iban_gel or "", "iban_usd": u.iban_usd or ""}
 
 

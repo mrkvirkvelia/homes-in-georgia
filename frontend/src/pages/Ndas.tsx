@@ -108,8 +108,8 @@ function NewNda({ onMade, preset, onReset }: { onMade: (n: Nda) => void; preset?
     <Card label={preset ? t('Участнику команды: {name}', { name: preset.name }) : 'Новому агенту'} title={t('Соглашение о подключении к платформе (ред. {ed})', { ed: sig.data?.edition ?? '…' })}>
       {preset && <div className="alert alert-info" style={{ marginBottom: 12 }}>{t('Заполнено из профиля — проверьте и дополните пустые поля')} · <button type="button" className="link-btn" onClick={() => { setF({ ...f, ...blank, access: today() }); onReset?.(); }}>{t('Очистить')}</button></div>}
       <div className="form-grid">
-        <Field label="ФИО агента *" hint="Латиницей или кириллицей, как в паспорте"><Input value={f.full_name} onChange={set('full_name')} placeholder="Nino Beridze" /></Field>
-        <Field label="ФИО по-грузински" hint="Для грузинского текста; пусто — как выше"><Input value={f.full_name_ka} onChange={set('full_name_ka')} placeholder="ნინო ბერიძე" /></Field>
+        <Field label="ФИО агента *" hint={t('Имя и фамилия латиницей или кириллицей, как в паспорте')}><Input value={f.full_name} onChange={set('full_name')} placeholder="Nino Beridze" /></Field>
+        <Field label="ФИО по-грузински" hint={t('Только грузинскими буквами; пусто — как выше')}><Input value={f.full_name_ka} onChange={set('full_name_ka')} placeholder="ნინო ბერიძე" /></Field>
         <Field label="Личный номер *"><Input value={f.personal_id} onChange={set('personal_id')} /></Field>
         <Field label="Номер ИП (ი/მ)" hint={t('Пусто — агент добавит в профиле, договор обновится')}><Input value={f.ie} onChange={set('ie')} /></Field>
         <Field label="Юридический адрес"><Input value={f.address} onChange={set('address')} /></Field>
@@ -121,7 +121,7 @@ function NewNda({ onMade, preset, onReset }: { onMade: (n: Nda) => void; preset?
         <Field label="IBAN USD"><Input value={f.iban_usd} onChange={set('iban_usd')} placeholder="GE…" /></Field>
         <Field label="Язык"><Select value={f.lang} onChange={set('lang')} options={LANGS} /></Field>
       </div>
-      <div className="mt"><Button disabled={!f.full_name.trim() || !f.personal_id.trim()} loading={m.isPending} onClick={() => m.mutate()}><ShieldCheck size={16} />Создать ссылку</Button></div>
+      <div className="mt"><Button disabled={f.full_name.trim().split(/\s+/).length < 2 || !f.personal_id.trim() || (!!f.full_name_ka.trim() && !/[\u10a0-\u10ff]/.test(f.full_name_ka))} loading={m.isPending} onClick={() => m.mutate()}><ShieldCheck size={16} />Создать ссылку</Button></div>
     </Card>
   );
 }

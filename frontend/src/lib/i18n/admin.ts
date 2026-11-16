@@ -355,4 +355,6 @@ export const D: Record<string, [ka: string, en: string]> = {
   'Пересоздать': ['ხელახლა შექმნა', 'Recreate'],
   'Нет соглашения': ['შეთანხმება არ არის', 'No agreement'],
   'Сформировать': ['შექმნა', 'Prepare'],
+  'Имя и фамилия латиницей или кириллицей, как в паспорте': ['სახელი და გვარი ლათინურად ან კირილიცით, როგორც პასპორტში', 'First and last name in Latin or Cyrillic, as in the passport'],
+  'Только грузинскими буквами; пусто — как выше': ['მხოლოდ ქართული ასოებით; ცარიელი — როგორც ზემოთ', 'Georgian letters only; empty — same as above'],
 };

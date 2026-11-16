@@ -130,6 +130,7 @@ class SwitchTest(Base):
         self.publish_objects("ss1", "ss2", "ss3", "ss4", "ss5")
         self.cl = core.client("tg", 42, name="Anna", lang_hint="ru")
         self.pick = ["ss3", "ss2", "ss1"]
+        core.parse_query.cache_clear()  # the same words parse once per process
 
     def fake_ask(self, prompt, schema, images=(), timeout=None, **kw):
         if "bedrooms_min" in schema["properties"]:
@@ -154,13 +155,14 @@ class SwitchTest(Base):
         self.assertIn(f"{self.o('ss1')} |", final)
         self.assertNotIn(f"{self.o('ss3')} |", final)  # over budget never reaches the model, even relaxed
         self.assertIn("ослабленными условиями (район, число спален)", final)  # 3 strict < 5: ss5, then ss4 added
-        # the model's picks first; topped up only with listings meeting every condition (tg1), not the relaxed ss4/ss5
-        self.assertEqual(self.ids(res), ["ss2", "ss1", "tg1"])
+        # the best EARLY by score meeting every condition go before the model answers (ss1: impression 5, ss2); the model's
+        # picks are already out, so the rest is topped up only with listings meeting every condition (tg1), not ss4/ss5
+        self.assertEqual(self.ids(res), ["ss1", "ss2", "tg1"])
         self.assertNotIn("@", res["items"][0]["reason"])
         self.assertEqual(res["total"], 3)  # ss1, ss2, tg1 fit strictly
         core.search(core.client("tg", 42))  # "more": cached constraints, no new extraction call
         self.assertEqual(sum("bedrooms_min" in c for c in self.calls), 1)
-        self.assertEqual([self.ad(x) for x in core.client("tg", 42)["state"]["shown"][:3]], ["ss2", "ss1", "tg1"])
+        self.assertEqual([self.ad(x) for x in core.client("tg", 42)["state"]["shown"][:3]], ["ss1", "ss2", "tg1"])
 
     def test_hybrid_no_final_llm(self):
         db.set_setting("search_mode", "hybrid")

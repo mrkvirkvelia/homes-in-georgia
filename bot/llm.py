@@ -23,11 +23,12 @@ def _crm_keys():
         pass
 
 
-def ask(prompt, schema, images=(), effort="low", timeout=300):
+def ask(prompt, schema, images=(), effort="low", timeout=300, retries=4):
+    """retries: API only. A client waiting in the chat passes 1: 4 retries back off ~30 s on a rate-limited model."""
     _crm_keys()
     if os.environ.get("LLM_PROVIDER", "openai").lower() == "codex":
         return ask_codex(prompt, schema, images, effort, timeout)
-    return ask_openai(prompt, schema, images, timeout)
+    return ask_openai(prompt, schema, images, timeout, retries=retries)
 
 
 def ask_codex(prompt, schema, images=(), effort="low", timeout=300):

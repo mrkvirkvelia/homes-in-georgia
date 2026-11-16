@@ -247,12 +247,19 @@ async def backfill_videos(bot, pause=1.0, limit=None):
 ALBUM_TIMEOUT = 90
 
 
-async def send_album(bot, chat_id, i, photos=core.ALBUM_PHOTOS):
-    """A listing's photos + video as one album (no captions: the buttons go on the text card after it).
-    The agency channel's own video (file_id) wins over a local file."""
-    items = await asyncio.to_thread(core.album, i, photos)  # a CRM object's files may come from the storage first
-    if fid := await asyncio.to_thread(channel_video, i):
+def album_items(i, photos=core.ALBUM_PHOTOS):
+    """core.album() with the agency channel's own video (file_id) over a local file; blocking (storage downloads)."""
+    items = core.album(i, photos)
+    if fid := channel_video(i):
         items = [x for x in items if x["type"] == "photo"] + [{"type": "video", "file_id": fid}]
+    return items
+
+
+async def send_album(bot, chat_id, i, photos=core.ALBUM_PHOTOS, items=None):
+    """A listing's photos + video as one album (no captions: the buttons go on the text card after it).
+    items: album_items() made beforehand (search prepares all cards of a batch at once)."""
+    if items is None:
+        items = await asyncio.to_thread(album_items, i, photos)  # a CRM object's files may come from the storage first
     if not items:
         return
 
@@ -274,40 +281,90 @@ async def send_album(bot, chat_id, i, photos=core.ALBUM_PHOTOS):
 
 # ---------- client side ----------
 
+def prepare_card(lid):
+    """-> (client listing or None if withdrawn meanwhile, its album items); blocking, run in a thread."""
+    i = core.client_listing(lid)
+    try:
+        return i, i and album_items(i)
+    except Exception as e:  # noqa: BLE001  the card goes without its album
+        logging.getLogger(__name__).warning("album of %s failed: %r", lid, e)
+        return i, []
+
+
+async def keep_typing(bot, chat_id):
+    while True:  # Telegram shows "typing…" for 5 s per call
+        try:
+            await bot.send_chat_action(chat_id, "typing")
+        except TelegramError:
+            pass
+        await asyncio.sleep(4.5)
+
+
 async def search(chat_id, user, ctx, delay=2.5):
+    """core.search_steps batches: the first cards go while the model picks the rest; each batch's albums are
+    prepared in parallel and sent in order. Logs time to the first card and to the last."""
     await asyncio.sleep(delay)  # debounce: an album / several quick messages = one search
+    t0 = asyncio.get_running_loop().time()
     cl = await asyncio.to_thread(client_of, user)
     lang = cl["lang"]
     await ctx.bot.send_message(chat_id, core.t(lang, "searching"))
-    await ctx.bot.send_chat_action(chat_id, "typing")
+    typing = asyncio.create_task(keep_typing(ctx.bot, chat_id))
+    steps = core.search_steps(cl)
+    nxt = asyncio.create_task(asyncio.to_thread(next, steps, None))
+    first, wait_msg, timing = None, None, []
     try:
-        res = await asyncio.to_thread(core.search, cl)
-    except Exception as e:
-        print("search failed:", e)
-        await ctx.bot.send_message(chat_id, core.t(lang, "error"))
-        return
-    if not res["items"]:
-        await ctx.bot.send_message(chat_id, core.t(lang, "none", understood=res["understood"]))
-        return
-    await ctx.bot.send_message(chat_id, core.t(lang, "found", understood=res["understood"], total=res["total"],
-                                               base=res["base"], n=len(res["items"])))
-    for x in res["items"]:
-        i = await asyncio.to_thread(core.client_listing, x["listing"]["id"])
-        if not i:  # publication may have been withdrawn while the model was choosing cards
-            continue
-        try:  # one broken album (file gone, Telegram refusing a photo) must not cost the other listings
-            await send_album(ctx.bot, chat_id, i)
-        except Exception as e:
-            logging.getLogger(__name__).warning("album of %s failed: %r", i.get("id"), e)
+        while True:
+            try:
+                res = await nxt
+            except Exception as e:
+                print("search failed:", e)
+                if first is None:
+                    await ctx.bot.send_message(chat_id, core.t(lang, "error"))
+                    return
+                break  # the first cards are out: the tips still follow
+            if res is None:
+                break
+            nxt = asyncio.create_task(asyncio.to_thread(next, steps, None))  # the next batch is made while this one is sent
+            if first is None:
+                first = res
+                if not res["items"]:
+                    if not await nxt:  # a later batch may still bring cards (cheap: the first is empty only with none fitting)
+                        await ctx.bot.send_message(chat_id, core.t(lang, "none", understood=res["understood"]))
+                        return
+                await ctx.bot.send_message(chat_id, core.t(lang, "found", understood=res["understood"], total=res["total"],
+                                                           base=res["base"], n=res["planned"]))
+            prep = [asyncio.create_task(asyncio.to_thread(prepare_card, x["listing"]["id"])) for x in res["items"]]
+            for x, p in zip(res["items"], prep):
+                i, items = await p
+                if not i:  # publication may have been withdrawn while the model was choosing cards
+                    continue
+                try:  # one broken album (file gone, Telegram refusing a photo) must not cost the other listings
+                    await send_album(ctx.bot, chat_id, i, items=items)
+                except Exception as e:
+                    logging.getLogger(__name__).warning("album of %s failed: %r", i.get("id"), e)
+                try:
+                    # buttons can't sit on an album, so ❤️/👎 and "📍 On the map" (approximate zone only) go on the text card
+                    like = await asyncio.to_thread(notify.like_button, cl, i["id"], core.t(lang, "like"))
+                    text, markup = core.card(i, x["reason"], x["near"], lang), core.card_keyboard(i, lang, like=like)
+                    m = await ctx.bot.send_message(chat_id, text, reply_markup=kb_of(markup))
+                    await asyncio.to_thread(journey.remember_card, cl, i["id"], chat_id, m.message_id, text,
+                                            markup["inline_keyboard"][1:], res.get("search_id"))
+                except Exception as e:
+                    logging.getLogger(__name__).warning("card of %s failed: %r", i.get("id"), e)
+                timing.append(asyncio.get_running_loop().time() - t0)
+            if wait_msg is None and not nxt.done() and res["planned"] > len(res["items"]):
+                wait_msg = await ctx.bot.send_message(chat_id, core.t(lang, "picking_more"))
+    finally:
+        typing.cancel()
+        if not nxt.done():
+            nxt.cancel()  # a newer message cancelled this search: the thread finishes on its own, its cards aren't sent
+    if wait_msg:
         try:
-            # buttons can't sit on an album, so ❤️/👎 and "📍 On the map" (approximate zone only) go on the text card
-            like = await asyncio.to_thread(notify.like_button, cl, i["id"], core.t(lang, "like"))
-            text, markup = core.card(i, x["reason"], x["near"], lang), core.card_keyboard(i, lang, like=like)
-            m = await ctx.bot.send_message(chat_id, text, reply_markup=kb_of(markup))
-            await asyncio.to_thread(journey.remember_card, cl, i["id"], chat_id, m.message_id, text, markup["inline_keyboard"][1:],
-                                    res.get("search_id"))
-        except Exception as e:
-            logging.getLogger(__name__).warning("card of %s failed: %r", i.get("id"), e)
+            await wait_msg.delete()
+        except TelegramError:
+            pass
+    if timing:
+        print(f"search cards: first {timing[0]:.1f}s, last {timing[-1]:.1f}s, {len(timing)} cards, client {cl['id']}", flush=True)
     st, prof = cl["state"], cl.get("profile") or {}
     tips = (core.t(lang, "tips") + ("" if st["images"] or prof.get("photos") else core.t(lang, "tip_photo")) +
             ("" if st["pin"] or prof.get("pin") else core.t(lang, "tip_map")))

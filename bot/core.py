@@ -4,6 +4,9 @@ import html
 import json
 import os
 import re
+import time
+from concurrent.futures import ThreadPoolExecutor
+from functools import lru_cache
 from urllib.parse import urlencode
 
 import numpy as np
@@ -33,6 +36,7 @@ T = {
         "error": "Что-то пошло не так, попробуйте ещё раз.",
         "none": "Понял: {understood}\n\nПодходящих вариантов сейчас нет 😔 Попробуйте расширить бюджет или районы.",
         "found": "Понял: {understood}\n\nПодходит {total} из {base} квартир в базе, показываю {n} лучших 👇",
+        "picking_more": "⏳ Подбираю ещё варианты…",
         "tips": "Уточните запрос сообщением или нажмите «Ещё варианты».",
         "tip_photo": "\n\n📸 Хотите точнее по стилю? Пришлите фото квартир, которые нравятся, покажу похожие.",
         "tip_map": "\n🗺 Или выберите место на карте кнопкой внизу, найду квартиры рядом.",
@@ -59,6 +63,7 @@ Optional:
         "error": "Something went wrong, please try again.",
         "none": "Got it: {understood}\n\nNo matching flats right now 😔 Try a bigger budget or more districts.",
         "found": "Got it: {understood}\n\n{total} of {base} flats match, here are the best {n} 👇",
+        "picking_more": "⏳ Picking a few more…",
         "tips": "Refine your request with a message or tap \"More options\".",
         "tip_photo": "\n\n📸 Want a closer style match? Send photos of flats you like.",
         "tip_map": "\n🗺 Or pick a place on the map with the button below, I'll find flats nearby.",
@@ -85,6 +90,7 @@ Optional:
         "error": "რაღაც შეცდომა მოხდა, სცადეთ თავიდან.",
         "none": "გავიგე: {understood}\n\nამჟამად შესაფერისი ვარიანტი არ არის 😔 სცადეთ ბიუჯეტის ან უბნების გაფართოება.",
         "found": "გავიგე: {understood}\n\nბაზის {base} ბინიდან {total} გერგებათ, გაჩვენებთ {n} საუკეთესოს 👇",
+        "picking_more": "⏳ ვარჩევ კიდევ რამდენიმე ვარიანტს…",
         "tips": "დააზუსტეთ მოთხოვნა შეტყობინებით ან დააჭირეთ „მეტი ვარიანტი“.",
         "tip_photo": "\n\n📸 გსურთ სტილით უფრო ზუსტი შერჩევა? გამომიგზავნეთ სასურველი ბინების ფოტოები და მსგავსებს გაჩვენებთ.",
         "tip_map": "\n🗺 ან აირჩიეთ ადგილი რუკაზე ქვემოთ მოცემული ღილაკით და ახლოს მდებარე ბინებს მოგიძებნით.",
@@ -333,9 +339,21 @@ def line(i, dist=None):
 
 def search(cl):
     """Up to 5 new published listings for the client's current request.
-    -> {"understood", "total", "base", "items": [{"listing", "reason", "near"}]}; marks them shown.
-    Setting search_mode: llm (whole catalog to Codex, default) | hybrid (see search_hybrid)."""
-    return search_hybrid(cl) if db.get_setting("search_mode") == "hybrid" else search_llm(cl)
+    -> {"understood", "total", "base", "planned", "items": [{"listing", "reason", "near"}], "search_id"}; marks them shown.
+    Setting search_mode: llm (whole catalog to Codex, default) | hybrid (see search_hybrid). All batches of search_steps."""
+    out = None
+    for b in search_steps(cl):
+        out = b if out is None else {**out, "items": out["items"] + b["items"]}
+    return out
+
+
+def search_steps(cl):
+    """search() in batches of the same shape, so the client starts looking at once: hybrid with the final model pick
+    yields the top EARLY by score first (templated reasons), then the model's pick of the rest; one batch otherwise."""
+    if db.get_setting("search_mode") == "hybrid":
+        yield from search_hybrid(cl)
+    else:
+        yield search_llm(cl)
 
 
 # commercial property (offices, shops: details.property=commercial) is shown only to clients who ask for it in words
@@ -394,16 +412,23 @@ def search_llm(cl):
     return _finish(cl, items, res["understood"], res.get("matches_total"), len(base), near=st["near"])
 
 
-def _finish(cl, items, understood, total, base, **state):
-    """Common end of a search: English texts, mark shown, keep the caches (state), count the search."""
-    if cl["lang"] != "ru":  # en and ka clients see the English card texts
-        translate([x["listing"] for x in items])
+def _finish(cl, items, understood, total, base, sid=None, planned=None, **state):
+    """Common end of a search batch: English texts, mark shown, keep the caches (state), count the search
+    (sid: a later batch of the same search adds to its count)."""
+    if cl["lang"] != "ru" and items:  # en and ka clients see the English card texts
+        try:
+            translate([x["listing"] for x in items])
+        except Exception as e:  # noqa: BLE001  the model down: Russian descriptions beat no cards
+            print("translate failed, cards in Russian:", str(e)[-200:])
     update(cl, lambda s, r: (s["shown"].extend(x["listing"]["id"] for x in items), s.update(state)))
     with db.tx() as c:
-        sid = c.execute("INSERT INTO searches (client_id, results, at) VALUES (?, ?, ?) RETURNING id",
-                        (cl["id"], len(items), db.now())).fetchone()[0]
+        if sid:
+            c.execute("UPDATE searches SET results = results + ? WHERE id = ?", (len(items), sid))
+        else:
+            sid = c.execute("INSERT INTO searches (client_id, results, at) VALUES (?, ?, ?) RETURNING id",
+                            (cl["id"], len(items), db.now())).fetchone()[0]
     return {"understood": public(understood), "total": max(total or 0, len(items)), "base": base, "items": items,
-            "search_id": sid}
+            "search_id": sid, "planned": max(planned or 0, len(items))}
 
 
 # ---------- hybrid search (search_mode=hybrid): filters in code + local embeddings, Codex reads ~20 lines ----------
@@ -443,7 +468,7 @@ def understand(cl):
                 ds = [r[0] for r in c.execute(f"SELECT l.district FROM listings l WHERE {CLIENT_SEARCH} AND l.district != '' "
                                               "GROUP BY l.district ORDER BY COUNT(*) DESC LIMIT 40")]
             try:
-                res = ask(QUERY_PROMPT.format(msgs=key, lang=LANG_NAME[lang], districts=", ".join(ds)), QUERY, timeout=120)
+                res = parse_query(key, lang, ", ".join(ds))
             except Exception as e:  # Codex down: no hard conditions from the text, its words rank by embeddings; not cached
                 print("understand: codex failed, ranking by embeddings only:", str(e).splitlines()[-1][:200] if str(e) else e)
                 res = None
@@ -461,6 +486,12 @@ def understand(cl):
         return q, (tuple(st["pin"]), st["pin_label"] or t(lang, "pin"), st["pin_radius"] or 2.0)
     near = key and st["near"] and st["near"][0] == key and st["near"][1]
     return q, (near and (tuple(near[0]), near[1], near[2])) or profile_anchor(cl)
+
+
+@lru_cache(maxsize=512)
+def parse_query(key, lang, districts):
+    """QUERY_PROMPT for one message set; the same words from any client parse once per process (errors aren't cached)."""
+    return ask(QUERY_PROMPT.format(msgs=key, lang=LANG_NAME[lang], districts=districts), QUERY, timeout=120, retries=1)
 
 
 def _district_ok(i, wanted):
@@ -579,14 +610,18 @@ def template_reason(i, lang):
 
 
 def search_hybrid(cl):
-    """Hard conditions from one short Codex call -> filter in code (relaxed if < 5 fit) -> rank by local SigLIP
-    embeddings (embed.py) -> Codex picks 5 of the top 20 (final_llm=on) or the top 5 go as they are (off)."""
+    """Generator of result batches (search_steps). Hard conditions from one short model call -> filter in code
+    (relaxed if < 5 fit) -> rank by local SigLIP embeddings (embed.py) -> the top EARLY go at once while the model picks
+    the rest of the 5 from the top 20 (final_llm=on), or the top 5 go as they are (off / the model down).
+    Logs "search timing" per step."""
     import embed
+    t0, took = time.time(), {}
     st, lang = cl["state"], cl["lang"]
     base = published()
     by_id = {i["id"]: i for i in base}
     pool = for_client(base, st)
     q, anchor = understand(cl)
+    took["query"] = time.time() - t0
     dist = {}
     if anchor:
         dist = {i["id"]: km(anchor[0], (i["lat"], i["lng"])) for i in pool if i.get("lat") is not None}
@@ -595,49 +630,75 @@ def search_hybrid(cl):
     scores = rank(cands, q, st["images"][-5:], [i["id"] for i in liked], [i["id"] for i in disliked],
                   dist if anchor else None, embed.load(), embed)
     top20 = sorted(cands, key=lambda i: -scores[i["id"]])[:HYBRID_POOL]
+    took["rank"] = time.time() - t0 - took["query"]
     cap = q.get("max_price_usd") and q["max_price_usd"] * 1.1
-    res = None
-    if top20 and db.get_setting("final_llm") != "off":
-        fb = ""
-        if liked:
-            fb += "Понравились клиенту:\n" + "\n".join(map(line, liked)) + "\n"
-        if disliked:
-            fb += "Клиент отверг:\n" + "\n".join(map(line, disliked)) + "\n"
-        msgs = ([profile_line(cl)] if cl.get("profile") else []) + st["msgs"]
-        prompt = PROMPT.format(lang=LANG_NAME[lang], msgs="\n".join(f"- {m}" for m in msgs) or "- (только фото)",
-                               feedback=fb, catalog="\n".join(line(i, dist.get(i["id"])) for i in top20))
-        prompt += "\n\nКаталог уже отобран по условиям клиента и отсортирован по похожести (лучшие сверху)."
-        if relaxed:
-            prompt += (" Точно подходящих мало, поэтому в каталоге есть варианты с ослабленными условиями "
-                       f"({', '.join(RELAX_RU[x] for x in relaxed)}): верни 5 лучших и в reason честно скажи, чем вариант отличается от запроса.")
-        if anchor:
-            prompt += (f"\n\nКлиент хочет жить рядом с: {anchor[1]} (желательно в пределах {anchor[2]:g} км). "
-                       "Столбец «км» — расстояние до этого места (адреса геокодированы примерно). Ближе = лучше при прочих равных.")
-        try:
-            res = ask(prompt, PICK, images=st["images"][-5:], timeout=240)
-        except Exception as e:  # Codex down: the top 5 by score with templated reasons, as final_llm=off
-            print("search_hybrid: codex failed, top 5 by score:", str(e).splitlines()[-1][:200] if str(e) else e)
+    state = {"near": st["near"], "query": st.get("query")}
+
+    def items_of(picked):
+        items = []
+        for lid, reason in picked:
+            if cap and (by_id[lid].get("price_usd") or 0) > cap:
+                continue
+            near = lid in dist and f"~{dist[lid]:.1f} {t(lang, 'km')} {t(lang, 'from')} {anchor[1]}"
+            items.append({"listing": by_id[lid], "reason": public(reason), "near": near or None})
+        return items
+
+    def log(**more):
+        took.update(more, total=time.time() - t0)
+        print("search timing:", " ".join(f"{k}={v:.1f}s" for k, v in took.items()), f"client={cl['id']}", flush=True)
+
+    if not top20 or db.get_setting("final_llm") == "off":
+        out = _finish(cl, items_of([(i["id"], template_reason(i, lang)) for i in top20[:5]]), q.get("understood") or "",
+                      strict, len(base), **state)
+        log()
+        yield out
+        return
+    fb = ""
+    if liked:
+        fb += "Понравились клиенту:\n" + "\n".join(map(line, liked)) + "\n"
+    if disliked:
+        fb += "Клиент отверг:\n" + "\n".join(map(line, disliked)) + "\n"
+    msgs = ([profile_line(cl)] if cl.get("profile") else []) + st["msgs"]
+    prompt = PROMPT.format(lang=LANG_NAME[lang], msgs="\n".join(f"- {m}" for m in msgs) or "- (только фото)",
+                           feedback=fb, catalog="\n".join(line(i, dist.get(i["id"])) for i in top20))
+    prompt += "\n\nКаталог уже отобран по условиям клиента и отсортирован по похожести (лучшие сверху)."
+    if relaxed:
+        prompt += (" Точно подходящих мало, поэтому в каталоге есть варианты с ослабленными условиями "
+                   f"({', '.join(RELAX_RU[x] for x in relaxed)}): верни 5 лучших и в reason честно скажи, чем вариант отличается от запроса.")
+    if anchor:
+        prompt += (f"\n\nКлиент хочет жить рядом с: {anchor[1]} (желательно в пределах {anchor[2]:g} км). "
+                   "Столбец «км» — расстояние до этого места (адреса геокодированы примерно). Ближе = лучше при прочих равных.")
+    pick = ThreadPoolExecutor(1)  # the model picks while the first cards (and their translation) go out
+    fut = pick.submit(ask, prompt, PICK, images=st["images"][-5:], timeout=240, retries=1)
+    pick.shutdown(wait=False)
+    fits = {i["id"] for i in hard_filter(top20, q, dist if anchor else None, anchor and anchor[2])}
+    early = items_of([(i["id"], template_reason(i, lang)) for i in  # the best by score that meet every condition
+                      ([i for i in top20 if i["id"] in fits] or top20)[:EARLY]])
+    first = _finish(cl, early, q.get("understood") or "", strict, len(base), planned=min(5, len(top20)), **state)
+    took["first"] = time.time() - t0
+    yield first
+    sent = {x["listing"]["id"] for x in early}
+    try:
+        res = fut.result()
+    except Exception as e:  # the model down: the next by score with templated reasons, as final_llm=off
+        print("search_hybrid: model failed, the rest by score:", str(e).splitlines()[-1][:200] if str(e) else e)
+        res = None
+    took["pick"] = time.time() - t0
+    want = 5 - len(sent)
     if res is not None:
-        ok = {i["id"] for i in top20}
-        picked = [(x["id"], x["reason"]) for x in res["top"] if x["id"] in ok]
-        picked = list(dict(picked).items())[:5]
-        understood = res["understood"] or q.get("understood") or ""
-        if len(picked) < 5:  # the model is pickier than the hard conditions: top up with ones that meet them all
-            if not picked:
-                understood = q.get("understood") or understood  # its "nothing fits" sentence would contradict the cards
-            fits = {i["id"] for i in hard_filter(top20, q, dist if anchor else None, anchor and anchor[2])}
+        ok = {i["id"] for i in top20} - sent
+        picked = list(dict((x["id"], x["reason"]) for x in res["top"] if x["id"] in ok).items())[:want]
+        if len(picked) < want:  # the model is pickier than the hard conditions: top up with ones that meet them all
             picked += [(i["id"], template_reason(i, lang)) for i in top20
-                       if i["id"] in fits and i["id"] not in dict(picked)][:5 - len(picked)]
+                       if i["id"] in fits and i["id"] not in sent and i["id"] not in dict(picked)][:want - len(picked)]
     else:
-        picked = [(i["id"], template_reason(i, lang)) for i in top20[:5]]
-        understood = q.get("understood") or ""
-    items = []
-    for lid, reason in picked:
-        if cap and (by_id[lid].get("price_usd") or 0) > cap:
-            continue
-        near = lid in dist and f"~{dist[lid]:.1f} {t(lang, 'km')} {t(lang, 'from')} {anchor[1]}"
-        items.append({"listing": by_id[lid], "reason": public(reason), "near": near or None})
-    return _finish(cl, items, understood, strict, len(base), near=st["near"], query=st.get("query"))
+        picked = [(i["id"], template_reason(i, lang)) for i in top20 if i["id"] not in sent][:want]
+    rest = _finish(cl, items_of(picked), first["understood"], strict, len(base), sid=first["search_id"], **state)
+    log()
+    yield rest
+
+
+EARLY = 2  # hybrid + final_llm: cards sent by score before the model's pick, which then sends the rest
 
 
 TR = obj(items={"type": "array", "items": obj(id=S, district=S, description=S)})
@@ -653,7 +714,7 @@ def translate(listings):
     res = ask("Translate each apartment listing to natural English for a client. Keep facts, no phones, links, "
               "site or agency names. Return district (Tbilisi district in English) and description.\n\n"
               + "\n".join(json.dumps({"id": i["id"], "district": i.get("district"), "description": i.get("description_ru")},
-                                     ensure_ascii=False) for i in todo), TR, timeout=120)
+                                     ensure_ascii=False) for i in todo), TR, timeout=120, retries=1)
     got = {x["id"]: x for x in res["items"]}
     with db.tx() as c:
         for i in todo:

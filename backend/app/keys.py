@@ -1,7 +1,8 @@
 """Integration keys entered in the CRM (Управление → Ключи, admin and above): rows `key:<NAME>` of the settings table, over
 .env. Every process (api, worker, bot, the parser's scripts) calls refresh(): at most once a minute it puts them into
 os.environ and onto app.config.settings, so a new Apify / OpenAI / MapTiler key works without a restart; a key removed
-in the CRM falls back to .env. The values never leave the server: the API shows the last 4 characters only."""
+in the CRM falls back to .env. The list shows settings (URL, model) in full and secrets masked; the full secret only
+on an admin's explicit «Показать» (logged)."""
 import os
 import re
 import time
@@ -16,13 +17,14 @@ BLOCKED = {"DATABASE_URL", "TEST_DATABASE_URL", "SECRET_KEY", "BOT_TOKEN", "LOGI
            "S3_ACCESS_KEY", "S3_SECRET_KEY", "S3_ENDPOINT", "S3_BUCKET", "MEDIA_STORAGE", "MEDIA_DIR", "POSTGRES_PASSWORD",
            "GOOGLE_SA_JSON", "APP_ENV", "DEV_CORS", "PASSWORD_LOGIN", "PUBLIC_URL", "CHROME_BIN", "LLM_PROVIDER"}
 KNOWN = {  # NAME -> (what it is, in plain words; where it is used). Shown even when empty; any other NAME can be added
-    "OPENAI_API_KEY": ("Нейросеть: ключ OpenAI / ProxyAPI", "Все вызовы ИИ идут через этот ключ"),
-    "OPENAI_BASE_URL": ("Нейросеть: адрес API", "Например https://api.proxyapi.ru/openai/v1"),
-    "LLM_MODEL": ("Нейросеть: модель", "Например gpt-4.1-mini"),
+    "OPENAI_API_KEY": ("Нейросеть: ключ API", "OpenRouter, ProxyAPI или OpenAI: все вызовы ИИ идут через этот ключ"),
+    "OPENAI_BASE_URL": ("Нейросеть: адрес API", "Например https://openrouter.ai/api/v1"),
+    "LLM_MODEL": ("Нейросеть: модель", "Например google/gemma-4-31b-it"),
     "APIFY_TOKENS": ("Apify: ключи для парсера Facebook", "Можно несколько через запятую, берутся по очереди"),
     "APIFY_TOKEN": ("Apify: один ключ", "Если список выше пустой"),
     "MAPTILER_KEY": ("Карты MapTiler", "Подложка карт в CRM и на сайте"),
 }
+SECRET_RE = re.compile(r"KEY|TOKEN|SECRET|PASS|SESSION|HASH")
 TTL = 60
 _ORIG = {k: os.environ.get(k) for k in KNOWN}  # .env / container values, for keys removed in the CRM
 _applied: set[str] = set()
@@ -31,6 +33,17 @@ _at = 0.0
 
 def valid(name: str) -> bool:
     return bool(NAME_RE.match(name)) and name not in BLOCKED
+
+
+def secret(name: str) -> bool:
+    """API keys and tokens are masked in the list; URLs, model names and other settings are shown in full."""
+    return bool(SECRET_RE.search(name))
+
+
+def mask(value: str) -> str:
+    """First 4 + last 4 of each comma-separated part (APIFY_TOKENS holds several); short values show nothing."""
+    parts = [p.strip() for p in value.replace(";", ",").split(",") if p.strip()]
+    return ", ".join(f"{p[:4]}…{p[-4:]}" if len(p) >= 16 else "••••" for p in parts)
 
 
 def _set(name: str, value: str | None) -> None:

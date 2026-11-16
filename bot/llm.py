@@ -67,6 +67,8 @@ def ask_openai(prompt, schema, images=(), timeout=300, transport=None, retries=4
         {"type": "image_url", "image_url": {"url": data_url(p)}} for p in images]
     body = {"model": model, "messages": [{"role": "user", "content": content}],
             "response_format": {"type": "json_schema", "json_schema": {"name": "out", "strict": True, "schema": schema}}}
+    if "openrouter.ai" in base:  # OpenRouter reports what the call cost in usage.cost
+        body["usage"] = {"include": True}
     headers = {"Authorization": f"Bearer {os.environ.get('OPENAI_API_KEY', '')}"}
     with httpx.Client(timeout=timeout, transport=transport) as c:
         for attempt in range(retries + 1):
@@ -81,7 +83,7 @@ def ask_openai(prompt, schema, images=(), timeout=300, transport=None, retries=4
                     u = d.get("usage") or {}
                     print(f"llm {model}: prompt={u.get('prompt_tokens')} completion={u.get('completion_tokens')} "
                           f"images={len(images)} {time.time() - t0:.1f}s", file=sys.stderr, flush=True)
-                    record_usage(model, u.get("prompt_tokens") or 0, u.get("completion_tokens") or 0)
+                    record_usage(model, u.get("prompt_tokens") or 0, u.get("completion_tokens") or 0, u.get("cost"))
                     msg = d["choices"][0]["message"]
                     if msg.get("refusal"):
                         raise RuntimeError(f"llm refused: {msg['refusal']}")
@@ -95,9 +97,11 @@ def ask_openai(prompt, schema, images=(), timeout=300, transport=None, retries=4
             time.sleep(min(2 ** attempt * 2, 30))
 
 
-def record_usage(model, prompt_tokens, completion_tokens):
-    """API tokens -> setting llm_usage {"YYYY-MM-DD": {model: [calls, prompt, completion]}}, 62 days (UTC), for
-    Управление → Ключи → Расходы. Row locked: the bot and the parser write at once. Never fails the call."""
+def record_usage(model, prompt_tokens, completion_tokens, cost=None):
+    """API tokens -> setting llm_usage {"YYYY-MM-DD": {model: [calls, prompt, completion, cost_usd, unpriced_prompt,
+    unpriced_completion]}}, 62 days (UTC), for Управление → Ключи → Расходы. cost: $ the provider reported (OpenRouter);
+    without it the tokens go to the unpriced pair, which the CRM prices by the model's list price. Rows written before
+    the cost existed have the first 3 only. Row locked: the bot and the parser write at once. Never fails the call."""
     try:
         import db
         from datetime import datetime, timedelta, timezone
@@ -108,9 +112,16 @@ def record_usage(model, prompt_tokens, completion_tokens):
             r = c.execute("SELECT value FROM settings WHERE key = 'llm_usage' FOR UPDATE").fetchone()
             usage = {k: v for k, v in json.loads(r[0] or "{}").items() if k >= keep}
             row = usage.setdefault(day, {}).setdefault(model, [0, 0, 0])
+            if len(row) < 6:
+                row[3:] = [0.0, row[1], row[2]]  # an old row: all its tokens so far are unpriced
             row[0] += 1
             row[1] += prompt_tokens
             row[2] += completion_tokens
+            if cost is not None:
+                row[3] = round(row[3] + float(cost), 8)
+            else:
+                row[4] += prompt_tokens
+                row[5] += completion_tokens
             c.execute("UPDATE settings SET value = ? WHERE key = 'llm_usage'", (json.dumps(usage),))
     except Exception as e:  # noqa: BLE001
         print(f"llm usage not recorded: {e}", file=sys.stderr, flush=True)

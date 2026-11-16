@@ -773,10 +773,16 @@ export interface Offer {
   [field: string]: unknown;  // the kind's own columns (service, rooms, … / deal, year, …)
 }
 
-export interface LlmSum { calls: number; prompt: number; completion: number; usd: number; unpriced: string[] }
+export interface LlmSum { calls: number; prompt: number; completion: number; usd: number; estimated: boolean; unpriced: string[];
+  models: { model: string; calls: number; tokens: number; usd: number }[] }
+export interface AiBalance { balance_usd?: number; used_usd?: number; key_used_usd?: number | null; key_limit_usd?: number | null;
+  key_remaining_usd?: number | null; balance_rub?: number; error?: string }
 export interface Spend {
   apify: { today_usd: number; week_usd: number; by_source_week: Record<string, number>;
-    accounts: { tail: string; used_usd: number | null; limit_usd: number | null; cycle_end: string | null; error: string | null }[] };
-  ai: { provider: string; model: string; today: LlmSum; month: LlmSum; balance_rub: number | null };
+    accounts: { tail: string; masked?: string; used_usd: number | null; limit_usd: number | null; cycle_end: string | null; error: string | null }[] };
+  ai: { mode: string; provider: string; base_url: string; model: string; today: LlmSum; week: LlmSum; month: LlmSum; balance: AiBalance | null };
 }
-export interface IntegrationKey { name: string; title: string | null; note: string | null; source: 'crm' | 'env' | null; tail: string | null }
+/** value: settings (URL, model) in full, secrets masked (first 4 … last 4); the full secret only via /keys/{name}/value. */
+export interface IntegrationKey { name: string; title: string | null; note: string | null; source: 'crm' | 'env' | null; secret: boolean;
+  value: string | null; changed_at: string | null; changed_by: string | null }
+export interface KeyCheck { label: string; ok: boolean; ms: number | null; error: string | null }

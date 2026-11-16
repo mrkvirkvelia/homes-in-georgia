@@ -4,7 +4,7 @@ import {
   normAgentStat, normAuth, normBoard, normCabinet, normClient, normCounter, normDashboard, normEvent, normLead, normListing, normPage,
   normProperty, normRecommend, normReport,
 } from './normalize';
-import type { IntegrationKey, Spend,
+import type { IntegrationKey, KeyCheck, Spend,
   Birthday, Invite, InviteInfo,
   AgentStat, AppConfig, AuthOut, Cabinet, Client, Contract, ContractCloseReason, ContractDraftIn, ContractIn, CounterRow, Dashboard, Deal, DealCalcIn, DealCalcOut,
   EventItem, Evaluation, Lead, LeadContract, LeadStatus, DealPrefill, Listing, NewsItem, Owner, Page, Property, RecommendedAgent, Report, ReportKind,
@@ -263,10 +263,12 @@ export const api = {
   },
   news: () => http.get<L<NewsItem>>('/news'),
 
-  keys: {  // Управление → Ключи (superadmin): values are write-only, the list shows the last 4 characters
+  keys: {  // Управление → Ключи (admin+): settings in full, secrets masked; reveal is logged on the server
     list: () => http.get<{ items: IntegrationKey[] }>('/keys'),
     put: (name: string, value: string) => http.put<{ items: IntegrationKey[] }>(`/keys/${encodeURIComponent(name)}`, { value }),
     remove: (name: string) => http.del<{ items: IntegrationKey[] }>(`/keys/${encodeURIComponent(name)}`),
+    reveal: (name: string) => http.get<{ name: string; value: string }>(`/keys/${encodeURIComponent(name)}/value`),
+    check: (name: string) => http.post<{ results: KeyCheck[] }>(`/keys/${encodeURIComponent(name)}/check`),
   },
   spend: () => http.get<Spend>('/spend'),  // Управление → Ключи → Расходы: Apify + AI
   settings: {

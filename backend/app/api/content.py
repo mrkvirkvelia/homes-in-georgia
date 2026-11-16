@@ -3,6 +3,7 @@ import json
 import mimetypes
 import os
 import re
+import time
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, Query
@@ -133,17 +134,45 @@ def _key_name(name: str) -> str:
     return name
 
 
+def _key_changes(db: Session) -> dict[str, tuple]:
+    """NAME -> (when, who) of the latest «key_set» / «key_removed» event."""
+    from app.models import Event
+    out: dict[str, tuple] = {}
+    for ev in db.scalars(select(Event).where(Event.entity == "setting", Event.action.in_(("key_set", "key_removed")))
+                         .order_by(Event.at.desc()).limit(500)):
+        out.setdefault((ev.data or {}).get("name"), (ev.at, ev.actor_label))
+    return out
+
+
 @router.get("/keys")
 def keys_list(db: Session = Depends(get_db, scope="function"), user: User = Depends(require_level("admin"))):
-    """Known + added keys: where the value comes from (crm / env / none) and its last 4 characters, never the value."""
+    """Known + added keys: where the value comes from (crm / env / none), settings in full, secrets masked, last change."""
     crm = keys.read(db)
+    changes = _key_changes(db)
     out = []
     for name in dict.fromkeys([*keys.KNOWN, *sorted(crm)]):
         v = crm.get(name) or os.environ.get(name)
         src = "crm" if name in crm else ("env" if v else None)
         title, note = keys.KNOWN.get(name, (None, None))
-        out.append({"name": name, "title": title, "note": note, "source": src, "tail": v[-4:] if v and len(v) >= 12 else ("…" if v else None)})
+        at, by = changes.get(name, (None, None))
+        sec = keys.secret(name)
+        out.append({"name": name, "title": title, "note": note, "source": src, "secret": sec,
+                    "value": (keys.mask(v) if sec else v) if v else None,
+                    "changed_at": at.isoformat() if at else None, "changed_by": by})
     return {"items": out}
+
+
+@router.get("/keys/{name}/value")
+def keys_reveal(name: str, db: Session = Depends(get_db, scope="function"), user: User = Depends(require_level("admin"))):
+    """The full value on an admin's «Показать», logged with who and when."""
+    name = _key_name(name)
+    keys.refresh()
+    v = keys.read(db).get(name) or os.environ.get(name)
+    if not v:
+        raise DomainError("not_found", "Ключ не задан")
+    log_event(db, "setting", 0, "key_revealed", user, name=name)
+    db.commit()
+    return {"name": name, "value": v}
 
 
 @router.put("/keys/{name}")
@@ -168,38 +197,144 @@ def keys_delete(name: str, db: Session = Depends(get_db, scope="function"), user
     return keys_list(db, user)
 
 
-# ---------------------------------------------------------------- spend: Apify + AI (Управление → Ключи, superadmin)
+def _scrub(text: str, *secrets: str) -> str:
+    for s in secrets:
+        if s:
+            text = text.replace(s, keys.mask(s))
+    return text[:200]
 
-# $ per 1M tokens [prompt, completion], OpenAI list prices. ProxyAPI bills in rubles with its own markup: an estimate.
-# ponytail: a fixed table; add a model here when LLM_MODEL changes to one not listed (unknown models show no $)
+
+def _check_ai() -> list[dict]:
+    """A 1-token chat call with the current key, URL and model: proves all three work."""
+    import httpx
+    key, base = os.environ.get("OPENAI_API_KEY") or "", (os.environ.get("OPENAI_BASE_URL") or "https://api.openai.com/v1").rstrip("/")
+    model = os.environ.get("LLM_MODEL") or "gpt-4.1-mini"
+    res = {"label": model, "ok": False, "ms": None, "error": None}
+    if not key:
+        return [res | {"error": "Ключ не задан"}]
+    t0 = time.monotonic()
+    try:
+        r = httpx.post(f"{base}/chat/completions", headers={"Authorization": f"Bearer {key}"}, timeout=30,
+                       json={"model": model, "messages": [{"role": "user", "content": "ping"}], "max_tokens": 5})
+        res["ms"] = round((time.monotonic() - t0) * 1000)
+        if r.status_code == 200:
+            res["ok"] = True
+        else:
+            try:
+                msg = (r.json().get("error") or {}).get("message") or r.text
+            except Exception:  # noqa: BLE001
+                msg = r.text
+            res["error"] = _scrub(f"HTTP {r.status_code}: {msg}", key)
+    except Exception as e:  # noqa: BLE001
+        res["error"] = _scrub(type(e).__name__ + ": " + str(e), key)
+    return [res]
+
+
+def _check_apify(value: str) -> list[dict]:
+    import httpx
+    out = []
+    for tok in dict.fromkeys(t.strip() for t in value.replace(";", ",").split(",") if t.strip()):
+        res = {"label": keys.mask(tok), "ok": False, "ms": None, "error": None}
+        t0 = time.monotonic()
+        try:
+            r = httpx.get("https://api.apify.com/v2/users/me", headers={"Authorization": f"Bearer {tok}"}, timeout=15)
+            res["ms"] = round((time.monotonic() - t0) * 1000)
+            res["ok"] = r.status_code == 200
+            if not res["ok"]:
+                res["error"] = "Ключ не работает" if r.status_code in (401, 403) else f"HTTP {r.status_code}"
+        except Exception as e:  # noqa: BLE001
+            res["error"] = _scrub(type(e).__name__, tok)
+        out.append(res)
+    return out
+
+
+@router.post("/keys/{name}/check")
+def keys_check(name: str, db: Session = Depends(get_db, scope="function"), user: User = Depends(require_level("admin"))):
+    """«Проверить»: a cheap live call with the key. AI: key + URL + model together; Apify: each token of the list."""
+    name = _key_name(name)
+    keys.refresh(force=True)
+    if name in ("OPENAI_API_KEY", "OPENAI_BASE_URL", "LLM_MODEL"):
+        return {"results": _check_ai()}
+    if name in ("APIFY_TOKENS", "APIFY_TOKEN"):
+        return {"results": _check_apify(os.environ.get(name) or "")}
+    raise DomainError("bad_input", "Этот ключ проверить нельзя")
+
+
+# ---------------------------------------------------------------- spend: Apify + AI (Управление → Ключи, admin)
+
+# $ per 1M tokens [prompt, completion] for bare OpenAI names; OpenRouter models are priced from its /models list.
+# Only tokens without a cost reported by the provider are priced (calls before 16.11 and non-OpenRouter providers).
 LLM_PRICES = {"gpt-4.1-mini": (0.4, 1.6), "gpt-4.1": (2.0, 8.0), "gpt-4.1-nano": (0.1, 0.4), "gpt-4o-mini": (0.15, 0.6),
               "gpt-4o": (2.5, 10.0), "gpt-5-mini": (0.25, 2.0), "gpt-5": (1.25, 10.0)}
+_CACHE: dict[str, tuple[float, object]] = {}
+
+
+def _cached(key: str, ttl: float, fn):
+    hit = _CACHE.get(key)
+    if hit and time.monotonic() - hit[0] < ttl:
+        return hit[1]
+    val = fn()
+    _CACHE[key] = (time.monotonic(), val)
+    return val
+
+
+def _openrouter_prices() -> dict[str, tuple[float, float]]:
+    """OpenRouter model id -> ($ per prompt token, $ per completion token), public list, cached for a day."""
+    import httpx
+
+    def fetch():
+        try:
+            r = httpx.get("https://openrouter.ai/api/v1/models", timeout=15)
+            return {m["id"]: (float(m["pricing"]["prompt"]), float(m["pricing"]["completion"])) for m in r.json()["data"]
+                    if (m.get("pricing") or {}).get("prompt") is not None}
+        except Exception:  # noqa: BLE001
+            return None
+    prices = _cached("or_prices", 86400, fetch)
+    if prices is None:
+        _CACHE.pop("or_prices", None)  # retry on the next load
+    return prices or {}
+
+
+def _price(model: str) -> tuple[float, float] | None:
+    if model in LLM_PRICES:
+        return LLM_PRICES[model][0] / 1e6, LLM_PRICES[model][1] / 1e6
+    return _openrouter_prices().get(model) or _openrouter_prices().get(f"openai/{model}")
 
 
 def _llm_sum(days: dict) -> dict:
-    out = {"calls": 0, "prompt": 0, "completion": 0, "usd": 0.0, "unpriced": []}
+    """days: {day: {model: [calls, prompt, completion, cost_usd, unpriced_prompt, unpriced_completion]}} (old rows: the first 3)."""
+    out = {"calls": 0, "prompt": 0, "completion": 0, "usd": 0.0, "estimated": False, "unpriced": [], "models": {}}
     for models in days.values():
-        for model, (calls, pin, pout) in models.items():
+        for model, row in models.items():
+            calls, pin, pout, cost, upin, upout = (list(row) + [0.0, row[1], row[2]])[:6]
+            if upin or upout:
+                price = _price(model)
+                if price:
+                    cost += upin * price[0] + upout * price[1]
+                    out["estimated"] = True
+                elif model not in out["unpriced"]:
+                    out["unpriced"].append(model)
+            m = out["models"].setdefault(model, {"model": model, "calls": 0, "tokens": 0, "usd": 0.0})
+            m["calls"] += calls
+            m["tokens"] += pin + pout
+            m["usd"] += cost
             out["calls"] += calls
             out["prompt"] += pin
             out["completion"] += pout
-            price = LLM_PRICES.get(model)
-            if price:
-                out["usd"] += (pin * price[0] + pout * price[1]) / 1e6
-            elif model not in out["unpriced"]:
-                out["unpriced"].append(model)
+            out["usd"] += cost
     out["usd"] = round(out["usd"], 4)
+    out["models"] = sorted(({**m, "usd": round(m["usd"], 4)} for m in out["models"].values()), key=lambda m: -m["usd"])
     return out
 
 
 def _apify_accounts() -> list[dict]:
-    """Each Apify key's monthly usage from the Apify API (last 4 characters only, never the key)."""
+    """Each Apify key's monthly usage from the Apify API (masked, never the key)."""
     import httpx
     toks = [t.strip() for t in (os.environ.get("APIFY_TOKENS") or "").replace(";", ",").split(",")]
     toks = list(dict.fromkeys(t for t in [*toks, (os.environ.get("APIFY_TOKEN") or "").strip()] if t))
     out = []
     for tok in toks:
-        a = {"tail": tok[-4:], "used_usd": None, "limit_usd": None, "cycle_end": None, "error": None}
+        a = {"tail": tok[-4:], "masked": keys.mask(tok), "used_usd": None, "limit_usd": None, "cycle_end": None, "error": None}
         try:
             r = httpx.get("https://api.apify.com/v2/users/me/limits", headers={"Authorization": f"Bearer {tok}"}, timeout=10)
             if r.status_code == 200:
@@ -215,39 +350,70 @@ def _apify_accounts() -> list[dict]:
     return out
 
 
-def _proxyapi_balance() -> float | None:
-    """ProxyAPI balance in rubles, when the key may read it (a key needs that permission in the ProxyAPI cabinet)."""
+def ai_provider(base: str) -> str:
+    base = base.lower()
+    return ("OpenRouter" if "openrouter.ai" in base else "ProxyAPI" if "proxyapi" in base
+            else "OpenAI" if "api.openai.com" in base or not base else re.sub(r"^https?://([^/]+).*$", r"\1", base))
+
+
+def _ai_balance() -> dict | None:
+    """OpenRouter: credits left / used (key's own limit if it has one); ProxyAPI: rubles when the key may read it.
+    Cached 5 minutes. None when the provider shows no balance."""
+    import hashlib
     import httpx
-    if "proxyapi" not in (os.environ.get("OPENAI_BASE_URL") or ""):
+    key, base = os.environ.get("OPENAI_API_KEY") or "", os.environ.get("OPENAI_BASE_URL") or ""
+    prov = ai_provider(base)
+    if not key or prov not in ("OpenRouter", "ProxyAPI"):
         return None
-    try:
-        r = httpx.get("https://api.proxyapi.ru/proxyapi/balance",
-                      headers={"Authorization": f"Bearer {os.environ.get('OPENAI_API_KEY', '')}"}, timeout=10)
-        return float(r.json()["balance"]) if r.status_code == 200 else None
-    except Exception:  # noqa: BLE001
-        return None
+    h = {"Authorization": f"Bearer {key}"}
+
+    def fetch():
+        try:
+            if prov == "ProxyAPI":
+                r = httpx.get("https://api.proxyapi.ru/proxyapi/balance", headers=h, timeout=10)
+                return {"balance_rub": float(r.json()["balance"])} if r.status_code == 200 else None
+            out = {}
+            r = httpx.get("https://openrouter.ai/api/v1/credits", headers=h, timeout=10)
+            if r.status_code == 200:
+                d = r.json()["data"]
+                out |= {"balance_usd": round(d["total_credits"] - d["total_usage"], 4), "used_usd": round(d["total_usage"], 4)}
+            r = httpx.get("https://openrouter.ai/api/v1/key", headers=h, timeout=10)
+            if r.status_code == 200:
+                d = r.json()["data"]
+                out |= {"key_used_usd": d.get("usage"), "key_limit_usd": d.get("limit"), "key_remaining_usd": d.get("limit_remaining"),
+                        "key_used_today_usd": d.get("usage_daily"), "key_used_month_usd": d.get("usage_monthly")}
+            elif not out:
+                out["error"] = "invalid_key" if r.status_code in (401, 403) else f"http_{r.status_code}"
+            return out
+        except Exception:  # noqa: BLE001
+            return {"error": "unreachable"}
+    return _cached("bal:" + hashlib.sha256(f"{base}|{key}".encode()).hexdigest(), 300, fetch)
 
 
 @router.get("/spend")
 def spend(db: Session = Depends(get_db, scope="function"), user: User = Depends(require_level("admin"))):
     """Apify: today / 7 days from the runs the parser recorded (source_runs) + each key's month from the Apify API.
-    AI: tokens per day and model the bot/parser recorded (bot/llm.py record_usage, llm_usage), with a $ estimate."""
-    from datetime import datetime, timezone
+    AI: calls, tokens and $ per day and model recorded by bot/llm.py (llm_usage; OpenRouter reports each call's cost),
+    the provider's balance."""
+    from datetime import datetime, timedelta, timezone
     keys.refresh()
     now = datetime.now(timezone.utc)
-    today, month = now.strftime("%Y-%m-%d"), now.strftime("%Y-%m")
+    today, month, week0 = now.strftime("%Y-%m-%d"), now.strftime("%Y-%m"), (now - timedelta(days=6)).strftime("%Y-%m-%d")
     day0 = now.replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
     runs = jload(settings.get(db, "source_runs"), {})
     flat = [r for rr in runs.values() for r in rr]
     usage = jload(settings.get(db, "llm_usage"), {})
+    base = os.environ.get("OPENAI_BASE_URL") or ""
     return {
         "apify": {"today_usd": round(sum(r[1] for r in flat if r[0] >= day0), 3), "week_usd": round(sum(r[1] for r in flat), 3),
                   "by_source_week": {k: round(sum(r[1] for r in rr), 3) for k, rr in runs.items() if rr},
                   "accounts": _apify_accounts()},
-        "ai": {"provider": (os.environ.get("LLM_PROVIDER") or "openai").lower(), "model": os.environ.get("LLM_MODEL") or "gpt-4.1-mini",
+        "ai": {"mode": (os.environ.get("LLM_PROVIDER") or "openai").lower(), "provider": ai_provider(base),
+               "base_url": base or "https://api.openai.com/v1", "model": os.environ.get("LLM_MODEL") or "gpt-4.1-mini",
                "today": _llm_sum({d: m for d, m in usage.items() if d == today}),
+               "week": _llm_sum({d: m for d, m in usage.items() if d >= week0}),
                "month": _llm_sum({d: m for d, m in usage.items() if d.startswith(month)}),
-               "balance_rub": _proxyapi_balance()},
+               "balance": _ai_balance()},
     }
 
 

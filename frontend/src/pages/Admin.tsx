@@ -7,9 +7,10 @@ import { itemsOf } from '../api/client';
 import type { Invite, InviteStatus, Role, Settings, Source, User } from '../api/types';
 import { ADMIN_ROLES, SUPER_ROLES, atLeast } from '../api/types';
 import { useAuth } from '../auth/AuthContext';
+import { KeysPage } from './AdminKeys';
 import { errText, useToast } from '../components/toast';
 import { Avatar, Badge, Button, Card, Checkbox, Drawer, Empty, ErrorBox, Field, Input, Loading, Modal, PageHead, Seg, Select, Switch, Tabs } from '../components/ui';
-import { ROLE_LABEL, ago, fmtDateTime, num, phoneBlur, phoneFocus, phoneInput } from '../lib/format';
+import { ROLE_LABEL, ago, fmtDateTime, phoneBlur, phoneFocus, phoneInput } from '../lib/format';
 import { AvatarEdit, EMAIL_RE, birthdayLabel } from './Cabinet';
 import { parseMetrics } from '../lib/useUserNames';
 import { ANALYTICS_METRICS, ANALYTICS_SECTIONS } from '../features/deals/Analytics';
@@ -504,84 +505,6 @@ function SettingsAdmin() {
   );
 }
 
-/** Integration keys (superadmin): Apify, AI, maps… entered here win over the server's .env, no restart (backend app/keys.py).
- *  A value is never shown again: only where it comes from and its last 4 characters. */
-function KeysAdmin() {
-  const qc = useQueryClient();
-  const toast = useToast();
-  const q = useQuery({ queryKey: ['keys'], queryFn: api.keys.list });
-  const [edit, setEdit] = useState<{ name: string; value: string; isNew?: boolean; custom?: boolean } | null>(null);
-  const done = (d: { items: unknown[] }) => { qc.setQueryData(['keys'], d); setEdit(null); toast(t('Сохранено')); };
-  const put = useMutation({ mutationFn: () => api.keys.put(edit!.name.trim().toUpperCase(), edit!.value.trim()), onSuccess: done, onError: (e) => toast(errText(e), true) });
-  const del = useMutation({ mutationFn: (n: string) => api.keys.remove(n), onSuccess: (d) => qc.setQueryData(['keys'], d), onError: (e) => toast(errText(e), true) });
-  if (q.isLoading) return <Loading />;
-  if (q.error) return <ErrorBox error={q.error} />;
-  return (
-    <Card label={t('Только для администраторов')} title={t('Ключи интеграций')}>
-      <p className="muted" style={{ marginTop: 0 }}>{t('Ключ из CRM главнее ключа на сервере и начинает работать в течение минуты, без перезапуска. Значение после сохранения больше не показывается.')}</p>
-      {itemsOf(q.data).map((k) => (
-        <div key={k.name} className="list-row" style={{ flexWrap: 'wrap' }}>
-          <div className="grow" style={{ minWidth: 220 }}>
-            <div style={{ fontWeight: 700 }}>{k.title ? t(k.title) : k.name}</div>
-            <div className="muted" style={{ fontSize: 12 }}>{k.note ? `${t(k.note)} · ` : ''}<span style={{ fontFamily: 'monospace', overflowWrap: 'anywhere' }}>{k.name}</span></div>
-          </div>
-          {k.source === 'crm' ? <Badge tone="ok">{t('CRM')} · …{k.tail}</Badge> : k.source === 'env' ? <Badge tone="grey">{t('сервер')} · …{k.tail}</Badge> : <Badge tone="warn">{t('не задан')}</Badge>}
-          <Button size="sm" variant="secondary" onClick={() => setEdit({ name: k.name, value: '' })}>{k.source === 'crm' ? t('Заменить') : t('Задать')}</Button>
-          {k.source === 'crm' && <Button size="sm" variant="ghost" aria-label={t('Удалить')} loading={del.isPending && del.variables === k.name} onClick={() => confirm(t('Удалить ключ {name} из CRM? Останется значение с сервера, если оно есть.', { name: k.name })) && del.mutate(k.name)}><Trash2 size={14} /></Button>}
-        </div>
-      ))}
-      <div className="row mt"><Button variant="secondary" onClick={() => setEdit({ name: '', value: '', isNew: true })}><Plus size={16} />{t('Добавить ключ')}</Button></div>
-      <Modal open={!!edit} onClose={() => setEdit(null)} title={edit?.isNew ? t('Новый ключ') : t(itemsOf(q.data).find((k) => k.name === edit?.name)?.title || edit?.name || '')}>
-        {edit && <form className="col gap" onSubmit={(e) => { e.preventDefault(); put.mutate(); }}>
-          {edit.isNew && <Field label={t('Какой ключ')}><Select value={edit.custom ? '_' : edit.name}
-            onChange={(e) => setEdit({ ...edit, name: e.target.value === '_' ? '' : e.target.value, custom: e.target.value === '_' })}
-            placeholder={t('Выберите…')}
-            options={[...itemsOf(q.data).filter((k) => k.title).map((k) => ({ value: k.name, label: t(k.title!) })), { value: '_', label: t('Другой ключ (ввести имя)') }]} /></Field>}
-          {edit.isNew && edit.custom && <Field label={t('Имя ключа латиницей, например THREADS_TOKEN')}><Input value={edit.name} onChange={(e) => setEdit({ ...edit, name: e.target.value.toUpperCase().replace(/[^A-Z0-9_]/g, '') })} required /></Field>}
-          <Field label={t('Значение')}><Input type="password" autoComplete="off" value={edit.value} onChange={(e) => setEdit({ ...edit, value: e.target.value })} required /></Field>
-          <Button type="submit" loading={put.isPending} disabled={!edit.name.trim() || !edit.value.trim()}>{t('Сохранить')}</Button>
-        </form>}
-      </Modal>
-    </Card>
-  );
-}
-
-/** What Apify and the AI cost (superadmin): Apify runs the parser recorded + each key's month from Apify; AI tokens the
- *  bot/parser recorded per call (bot/llm.py), $ estimated at OpenAI prices (backend /spend). */
-function SpendCard() {
-  const q = useQuery({ queryKey: ['spend'], queryFn: api.spend });
-  if (q.isLoading) return <Loading />;
-  if (q.error) return <ErrorBox error={q.error} />;
-  const { apify, ai } = q.data!;
-  const usd = (v: number | null | undefined) => (v == null ? '—' : `$${v.toFixed(2)}`);
-  const sum = (x: typeof ai.today) => `${usd(x.usd)} · ${t('{calls} вызовов, {tokens} токенов', { calls: num(x.calls), tokens: num(x.prompt + x.completion) })}`;
-  const bySource = Object.entries(apify.by_source_week).map(([k, v]) => `${k} ${usd(v)}`).join(', ');
-  return (
-    <Card label={t('Только для администраторов')} title={t('Расходы')}>
-      <div className="label">{t('Apify (парсеры)')}</div>
-      <div className="list-row"><span className="grow">{t('Сегодня')}</span><b>{usd(apify.today_usd)}</b></div>
-      <div className="list-row"><span className="grow">{t('За 7 дней')}{bySource ? ` (${bySource})` : ''}</span><b>{usd(apify.week_usd)}</b></div>
-      {apify.accounts.length === 0 && <p className="muted">{t('Ключей Apify нет')}</p>}
-      {apify.accounts.map((a) => (
-        <div key={a.tail} className="list-row">
-          <span className="grow">{t('Ключ')} <span style={{ fontFamily: 'monospace' }}>…{a.tail}</span>{a.cycle_end ? ` · ${t('месяц до {date}', { date: a.cycle_end })}` : ''}</span>
-          {a.error ? <Badge tone="warn">{a.error === 'invalid_key' ? t('ключ не работает') : t('Apify не отвечает')}</Badge>
-            : <b>{usd(a.used_usd)}{a.limit_usd != null ? ` ${t('из')} ${usd(a.limit_usd)}` : ''}</b>}
-        </div>
-      ))}
-      <div className="label mt">{t('ИИ (нейросеть)')} · <span style={{ fontFamily: 'monospace' }}>{ai.model}</span></div>
-      {ai.provider !== 'openai' && <p className="muted">{t('Сейчас ИИ идёт через подписку Codex: токены не считаются')}</p>}
-      <div className="list-row"><span className="grow">{t('Сегодня')}</span><b>{sum(ai.today)}</b></div>
-      <div className="list-row"><span className="grow">{t('За месяц')}</span><b>{sum(ai.month)}</b></div>
-      <p className="muted" style={{ fontSize: 12 }}>
-        {ai.balance_rub != null ? t('Баланс ProxyAPI: {rub} ₽', { rub: num(Math.round(ai.balance_rub)) }) : t('Баланс ProxyAPI этот ключ не показывает, он виден в кабинете proxyapi.ru')}
-        {' · '}{t('$ примерно, по ценам OpenAI; ProxyAPI списывает рубли со своей наценкой')}
-        {[...new Set([...ai.today.unpriced, ...ai.month.unpriced])].map((m) => ` · ${t('нет цены для {m}', { m })}`)}
-      </p>
-    </Card>
-  );
-}
-
 export function AdminPage() {
   const [tab, setTab] = useState<'users' | 'sources' | 'ticker' | 'settings' | 'keys'>('users');
   return (
@@ -596,7 +519,7 @@ export function AdminPage() {
       {tab === 'sources' && <Sources />}
       {tab === 'ticker' && <TickerAdmin />}
       {tab === 'settings' && <SettingsAdmin />}
-      {tab === 'keys' && <><SpendCard /><KeysAdmin /></>}
+      {tab === 'keys' && <KeysPage />}
     </>
   );
 }

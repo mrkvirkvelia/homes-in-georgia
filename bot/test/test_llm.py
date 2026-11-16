@@ -55,7 +55,7 @@ class OpenAIProvider(unittest.TestCase):
         with mock.patch("sys.stderr", new=io.StringIO()) as err:
             out = self.run_ask(handler, images=[img])
         self.assertEqual(out, {"answer": "a flat"})
-        self.usage.assert_called_once_with("gpt-test", 12, 3)
+        self.usage.assert_called_once_with("gpt-test", 12, 3, None)
         req = seen[0]
         self.assertEqual(str(req.url), "https://proxy.test/openai/v1/chat/completions")
         self.assertEqual(req.headers["authorization"], "Bearer sk-test")
@@ -134,9 +134,22 @@ class Usage(unittest.TestCase):
         llm.record_usage("m1", 100, 10)
         llm.record_usage("m1", 50, 5)
         llm.record_usage("m2", 1, 1)
+        llm.record_usage("m2", 10, 2, 0.0005)
         u = json.loads(db.get_setting("llm_usage"))
         (day,) = u
-        self.assertEqual(u[day], {"m1": [2, 150, 15], "m2": [1, 1, 1]})
+        self.assertEqual(u[day], {"m1": [2, 150, 15, 0.0, 150, 15], "m2": [2, 11, 3, 0.0005, 1, 1]})
+
+    def test_openrouter_asks_for_the_cost(self):
+        seen = []
+
+        def handler(req):
+            seen.append(json.loads(req.content))
+            return ok({"answer": "x"}, {"prompt_tokens": 5, "completion_tokens": 1, "cost": 0.00002})
+        env = {"LLM_PROVIDER": "openai", "OPENAI_BASE_URL": "https://openrouter.ai/api/v1", "OPENAI_API_KEY": "k", "LLM_MODEL": "g"}
+        with mock.patch.dict(os.environ, env), mock.patch.object(llm, "record_usage") as rec, mock.patch("sys.stderr", new=io.StringIO()):
+            llm.ask_openai("hi", SCHEMA, transport=httpx.MockTransport(handler))
+        self.assertEqual(seen[0]["usage"], {"include": True})
+        rec.assert_called_once_with("g", 5, 1, 0.00002)
 
 
 if __name__ == "__main__":

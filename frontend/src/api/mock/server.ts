@@ -661,20 +661,32 @@ on('GET', '/news', () => page([
   { id: 1, date: new Date().toISOString().slice(0, 10), text: 'Новые правила публикации: без проверки оператором в канал ничего не уходит.' },
   { id: 2, date: new Date(Date.now() - 3 * 86400_000).toISOString().slice(0, 10), text: 'Запущена воронка клиентов в боте: заявки приходят в общую группу операторов.' },
 ]));
-// Управление → Ключи (backend app/keys.py): values write-only
-const mockKeys: Record<string, string> = {};
-const KEY_NOTES: Record<string, [string, string]> = { OPENAI_API_KEY: ['Нейросеть: ключ OpenAI / ProxyAPI', 'Все вызовы ИИ идут через этот ключ'],
-  OPENAI_BASE_URL: ['Нейросеть: адрес API', 'Например https://api.proxyapi.ru/openai/v1'], LLM_MODEL: ['Нейросеть: модель', 'Например gpt-4.1-mini'],
+// Управление → Ключи (backend app/keys.py)
+const mockKeys: Record<string, string> = { OPENAI_BASE_URL: 'https://openrouter.ai/api/v1', LLM_MODEL: 'google/gemma-4-31b-it' };
+const ENV_KEYS: Record<string, string> = { OPENAI_API_KEY: 'sk-or-v1-0000000000000000a6e0', APIFY_TOKENS: 'apify_api_000000000000T4n0, apify_api_111111111111Zz99', MAPTILER_KEY: 'mt00000000000000evv8' };
+const KEY_NOTES: Record<string, [string, string]> = { OPENAI_API_KEY: ['Нейросеть: ключ API', 'OpenRouter, ProxyAPI или OpenAI: все вызовы ИИ идут через этот ключ'],
+  OPENAI_BASE_URL: ['Нейросеть: адрес API', 'Например https://openrouter.ai/api/v1'], LLM_MODEL: ['Нейросеть: модель', 'Например google/gemma-4-31b-it'],
   APIFY_TOKENS: ['Apify: ключи для парсера Facebook', 'Можно несколько через запятую, берутся по очереди'], APIFY_TOKEN: ['Apify: один ключ', 'Если список выше пустой'],
   MAPTILER_KEY: ['Карты MapTiler', 'Подложка карт в CRM и на сайте'] };
-const keysOut = () => ({ items: [...new Set([...Object.keys(KEY_NOTES), ...Object.keys(mockKeys).sort()])].map((name) => ({
-  name, title: KEY_NOTES[name]?.[0] ?? null, note: KEY_NOTES[name]?.[1] ?? null, source: mockKeys[name] ? 'crm' : name === 'OPENAI_API_KEY' ? 'env' : null,
-  tail: mockKeys[name] ? mockKeys[name].slice(-4) : name === 'OPENAI_API_KEY' ? 'a1b2' : null })) });
+const isSecret = (n: string) => /KEY|TOKEN|SECRET|PASS|SESSION|HASH/.test(n);
+const maskV = (v: string) => v.split(',').map((p) => p.trim()).filter(Boolean).map((p) => (p.length >= 16 ? `${p.slice(0, 4)}…${p.slice(-4)}` : '••••')).join(', ');
+const keyVal = (n: string) => mockKeys[n] ?? ENV_KEYS[n];
+const keysOut = () => ({ items: [...new Set([...Object.keys(KEY_NOTES), ...Object.keys(mockKeys).sort()])].map((name) => {
+  const v = keyVal(name);
+  return { name, title: KEY_NOTES[name]?.[0] ?? null, note: KEY_NOTES[name]?.[1] ?? null, source: mockKeys[name] ? 'crm' : v ? 'env' : null,
+    secret: isSecret(name), value: v ? (isSecret(name) ? maskV(v) : v) : null,
+    changed_at: mockKeys[name] ? '2026-11-16T14:05:00Z' : null, changed_by: mockKeys[name] ? 'Станислав' : null };
+}) });
+const llm = (calls: number, usd: number) => ({ calls, prompt: calls * 7000, completion: calls * 450, usd, estimated: true, unpriced: [],
+  models: [{ model: 'google/gemma-4-31b-it', calls, tokens: calls * 7450, usd }] });
 on('GET', '/keys', () => keysOut());
-on('GET', '/spend', () => ({ apify: { today_usd: 0.07, week_usd: 0.92, by_source_week: { facebook: 0.61, ss: 0.31 },
-  accounts: [{ tail: 'ab12', used_usd: 4.68, limit_usd: 5, cycle_end: '2026-11-29', error: null }, { tail: 'cd34', used_usd: null, limit_usd: null, cycle_end: null, error: 'invalid_key' }] },
-  ai: { provider: 'openai', model: 'gpt-4.1-mini', today: { calls: 41, prompt: 182000, completion: 9100, usd: 0.0874, unpriced: [] },
-    month: { calls: 640, prompt: 2900000, completion: 150000, usd: 1.4, unpriced: [] }, balance_rub: null } }));
+on('GET', '/keys/:name/value', (m) => ({ name: m[1], value: keyVal(m[1]) }));
+on('POST', '/keys/:name/check', (m) => ({ results: m[1].startsWith('APIFY') ? [{ label: 'apif…T4n0', ok: true, ms: 312, error: null }, { label: 'apif…Zz99', ok: false, ms: 280, error: 'Ключ не работает' }]
+  : [{ label: 'google/gemma-4-31b-it', ok: true, ms: 840, error: null }] }));
+on('GET', '/spend', () => ({ apify: { today_usd: 0.11, week_usd: 0.87, by_source_week: { facebook: 0.38, threads: 0.21, ss: 0.28 },
+  accounts: [{ tail: 'T4n0', masked: 'apif…T4n0', used_usd: 1.2, limit_usd: 5, cycle_end: '2026-12-15', error: null }, { tail: 'Zz99', masked: 'apif…Zz99', used_usd: null, limit_usd: null, cycle_end: null, error: 'invalid_key' }] },
+  ai: { mode: 'openai', provider: 'OpenRouter', base_url: 'https://openrouter.ai/api/v1', model: 'google/gemma-4-31b-it',
+    today: llm(266, 0.2131), week: llm(266, 0.2131), month: llm(266, 0.2131), balance: { balance_usd: 9.79, used_usd: 0.21 } } }));
 on('PUT', '/keys/:name', (m, b) => { mockKeys[m[1]] = String(b.value); return keysOut(); });
 on('DELETE', '/keys/:name', (m) => { delete mockKeys[m[1]]; return keysOut(); });
 on('GET', '/settings', () => F.settings);

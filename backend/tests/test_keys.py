@@ -25,7 +25,18 @@ def test_keys_from_the_crm(db, client, monkeypatch):
     assert r.status_code == 200, r.text
     assert secret not in r.text
     row = next(k for k in r.json()["items"] if k["name"] == "MAPTILER_KEY")
-    assert row["source"] == "crm" and row["tail"] == "5678"
+    assert row["source"] == "crm" and row["secret"] and row["value"] == "crm-…5678" and row["changed_by"] == "Давид"
+    # «Показать»: admin+, the full value, logged
+    assert client.get("/api/keys/MAPTILER_KEY/value", headers=auth(op)).status_code == 403
+    assert client.get("/api/keys/MAPTILER_KEY/value", headers=auth(admin)).json()["value"] == secret
+    from app.models import Event
+    ev = db.query(Event).filter(Event.action == "key_revealed").one()
+    assert ev.data == {"name": "MAPTILER_KEY"} and ev.actor_label == "Иракли"
+    # settings are shown in full
+    client.put("/api/keys/LLM_MODEL", json={"value": "google/gemma-4-31b-it"}, headers=h)
+    row = next(k for k in client.get("/api/keys", headers=h).json()["items"] if k["name"] == "LLM_MODEL")
+    assert not row["secret"] and row["value"] == "google/gemma-4-31b-it"
+    client.delete("/api/keys/LLM_MODEL", headers=h)
     assert env.MAPTILER_KEY == secret and os.environ["MAPTILER_KEY"] == secret
     assert client.get("/api/config").json()["maptiler_key"] == secret
     # the general settings never show it

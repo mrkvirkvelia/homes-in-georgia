@@ -195,7 +195,8 @@ on('GET', '/listings/new', (_m, _b, q) => {
   ls = ls.map((l) => (hints[l.id] ? { ...l, similar: sim(l, hints[l.id]) } : l));
   const flag = q.get('flag');
   const live = (l: Listing) => (l.similar || []).some((x) => x.status !== 'archived');
-  if (flag === 'in_base') ls = ls.filter(live);
+  if (flag === 'ours' || flag === 'not_ours') ls = ls.filter((l) => (l.id === 'R1') === (flag === 'ours'));  // R1: a flat we have
+  else if (flag === 'in_base') ls = ls.filter(live);
   else if (flag === 'in_archive') ls = ls.filter((l) => l.similar?.length && !live(l));
   else if (flag) ls = ls.filter((l) => (l.ai_flags as Record<string, unknown> | null)?.[flag]);
   return page(ls);

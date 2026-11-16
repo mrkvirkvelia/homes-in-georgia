@@ -75,3 +75,19 @@ def test_sync_keeps_competitor_ads_out_of_the_bot(db, tmp_path):
     db.expire_all()
     from app.models import Listing
     assert db.get(Listing, "tg_rival_flats_9").status == "rejected"  # the bot's search and review queue skip it
+
+
+def test_competitor_filter_ours(db, client):
+    from app.models import PropertyListing
+    agent = make_user(db, "agent")
+    _rival(db)
+    make_listing(db, "ss1")
+    make_listing(db, "tg_rival_flats_7", source="tg:rival_flats")
+    make_listing(db, "tg_rival_flats_8", source="tg:rival_flats")
+    p = P.take(db, "ss1", agent)
+    db.add(PropertyListing(property_id=p.id, listing_id="tg_rival_flats_7", source="tg:rival_flats"))
+    db.commit()
+    ids = lambda **kw: {x["id"] for x in client.get("/api/listings/new", params={"competitor": 1, **kw}, headers=auth(agent)).json()["items"]}
+    assert ids() == {"tg_rival_flats_7", "tg_rival_flats_8"}
+    assert ids(flag="ours") == {"tg_rival_flats_7"}
+    assert ids(flag="not_ours") == {"tg_rival_flats_8"}

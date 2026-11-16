@@ -64,11 +64,12 @@ export function ObjectsPage() {
   const { isStaff } = useAuth();
   const [params, setParams] = useSearchParams();
   const asked = params.get('tab') as ObjTab | null;
-  // «На публикацию» / «Запросы» are the operators' queues: an agent's ?tab=requests falls back to his default tab
-  const allowed = (t: ObjTab) => isStaff || !['review', 'requests'].includes(t);
-  const tab = asked && OBJ_TAB[asked] && allowed(asked) ? asked : isStaff ? 'board' : 'new';
   // Аренда / Продажа (Stanislav 11-15): each with its own feed, board, base and archive; kept in the URL (?deal=sale)
   const deal: Deal = params.get('deal') === 'sale' ? 'sale' : 'rent';
+  // «На публикацию» / «Запросы» are the operators' queues: an agent's ?tab=requests falls back to his default tab;
+  // «Конкуренты» is rent only for now: sale ads are not collected (Stanislav 11-16)
+  const allowed = (t: ObjTab) => (isStaff || !['review', 'requests'].includes(t)) && !(deal === 'sale' && t === 'competitors');
+  const tab = asked && OBJ_TAB[asked] && allowed(asked) ? asked : isStaff ? 'board' : 'new';
   const setTab = (t: ObjTab) => setParams({ tab: t, ...(deal === 'sale' ? { deal } : {}) }, { replace: true });
   const setDeal = (d: Deal) => setParams({ tab, ...(d === 'sale' ? { deal: d } : {}) }, { replace: true });
   const [manual, setManual] = useState(params.get('new') === '1');
@@ -76,7 +77,7 @@ export function ObjectsPage() {
   const queue = useQuery({ queryKey: ['properties', 'list', 'review', deal], queryFn: () => api.properties.list({ status: 'review', deal }), enabled: isStaff });
   const requests = useQuery({ queryKey: ['change-requests', 'pending'], queryFn: () => api.changeRequests.list('pending'), enabled: isStaff });
   const fresh = useQuery({ queryKey: ['listings', 'new', 'count'], queryFn: () => api.listings.new({}, 1), staleTime: 60_000 });
-  const rivals = useQuery({ queryKey: ['listings', 'rival', 'count'], queryFn: () => api.listings.new({ competitor: '1' }, 1), staleTime: 60_000 });
+  const rivals = useQuery({ queryKey: ['listings', 'rival', 'count'], queryFn: () => api.listings.new({ competitor: '1' }, 1), staleTime: 60_000, enabled: deal === 'rent' });
   const count: Partial<Record<ObjTab, number | undefined>> = {
     new: deal === 'sale' ? undefined : fresh.data?.total, review: queue.data ? itemsOf(queue.data).length : undefined, requests: requests.data?.total, competitors: rivals.data?.total,
   };

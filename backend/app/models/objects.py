@@ -148,6 +148,8 @@ class PropertyPublication(Base):
     message_id = Column(Text)
     published_at = Column(DateTime(timezone=True))
     removed_at = Column(DateTime(timezone=True))
+    messages = Column(JSONB)  # {"chat", "ids"}: every message of the post (notify.publish_post), deleted together
+    delete_error = Column(Text)  # the post could not be deleted (properties.unpost)
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
 

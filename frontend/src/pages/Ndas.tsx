@@ -90,14 +90,12 @@ function LinkActions({ n }: { n: Nda }) {
   );
 }
 
-const ROLES = [{ value: 'recruit', label: 'Рекрут (учебные сделки)' }, { value: 'agent', label: 'Агент' }, { value: 'mentor', label: 'Наставник' }];
-const LEVELS = ['25', '50', '70', '90'].map((v) => ({ value: v, label: `Уровень ${v}` }));
 const today = () => new Date().toLocaleDateString('sv-SE');  // YYYY-MM-DD
 
 function NewNda({ onMade, preset, onReset }: { onMade: (n: Nda) => void; preset?: Preset | null; onReset?: () => void }) {
   const toast = useToast();
   const blank = { full_name: '', full_name_ka: '', personal_id: '', ie: '', address: '', phone: '', email: '', telegram: '', iban_gel: '', iban_usd: '' };
-  const [f, setF] = useState<Form>({ ...blank, role: 'recruit', level: '25', access: today(), lang: 'KA-RU' });
+  const [f, setF] = useState<Form>({ ...blank, role: 'agent', level: '50', access: today(), lang: 'KA-RU' });
   useEffect(() => { if (preset) setF(preset.form); }, [preset]);
   const m = useMutation({
     mutationFn: () => http.post<Nda>('/ndas', preset ? { ...f, user_id: preset.form.user_id, replace: preset.replace } : f),
@@ -106,7 +104,6 @@ function NewNda({ onMade, preset, onReset }: { onMade: (n: Nda) => void; preset?
   });
   const sig = useQuery({ queryKey: ['nda-company-sig'], queryFn: () => http.get<CompanySig>('/ndas/company-signature') });
   const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => setF({ ...f, [k]: e.target.value });
-  const role = (e: React.ChangeEvent<HTMLSelectElement>) => setF({ ...f, role: e.target.value, level: e.target.value === 'recruit' ? '25' : f.level === '25' ? '50' : f.level });
   return (
     <Card label={preset ? t('Участнику команды: {name}', { name: preset.name }) : 'Новому агенту'} title={t('Соглашение о подключении к платформе (ред. {ed})', { ed: sig.data?.edition ?? '…' })}>
       {preset && <div className="alert alert-info" style={{ marginBottom: 12 }}>{t('Заполнено из профиля — проверьте и дополните пустые поля')} · <button type="button" className="link-btn" onClick={() => { setF({ ...f, ...blank, access: today() }); onReset?.(); }}>{t('Очистить')}</button></div>}
@@ -119,8 +116,6 @@ function NewNda({ onMade, preset, onReset }: { onMade: (n: Nda) => void; preset?
         <Field label="Телефон"><Input type="tel" value={f.phone} onChange={(e) => setF({ ...f, phone: phoneInput(e) })} /></Field>
         <Field label="Email"><Input type="email" value={f.email} onChange={set('email')} /></Field>
         <Field label="Telegram" hint="@username: подписать сможет только этот аккаунт"><Input value={f.telegram} onChange={set('telegram')} placeholder="@username" /></Field>
-        <Field label="Роль"><Select value={f.role} onChange={role} options={ROLES} /></Field>
-        <Field label="Уровень" hint="Приложение 1: доля комиссии у агента"><Select value={f.level} onChange={set('level')} options={LEVELS} /></Field>
         <Field label="Доступ с"><Input type="date" value={f.access} onChange={set('access')} /></Field>
         <Field label="IBAN GEL"><Input value={f.iban_gel} onChange={set('iban_gel')} placeholder="GE…" /></Field>
         <Field label="IBAN USD"><Input value={f.iban_usd} onChange={set('iban_usd')} placeholder="GE…" /></Field>

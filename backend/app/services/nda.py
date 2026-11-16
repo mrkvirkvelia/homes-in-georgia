@@ -702,11 +702,11 @@ def _mine(n: AgentNda, u: User) -> bool:
         bool(u.username and n.telegram and n.telegram.lower() == u.username.lower())
 
 
-def prefill(u: User, mentor: bool = False) -> dict:
-    """The NDA form from the profile; what the profile lacks stays empty for staff to fill. The agreement's role: a
-    recruit → Рекрут, anyone with recruits under him (users.mentor_id) → Наставник, else Агент."""
-    role = "recruit" if u.role == "recruit" else "mentor" if mentor else "agent"
-    level = str(u.level) if str(u.level) in LEVELS else ("25" if role == "recruit" else "50")
+def prefill(u: User) -> dict:
+    """The NDA form from the profile; what the profile lacks stays empty for staff to fill. The agreement's role is always
+    Агент (no role / level in the form, Stanislav 11-16); the level from the profile, else 50."""
+    role = "agent"
+    level = str(u.level) if str(u.level) in LEVELS else "50"
     return {"user_id": u.id, "lang": "KA-RU", "full_name": " ".join(x for x in (u.first_name, u.last_name) if x) or u.name,
             "full_name_ka": "", "personal_id": u.personal_id or "", "ie": u.ie_number or "", "address": "",
             "phone": u.phone or "", "email": u.email or "", "telegram": f"@{u.username}" if u.username else "",
@@ -720,7 +720,6 @@ def team(db: Session, user: User) -> dict:
     _staff(user)
     users = list(db.scalars(select(User).where(FIELD_SQL, User.is_active.is_(True), User.deleted_at.is_(None)).order_by(User.name)))
     ndas = list(db.scalars(select(AgentNda).where(AgentNda.status != "cancelled").order_by(AgentNda.id.desc())))
-    mentors = set(db.scalars(select(User.mentor_id).where(User.mentor_id.is_not(None), User.deleted_at.is_(None))))
     rows, signed = [], 0
     for u in users:
         mine = [n for n in ndas if _mine(n, u)]  # ponytail: users × NDAs in Python, fine for a team of dozens
@@ -732,7 +731,7 @@ def team(db: Session, user: User) -> dict:
         extra = [k for k, v in (("ie", u.ie_number), ("phone", u.phone), ("email", u.email)) if not v]
         rows.append({"user_id": u.id, "name": u.name, "role": u.role, "level": u.level, "username": u.username,
                      "can_send": bool(u.tg_id), "missing": need + extra, "ready": not need,
-                     "status": "sent" if open_ else "none", "nda": out(db, open_) if open_ else None, "prefill": prefill(u, u.id in mentors)})
+                     "status": "sent" if open_ else "none", "nda": out(db, open_) if open_ else None, "prefill": prefill(u)})
     return {"items": rows, "signed": signed, "total": len(users)}
 
 

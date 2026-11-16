@@ -13,7 +13,17 @@ import { errText, useToast } from '../../components/toast';
 import { Avatar, Badge, Button, Card, ErrorBox, Field, Input, KV, Loading, Modal, Seg, Textarea } from '../../components/ui';
 import { DealView } from '../../pages/Deals';
 import { CONTRACT_FROM, CONTRACT_STAGES, OUTCOME_LABEL, REFUSAL_LABEL, bedroomsLabel, fmtDate, fmtDateTime, fmtSlot, formatPhone, localToIso, money } from '../../lib/format';
-import { t } from '../../lib/i18n';
+import { LOCALE, t } from '../../lib/i18n';
+
+/** clients.profile.country ({code: ISO, name: English}) -> «🇮🇱 Израиль» in the CRM language. */
+function countryLabel(c: ClientProfile['country']) {
+  if (!c?.name) return '—';
+  if (!c.code) return `🌍 ${c.name}`;
+  const flag = String.fromCodePoint(...[...c.code.toUpperCase()].map((ch) => 0x1f1e6 + ch.charCodeAt(0) - 65));
+  let name = c.name;
+  try { name = new Intl.DisplayNames([LOCALE], { type: 'region' }).of(c.code) || c.name; } catch { /* old browser: English */ }
+  return `${flag} ${name}`;
+}
 
 const PETS: Record<string, string> = { none: t('нет'), cat: t('кошка'), dog: t('собака'), other: t('другое') };
 
@@ -21,6 +31,7 @@ export function ProfileView({ profile }: { profile: ClientProfile }) {
   const budget = profile.budget_max ? `${profile.budget_min ? `${money(profile.budget_min)}–` : t('до ')}${money(profile.budget_max)}` : '—';
   return (
     <KV items={[
+      ...(profile.country ? [[t('Страна'), countryLabel(profile.country)] as [string, string]] : []),
       [t('Жильцов'), profile.residents || '—'],
       [t('Животные'), (profile.pets || []).map((p) => PETS[p] || p).join(', ') || '—'],
       [t('Срок, мес'), (profile.terms || []).join(', ') || '—'],

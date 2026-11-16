@@ -572,7 +572,7 @@ COMMANDS = {"ru": (("start", "Подбор квартиры"), ("lang", "🌐 Я
 
 def build(token):
     """The one bot: clients (questionnaire, cards, ❤️), staff cards and buttons, the slot cards for the userbot (inline)."""
-    async def post_init(app):
+    async def tg_setup(app):
         for lc, cmds in COMMANDS.items():  # the client's ☰ menu: /start and /lang in their Telegram language
             try:
                 await app.bot.set_my_commands([BotCommand(c, d) for c, d in cmds], language_code=None if lc == "en" else lc)
@@ -583,6 +583,11 @@ def build(token):
                 known = [r[0] for r in c.execute("SELECT tg_id FROM users WHERE tg_id IS NOT NULL")]
             for chat in known:
                 await sync_menu(app.bot, chat)
+
+    async def post_init(app):
+        # the commands / menu buttons in the background: awaited here, a slow Bot API (Telegram's outage 11-16: each call
+        # timing out) kept the bot from polling for minutes after a restart — it answered nobody
+        app.bot_data["setup_task"] = asyncio.get_running_loop().create_task(tg_setup(app))
         # keep a strong reference: a bare asyncio task can be garbage-collected and the loop silently dies
         with db.tx() as c:  # forget "no video" marks: an access error before the bot became an admin could leave them
             c.execute("DELETE FROM channel_videos WHERE file_id = '' AND media_group_id LIKE 'post:%'")

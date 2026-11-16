@@ -462,6 +462,28 @@ class JourneyE2E(unittest.TestCase):
         with db.tx() as c:
             self.assertEqual(c.execute("SELECT lang FROM clients WHERE external_id = ?", (str(cid),)).fetchone()[0], "ru")
 
+    def test_english_asks_the_country(self):
+        """en: «Where are you from?» before «1 of 6» (a button or «Other» + free text) -> clients.profile.country; ru/ka don't."""
+        from app.telegram import texts
+        for u, how in (({"id": 1030, "name": "Dan", "username": "dan_en", "lang": "en"}, "🇮🇱 Israel"),
+                       ({"id": 1031, "name": "Eva", "username": "eva_en", "lang": "en"}, "the Netherlands")):
+            cid = u["id"]
+            m = self.say(u, "/start")
+            m = self.press(u, cid, "🇬🇧 English", since=m)
+            first = self.with_text(cid, "Where are you from?", m)
+            if how.startswith("🇮"):
+                m = self.press(u, cid, how, since=m)
+            else:
+                m = self.press(u, cid, "✏️ Other", since=m)
+                self.with_text(cid, "Type your country", m)
+                m = self.say(u, how)
+            res = self.with_text(cid, "1 of 6", m)
+            self.assertEqual(res["message_id"], first["message_id"])
+            self.assertIn("✓ 🌍 " + ("Israel" if how.startswith("🇮") else "Netherlands"), res["text"])
+        self.assertEqual(core.client("tg", 1030)["profile"]["country"], {"code": "IL", "name": "Israel"})
+        self.assertEqual(core.client("tg", 1031)["profile"]["country"], {"code": "NL", "name": "Netherlands"})
+        self.assertIn("🇮🇱 Israel\n👥 2", texts.profile_summary({"country": {"code": "IL", "name": "Israel"}, "residents": "2"}, "ru"))
+
     def test_text_slots_and_own_time(self):
         """C7 by text («завтра 12:00, завтра 17:30»), then the client asks for another time (A4a «Предложить своё время»)."""
         from app.services import leads

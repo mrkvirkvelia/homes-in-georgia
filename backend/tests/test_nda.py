@@ -307,3 +307,26 @@ def test_team_without_nda_prefill_send_and_writeback(db, client, monkeypatch):
     r = client.get("/api/ndas/team", headers=auth(boss)).json()
     assert [x["user_id"] for x in r["items"]] == [gio.id] and r["signed"] == 1
     assert client.get("/api/ndas/team", headers=auth(nino)).status_code == 403
+
+
+def test_confirm_in_login_bot(db, client, monkeypatch):
+    """«Подтвердить в Telegram-боте»: /start nda_<token> in the CRM sign-in bot confirms the sender (only the named
+    @username), the page then lets him sign; the bot answers with a link back to the page."""
+    from app.telegram import login_bot
+    sent = []
+    monkeypatch.setattr(login_bot, "call", lambda method, **kw: sent.append(kw) or {"ok": 1})
+    boss = make_user(db, "superadmin")
+    client.put("/api/ndas/company-signature", json={"signature": SIG}, headers=auth(boss))
+    n = client.post("/api/ndas", json={"full_name": "Nino Test", "personal_id": "1", "telegram": "@nino_agent",
+                                       "iban_gel": "GE00TB0000000000000001"}, headers=auth(boss)).json()
+    token = n["path"].split("/")[-1]
+    upd = lambda uname: {"message": {"text": f"/start nda_{token}", "chat": {"id": 5, "type": "private"},  # noqa: E731
+                                     "from": {"id": 777001, "username": uname, "first_name": "Nino"}}}
+    assert "@nino_agent" in login_bot.handle(upd("someone_else")) and not client.get(f"/api/public/nda/{token}").json()["confirmed"]
+    assert "Подтверждено" in login_bot.handle(upd("Nino_Agent"))
+    assert sent[-1]["reply_markup"]["inline_keyboard"][0][0]["url"].endswith(n["path"])
+    v = client.get(f"/api/public/nda/{token}").json()
+    assert v["confirmed"] and v["tg_username"] == "Nino_Agent"
+    r = client.post(f"/api/public/nda/{token}", json={"signature": SIG, "consent": True, "doc_sha256": v["doc_sha256"]})
+    assert r.status_code == 200 and r.json()["status"] == "signed"
+    assert "⚠️" in login_bot.handle(upd("Nino_Agent"))  # signed: no second confirmation

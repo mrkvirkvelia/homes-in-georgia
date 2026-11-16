@@ -12,6 +12,7 @@ signed hash = the «confirmation code» of clause 5, time in Tbilisi, IP, device
 staff member who made the NDA and to the agent (Telegram), and to Google Drive when configured."""
 import base64
 import hashlib
+import hmac
 import html as H
 import json
 import logging
@@ -476,6 +477,27 @@ def confirm_telegram(db: Session, token: str, data: dict) -> dict:
     log_event(db, "nda", n.id, "telegram_confirmed", None, label=n.full_name, tg_id=n.tg_id, tg_username=n.tg_username)
     db.commit()
     return view(db, token)
+
+
+def confirm_by_bot(db: Session, token: str, frm: dict) -> AgentNda:
+    """/start nda_<token> in the CRM sign-in bot (the page's «Подтвердить в Telegram-боте»: a plain t.me link, which works
+    on phones where the Login Widget's popup doesn't): the private message's sender is the Telegram account; only the
+    NDA's @username (when given) passes. The confirmation code: an HMAC (bot token) of the token, the account and time."""
+    n = _by_token(db, token, lock=True)
+    if n.status != "sent":
+        raise DomainError("bad_status", "Соглашение уже подписано", 409)
+    got = (frm.get("username") or "").lower()
+    if n.telegram and got != n.telegram.lower():
+        raise DomainError("wrong_telegram", f"Это соглашение для Telegram @{n.telegram}. Откройте ссылку из этого аккаунта", 403)
+    at = now()
+    n.tg_id, n.tg_username = str(frm["id"]), frm.get("username") or None
+    n.tg_name = " ".join(x for x in (frm.get("first_name"), frm.get("last_name")) if x) or None
+    n.tg_auth_date = at
+    key = hashlib.sha256((env.LOGIN_BOT_TOKEN or env.BOT_TOKEN or "").encode()).digest()
+    n.tg_hash = "bot-" + hmac.new(key, f"{n.token}:{n.tg_id}:{int(at.timestamp())}".encode(), hashlib.sha256).hexdigest()
+    log_event(db, "nda", n.id, "telegram_confirmed", None, label=n.full_name, tg_id=n.tg_id, tg_username=n.tg_username, via="bot")
+    db.commit()
+    return n
 
 
 def _png(sig) -> bytes:

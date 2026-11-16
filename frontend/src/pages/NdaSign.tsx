@@ -24,21 +24,21 @@ const LABEL: Record<L, string> = { ka: 'ქართული', ru: 'Русск�
 const UI: Record<L, Record<string, string>> = {
   ka: { title: 'შეთანხმება პლატფორმასთან მიერთების შესახებ', read: 'გთხოვთ, ყურადღებით წაიკითხოთ შეთანხმება', toSign: 'ხელმოწერაზე გადასვლა ↓',
     step0: '1. თქვენი რეკვიზიტები', iban: 'მიუთითეთ მინიმუმ ერთი ანგარიში — მასზე მიიღებთ ანაზღაურებას.', ie: 'ი/მ ნომერი (არასავალდებულო)', ieHint: 'შეგიძლიათ მოგვიანებით დაამატოთ პროფილში', saveD: 'შენახვა შეთანხმებაში', savedD: 'შენახულია — შეთანხმების ტექსტი განახლდა', needIban: 'მიუთითეთ IBAN (ნაბიჯი 1)', saveFirst: 'დააჭირეთ „შენახვა შეთანხმებაში“ (ნაბიჯი 1)', needTg: 'დაადასტურეთ Telegram-ით (ნაბიჯი 2)',
-    step1: '2. დაადასტურეთ თქვენი ვინაობა Telegram-ით', tgBtn: 'Telegram-ით დადასტურება', tgHint: 'Telegram გთხოვთ დადასტურებას აპლიკაციაში.',
+    step1: '2. დაადასტურეთ თქვენი ვინაობა Telegram-ით', tgBtn: 'Telegram Login', tgBot: 'დადასტურება Telegram-ბოტში', tgBotHint: 'გაიხსნება ბოტი — დააჭირეთ „Start“ და დაბრუნდით აქ.', tgHint: 'Telegram გთხოვთ დადასტურებას აპლიკაციაში.',
     tgOnly: 'მხოლოდ ანგარიში', tgOk: 'დადასტურებულია', step2: '3. მოაწერეთ ხელი თითით', clear: 'წაშლა',
     agree: 'წავიკითხე შეთანხმება და ვეთანხმები მის პირობებს', send: 'ხელმოწერა', done: 'შეთანხმება ხელმოწერილია. გმადლობთ!',
     pdf: 'PDF-ის ჩამოტვირთვა', pdfWait: 'PDF მზადდება, განაახლეთ გვერდი ერთ წუთში.', sent: 'ხელმოწერილი PDF გამოგეგზავნათ Telegram-ში.',
     you: 'მონაწილე', test: 'დადასტურება (სატესტო რეჟიმი)', noTg: 'Telegram-ის ჩატვირთვა ვერ მოხერხდა. განაახლეთ გვერდი.' },
   ru: { title: 'Соглашение о подключении к платформе', read: 'Пожалуйста, внимательно прочитайте соглашение', toSign: 'К подписи ↓',
     step0: '1. Ваши реквизиты', iban: 'Укажите хотя бы один счёт — на него будут приходить выплаты.', ie: 'Номер ИП (ი/მ), необязательно', ieHint: 'Можно добавить позже в профиле', saveD: 'Внести в соглашение', savedD: 'Сохранено — текст соглашения обновлён', needIban: 'Укажите IBAN (шаг 1)', saveFirst: 'Нажмите «Внести в соглашение» (шаг 1)', needTg: 'Подтвердите себя через Telegram (шаг 2)',
-    step1: '2. Подтвердите себя через Telegram', tgBtn: 'Подтвердить через Telegram', tgHint: 'Telegram попросит подтвердить вход в приложении.',
+    step1: '2. Подтвердите себя через Telegram', tgBtn: 'Telegram Login', tgBot: 'Подтвердить в Telegram-боте', tgBotHint: 'Откроется бот — нажмите «Start» и вернитесь сюда.', tgHint: 'Telegram попросит подтвердить вход в приложении.',
     tgOnly: 'Только аккаунт', tgOk: 'Подтверждено', step2: '3. Распишитесь пальцем', clear: 'Стереть',
     agree: 'Я прочитал(а) соглашение и согласен(на) с его условиями', send: 'Подписать', done: 'Соглашение подписано. Спасибо!',
     pdf: 'Скачать PDF', pdfWait: 'PDF готовится, обновите страницу через минуту.', sent: 'Подписанный PDF отправлен вам в Telegram.',
     you: 'Участник', test: 'Подтвердить (тестовый режим)', noTg: 'Не удалось загрузить Telegram. Обновите страницу.' },
   en: { title: 'Platform Agreement', read: 'Please read the agreement carefully', toSign: 'Go to signing ↓',
     step0: '1. Your details', iban: 'Enter at least one account — your payouts go there.', ie: 'IE number (ი/მ), optional', ieHint: 'You can add it later in your profile', saveD: 'Put into the agreement', savedD: 'Saved — the agreement text is updated', needIban: 'Enter an IBAN (step 1)', saveFirst: 'Press «Put into the agreement» (step 1)', needTg: 'Confirm yourself with Telegram (step 2)',
-    step1: '2. Confirm yourself with Telegram', tgBtn: 'Confirm with Telegram', tgHint: 'Telegram will ask you to confirm in the app.',
+    step1: '2. Confirm yourself with Telegram', tgBtn: 'Telegram Login', tgBot: 'Confirm in the Telegram bot', tgBotHint: 'The bot opens — press «Start» and come back here.', tgHint: 'Telegram will ask you to confirm in the app.',
     tgOnly: 'Only the account', tgOk: 'Confirmed', step2: '3. Sign with your finger', clear: 'Clear',
     agree: 'I have read the agreement and agree to its terms', send: 'Sign', done: 'Agreement signed. Thank you!',
     pdf: 'Download PDF', pdfWait: 'The PDF is being prepared, refresh in a minute.', sent: 'The signed PDF was sent to you in Telegram.',
@@ -62,7 +62,11 @@ function loadTelegram(): Promise<TgLogin> {
 
 export function NdaSignPage() {
   const { token = '' } = useParams();
-  const q = useQuery({ queryKey: ['nda', token], queryFn: () => http.get<NdaView>(`/public/nda/${token}`), retry: false, refetchOnWindowFocus: false });
+  // until Telegram is confirmed (in the bot, another app) the page checks every few seconds and when it's back in front
+  const q = useQuery({ queryKey: ['nda', token], queryFn: () => http.get<NdaView>(`/public/nda/${token}`), retry: false,
+    refetchOnWindowFocus: (qq) => !(qq.state.data as NdaView | undefined)?.confirmed,
+    refetchInterval: (qq) => { const d = qq.state.data as NdaView | undefined; return d && d.status === 'sent' && !d.confirmed ? 3000 : false; } });
+  useEffect(() => { loadTelegram().catch(() => undefined); }, []);  // preloaded: the widget's popup opens right from the tap
   const cfg = useQuery({ queryKey: ['app-config'], queryFn: api.config, staleTime: Infinity, retry: false });
   const [lang, setLang] = useState<L | null>(null);
   const [ink, setInk] = useState(false);
@@ -152,9 +156,10 @@ export function NdaSignPage() {
       {v.confirmed
         ? <div className="alert alert-ok"><CheckCircle2 size={16} style={{ verticalAlign: -3 }} /> {t.tgOk}: {v.tg_username ? `@${v.tg_username}` : v.tg_name}</div>
         : <>
-            <span className="muted" style={{ fontSize: 13 }}>{t.tgHint}{v.telegram ? ` ${t.tgOnly} @${v.telegram}.` : ''}</span>
+            <span className="muted" style={{ fontSize: 13 }}>{cfg.data?.bot_username ? t.tgBotHint : t.tgHint}{v.telegram ? ` ${t.tgOnly} @${v.telegram}.` : ''}</span>
             <div className="row row-wrap gap-sm">
-              <Button loading={confirm.isPending} onClick={telegram}>{t.tgBtn}</Button>
+              {cfg.data?.bot_username && <a className="btn" href={`https://t.me/${cfg.data.bot_username}?start=nda_${token}`} target="_blank" rel="noreferrer">{t.tgBot}</a>}
+              <Button variant={cfg.data?.bot_username ? 'secondary' : undefined} loading={confirm.isPending} onClick={telegram}>{t.tgBtn}</Button>
               {v.test_mode && <Button variant="ghost" loading={confirm.isPending} onClick={() => confirm.mutate({ test: true })}>{t.test}</Button>}
             </div>
           </>}

@@ -61,6 +61,8 @@ def handle(update: dict) -> str | None:
     if chat.get("type") != "private" or not frm.get("id") or frm.get("is_bot") or not text.startswith("/start"):
         return None
     arg = text.split(maxsplit=1)[1] if " " in text else ""
+    if arg.startswith("nda_"):
+        return nda_confirm(chat["id"], arg[4:], frm)
     if not arg.startswith("inv_"):
         out = "Это бот входа в CRM Homes in Georgia. Нажмите «Войти в CRM»."
     else:
@@ -72,6 +74,22 @@ def handle(update: dict) -> str | None:
         except DomainError as e:
             out = e.message
     reply(chat["id"], out)
+    return out
+
+
+def nda_confirm(chat_id, tok: str, frm: dict) -> str:
+    """The platform agreement's Telegram confirmation (services/nda.confirm_by_bot) → back to the signing page."""
+    from app.services import nda
+    url = conf("PUBLIC_URL", "").rstrip("/") + nda.path(tok)
+    try:
+        with SessionLocal() as db:
+            nda.confirm_by_bot(db, tok, frm)
+        out = ("✅ დადასტურებულია. დაბრუნდით შეთანხმების გვერდზე და მოაწერეთ ხელი.\n"
+               "✅ Подтверждено. Вернитесь на страницу соглашения и подпишите.")
+    except DomainError as e:
+        out = "⚠️ " + e.message
+    call("sendMessage", chat_id=chat_id, text=out,
+         reply_markup={"inline_keyboard": [[{"text": "✍️ ხელმოწერა / Подписать", "url": url}]]})
     return out
 
 

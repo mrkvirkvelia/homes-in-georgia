@@ -587,14 +587,15 @@ async def amain():
                 await STATE["start"].wait()
                 await login(client)
         except Exception as e:  # noqa: BLE001 — network or a revoked session: next round
-            log.warning("userbot: %r", e)
+            log.warning("userbot: %r", e, exc_info=True)
             await asyncio.sleep(10)
         finally:
             await client.disconnect()
 
 
 def main():
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
+    from app import logs
+    logs.setup("userbot")
     if not enabled():
         raise SystemExit("userbot disabled: set API_ID and API_HASH (https://my.telegram.org)")
     asyncio.run(amain())

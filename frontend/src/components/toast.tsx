@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useState, type ReactNode } from 'react';
+import { ApiError } from '../api/client';
 import { t } from '../lib/i18n';
 
 interface Toast { id: number; text: string; error?: boolean }
@@ -25,5 +26,6 @@ export const useToast = () => useContext(Ctx);
 
 /** Helper: toast error message from a thrown value. */
 export function errText(e: unknown): string {
+  if (e instanceof ApiError && e.status >= 500 && e.rid) return `${e.message} (код ${e.rid})`;
   return e instanceof Error ? e.message : t('Что-то пошло не так');
 }

@@ -288,7 +288,8 @@ def main():
     ap.add_argument("--once", action="store_true", help="run one pass and exit")
     ap.add_argument("--interval", type=int, default=30)
     args = ap.parse_args()
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
+    from app import logs
+    logs.setup("worker")
     if args.once:
         print(tick(limit=1000))
         return

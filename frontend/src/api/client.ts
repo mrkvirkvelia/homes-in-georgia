@@ -1,3 +1,4 @@
+import { reportError } from '../lib/clientLog';
 // Small fetch client: /api prefix, JWT bearer from localStorage, 401 → login.
 export const TOKEN_KEY = 'hig_token';
 export const IS_MOCK = import.meta.env.VITE_MOCK === '1';
@@ -5,10 +6,12 @@ export const IS_MOCK = import.meta.env.VITE_MOCK === '1';
 export class ApiError extends Error {
   status: number;
   code?: string;
-  constructor(status: number, message: string, code?: string) {
+  rid?: string;  // X-Request-Id: the server log line of this request (shown in toasts of 5xx errors)
+  constructor(status: number, message: string, code?: string, rid?: string) {
     super(message);
     this.status = status;
     this.code = code;
+    this.rid = rid;
   }
 }
 
@@ -99,7 +102,14 @@ async function request<T>(method: string, path: string, body?: unknown, query?: 
     headers['Content-Type'] = 'application/json';
     payload = JSON.stringify(body);
   }
-  const res = await fetch(`/api${url}`, { method, headers, body: payload });
+  let res: Response;
+  try {
+    res = await fetch(`/api${url}`, { method, headers, body: payload });
+  } catch (e) {
+    reportError({ kind: 'network', message: String(e), api_path: `${method} ${path}` });
+    throw new ApiError(0, 'Нет связи с сервером. Проверьте интернет и повторите', 'network');
+  }
+  const rid = res.headers.get('X-Request-Id') || undefined;
   if (res.status === 401 && !path.startsWith('/auth/')) {
     setToken(null);
     if (!retried && (await telegramReauth())) return request<T>(method, path, body, query, true);
@@ -126,7 +136,8 @@ async function request<T>(method: string, path: string, body?: unknown, query?: 
       if (Array.isArray(d.detail)) msg = 'Проверьте поля формы';
     }
     if (code && ERROR_TEXT[code]) msg = ERROR_TEXT[code];
-    throw new ApiError(res.status, msg, code);
+    if (res.status >= 500) reportError({ kind: 'api', message: msg, api_path: `${method} ${path}`, api_status: res.status, api_rid: rid });
+    throw new ApiError(res.status, msg, code, rid);
   }
   return data as T;
 }

@@ -6,6 +6,7 @@ import { App } from './App';
 import { ApiError } from './api/client';
 import { AuthProvider } from './auth/AuthContext';
 import { ToastProvider } from './components/toast';
+import { ErrorBoundary, installErrorHandlers } from './lib/clientLog';
 import './styles/app.css';
 
 const queryClient = new QueryClient({
@@ -18,13 +19,15 @@ const queryClient = new QueryClient({
   },
 });
 
+installErrorHandlers();
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
         <AuthProvider>
           <ToastProvider>
-            <App />
+            <ErrorBoundary><App /></ErrorBoundary>
           </ToastProvider>
         </AuthProvider>
       </BrowserRouter>

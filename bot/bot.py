@@ -694,7 +694,11 @@ async def on_error(update, ctx):
 def main():
     db.load_env()  # repo .env if present (the server passes real env vars instead); real env vars win
     ENV.update(os.environ)
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
+    try:  # the server: JSON lines into /app/data/logs/bot.log too (backend/app/logs.py)
+        from app import logs
+        logs.setup("bot")
+    except ImportError:  # a local run without backend/ on PYTHONPATH
+        logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
     logging.getLogger("httpx").setLevel(logging.WARNING)
     db.init()
     if not db.stats()["listings"] and os.path.exists("listings.json"):  # first start on the DB: import the current base

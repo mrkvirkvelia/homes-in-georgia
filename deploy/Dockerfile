@@ -4,7 +4,8 @@ WORKDIR /web
 COPY frontend/package*.json ./
 RUN npm ci
 COPY frontend/ ./
-RUN npm run build
+ARG GIT_COMMIT=""
+RUN VITE_APP_VERSION="${GIT_COMMIT:-$(date -u +%m%d-%H%M)}" npm run build
 
 FROM python:3.12-slim
 ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 PIP_NO_CACHE_DIR=1 PIP_DISABLE_PIP_VERSION_CHECK=1 \
@@ -32,6 +33,8 @@ ENV HF_HOME=/app/bot/data/hf
 COPY backend/ backend/
 COPY bot/ bot/
 COPY --from=web /web/dist frontend/dist
+ARG GIT_COMMIT=""
+ENV APP_VERSION=$GIT_COMMIT
 RUN useradd --create-home --uid 1000 app && mkdir -p /app/data/media /app/bot/data /app/bot/raw && chown -R app:app /app
 USER app
 EXPOSE 8000

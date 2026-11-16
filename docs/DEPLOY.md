@@ -186,3 +186,32 @@ DNS hge.ge не переключён, сайт открыт на тестово�
 (`services/site_analytics.py`, та же формула, что в Apps Script `site-analytics.gs`). Ключ `SITE_ANALYTICS_KEY` и
 Apps Script больше не нужны. История из Google-таблицы «HGE Analytics» не переносится: она остаётся на старой
 странице hge.ge/stats/ до переключения DNS.
+
+## Логи (16.11.2026): каждая ошибка CRM видна на сервере
+
+Отдельного раздела в CRM нет — всё в файлах. Каждый процесс пишет JSON-строки (`backend/app/logs.py`) в stdout
+(`docker logs`) и в `/app/data/logs/<service>.log` в volume `media` — файлы переживают пересоздание контейнеров.
+На хосте: `L=$(docker volume inspect deploy_media -f '{{.Mountpoint}}')/logs`.
+
+- `api.log` — одна строка на каждый запрос `/api/*` (кроме health): `rid` (он же заголовок `X-Request-Id`, он же «код …» в
+  тосте 5xx-ошибки на скриншоте), `user_id`/`user`/`role`, `method`, `path`, `query` (без токенов), `status`, `ms`, `ip`,
+  `ua`; у 4xx/5xx — `error` (code + message) и `body` (JSON, пароли/токены/ключи/подписи → `***`, телефоны → `+995***56`);
+  у 500 — `traceback`. Ошибки браузера (`window.onerror`, unhandled rejection, падение страницы — вместо белого экрана
+  «Что-то пошло не так», сбои API ≥ 500 и сети) приходят через `POST /api/client-log` строкой `logger: app.client` с
+  `url`, `version` (коммит фронта), `message`, `stack`.
+- `worker.log`, `bot.log`, `userbot.log` — логи процессов с traceback'ами; `refresh.log` — вывод `refresh.sh` построчно
+  (строки с error/failed/traceback — уровень WARNING).
+- Ротация: файл в полночь (Тбилиси) → `api.log.2026-11-16`, хранится 30 дней. `docker logs` — 5 × 20 МБ на контейнер.
+
+```bash
+L=$(docker volume inspect deploy_media -f '{{.Mountpoint}}')/logs
+grep -h '"status": 5' $L/api.log*                                   # все 5xx
+grep -h '"level": "ERROR"' $L/*.log* | tail -50                       # все ошибки всех сервисов (+ ошибки браузера)
+grep -h '"logger": "app.client"' $L/api.log* | tail                   # ошибки во фронте
+grep -h '"user_id": 12,' $L/api.log* | grep -v '"status": 200' | tail  # что не получилось у пользователя 12
+grep -h '"user": "Нино"' $L/api.log* | tail                           # по имени
+grep -h 'a1b2c3d4e5' $L/*.log*                                        # по коду из скриншота (X-Request-Id)
+```
+
+Выкатка с версией: `GIT_COMMIT=$(git rev-parse --short HEAD) docker compose ... up -d --build` — коммит попадает в
+строку «api started, version …» и в `version` ошибок фронта (без него там время сборки).

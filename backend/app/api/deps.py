@@ -47,6 +47,7 @@ def current_user(request: Request, db: Session = Depends(get_db, scope="function
     user = db.get(User, int(payload["sub"]))
     if not user or not user.is_active:
         raise DomainError("unauthorized", "user inactive or deleted", 401)
+    request.state.user = user  # the request log line names who it was (main.py)
     if user.role == DAILY_RENT_ONLY:
         path = request.url.path
         if (path not in DAILY_RENT_PATHS and not path.startswith(DAILY_RENT_PREFIX)) or ".." in path:

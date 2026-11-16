@@ -742,6 +742,18 @@ const esView = (token: string) => {
     parties: (['owner', 'tenant'] as const).map((r) => ({ role: r, label: ES_LABEL[r], signed: !!signers.find((x) => x.role === r)?.signed_at })),
     complete: false, has_extract: !!(c as { data?: Record<string, unknown> }).data?.extract_file, html: s?.signed_at ? null : '<html><head></head><body><p>ხელშეკრულება / Lease agreement (mock)</p><p>________________________</p></body></html>' };
 };
+// the agent's signing page /nda/mock-token-…: Telegram confirmed (test mode), IBAN / ИП filled by the agent
+const ndaPub = { lang: 'KA-RU', status: 'sent', full_name: 'Nino Beridze', personal_id: '01001055555', phone: null, telegram: 'nino_agent', role: 'Рекрут',
+  doc_sha256: 'mock', confirmed: true, tg_username: 'nino_agent', tg_name: 'Nino', signed_at: null, has_pdf: false, test_mode: true,
+  html: '<h1 style="text-align:center">შეთანხმება · Соглашение</h1><p>0.2 Индивидуальный предприниматель <b>Nino Beridze</b>, личный номер <b>01001055555</b> …</p>',
+  details: { iban_gel: '', iban_usd: '', ie: '' } };
+on('GET', '/public/nda/:token', () => ndaPub);
+on('POST', '/public/nda/:token/details', (_m, b) => {
+  const c = (k: string) => String(b[k] || '').replace(/[\s-]/g, '').toUpperCase();
+  ndaPub.details = { iban_gel: c('iban_gel'), iban_usd: c('iban_usd'), ie: c('ie') };
+  ndaPub.html = ndaPub.html.replace(/<p>IBAN.*$/, '') + `<p>IBAN GEL: <b>${ndaPub.details.iban_gel || '—'}</b> · IBAN USD: <b>${ndaPub.details.iban_usd || '—'}</b> · ИП: <b>${ndaPub.details.ie || '—'}</b></p>`;
+  return ndaPub;
+});
 on('GET', '/public/esign/:token', (m) => esView(m[1]));
 on('POST', '/public/esign/:token', (m, b) => {
   const { s } = esFind(m[1]);

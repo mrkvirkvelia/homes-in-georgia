@@ -417,7 +417,35 @@ def view(db: Session, token: str) -> dict:
             "telegram": n.telegram, "role": n.role, "doc_sha256": n.doc_sha256,
             "confirmed": _confirmed(n) or n.status == "signed", "tg_username": n.tg_username, "tg_name": n.tg_name,
             "signed_at": n.signed_at.isoformat() if n.signed_at else None, "has_pdf": bool(n.pdf_path),
-            "test_mode": _test_mode(), "html": n.html if n.status == "sent" else None}
+            "test_mode": _test_mode(), "html": n.html if n.status == "sent" else None,
+            "details": {k: (n.details or {}).get(k) or "" for k in ("iban_gel", "iban_usd", "ie")}}
+
+
+IBAN_RE = re.compile(r"[A-Z]{2}\d{2}[A-Z0-9]{10,30}")  # GE: GE + 2 digits + 2-letter bank + 16 digits
+
+
+def set_details(db: Session, token: str, data: dict) -> dict:
+    """The agent's own details on the signing page: IBAN GEL / USD (at least one) and the ИП number (optional, he can add
+    it in the profile later) → the agreement re-rendered (new hash)."""
+    n = _by_token(db, token, lock=True)
+    if n.status != "sent":
+        raise DomainError("already_signed", "NDA уже подписано", 409)
+    new = {k: re.sub(r"[\s-]", "", str(data.get(k) or "")).upper()[:40] for k in ("iban_gel", "iban_usd", "ie")}
+    for k in ("iban_gel", "iban_usd"):
+        if new[k] and not IBAN_RE.fullmatch(new[k]):
+            raise DomainError("bad_iban", "IBAN: GE29TB0000000000000000")
+    if not (new["iban_gel"] or new["iban_usd"]):
+        raise DomainError("iban_required", "IBAN GEL / USD")
+    if new["ie"] and not re.fullmatch(r"\d{9}|\d{11}", new["ie"]):
+        raise DomainError("bad_ie", "ი/მ / ИП: 9 / 11")
+    d = dict(n.details or {})
+    if any(d.get(k, "") != v for k, v in new.items()):
+        n.details = {**d, **new}
+        page = _page(n)
+        n.html, n.doc_sha256 = page, doc_hash(page)
+        log_event(db, "nda", n.id, "details", None, label=n.full_name, doc_sha256=n.doc_sha256, **new)
+        db.commit()
+    return view(db, token)
 
 
 def confirm_telegram(db: Session, token: str, data: dict) -> dict:
@@ -468,6 +496,8 @@ def sign(db: Session, token: str, data: dict, ip: str | None, user_agent: str | 
         raise DomainError("telegram_required", "Подтвердите себя через Telegram", 403)
     if data.get("consent") is not True:
         raise DomainError("consent_required", "Нужно согласие с условиями")
+    if not ((n.details or {}).get("iban_gel") or (n.details or {}).get("iban_usd")):
+        raise DomainError("iban_required", "IBAN GEL / USD")
     _png(data.get("signature"))
     n.signature, n.signed_at = data["signature"], now()
     n.ip, n.user_agent = (ip or "")[:100] or None, (user_agent or "")[:300] or None
@@ -476,6 +506,10 @@ def sign(db: Session, token: str, data: dict, ip: str | None, user_agent: str | 
     if ie and u and not u.ie_number and re.fullmatch(r"\d{9}|\d{11}", ie):
         u.ie_number = ie  # the agreement's ИП → the profile
         log_event(db, "user", u.id, "updated", None, ie_number=ie, source=f"nda {n.id}")
+    for k in ("iban_gel", "iban_usd"):  # the agreement's IBANs → an empty profile
+        if u and not getattr(u, k) and (v := (n.details or {}).get(k)) and IBAN_RE.fullmatch(v):
+            setattr(u, k, v)
+            log_event(db, "user", u.id, "updated", None, **{k: v}, source=f"nda {n.id}")
     if u and not u.personal_id and n.personal_id:
         u.personal_id = n.personal_id  # the agreement's personal number → the profile
         log_event(db, "user", u.id, "updated", None, personal_id=n.personal_id, source=f"nda {n.id}")
@@ -677,7 +711,7 @@ def prefill(u: User, mentor: bool = False) -> dict:
             "full_name_ka": "", "personal_id": u.personal_id or "", "ie": u.ie_number or "", "address": "",
             "phone": u.phone or "", "email": u.email or "", "telegram": f"@{u.username}" if u.username else "",
             "role": role, "level": level, "access": (u.created_at or now()).astimezone(TZ).strftime("%Y-%m-%d"),
-            "iban_gel": "", "iban_usd": ""}
+            "iban_gel": u.iban_gel or "", "iban_usd": u.iban_usd or ""}
 
 
 def team(db: Session, user: User) -> dict:

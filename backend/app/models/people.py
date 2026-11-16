@@ -45,7 +45,9 @@ class User(Base):
     birth_date = Column(Date)
     email = Column(Text)  # admins and the user only (migration 0010)
     personal_id = Column(Text)  # личный номер: the platform agreement's party detail (0027)
-    ie_number = Column(Text)  # ИП / ი/მ registration number: the platform agreement's party detail (0026)
+    ie_number = Column(Text)
+    iban_gel = Column(Text)  # the agreement's bank accounts, filled by the agent in his cabinet (0028)
+    iban_usd = Column(Text)  # ИП / ი/მ registration number: the platform agreement's party detail (0026)
     exclusive_deals = Column(Integer, nullable=False, server_default=text("0"))
     plans = Column(JSONB, nullable=False, server_default=text(
         """'{"photo": 15, "showing": 15, "stickers": 15, "rental": 15}'::jsonb"""))

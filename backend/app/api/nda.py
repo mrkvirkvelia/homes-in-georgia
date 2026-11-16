@@ -133,6 +133,12 @@ def public_nda_telegram(token: str, body: dict, db: Session = Depends(get_db, sc
     return N.confirm_telegram(db, token, body)
 
 
+@public.post("/public/nda/{token}/details")
+def public_nda_details(token: str, body: dict, db: Session = Depends(get_db, scope="function")):
+    """The agent's IBAN GEL / USD (one required) and ИП (optional) → the agreement re-rendered."""
+    return N.set_details(db, token, body)
+
+
 @public.post("/public/nda/{token}")
 def public_nda_sign(token: str, body: SignIn, request: Request, db: Session = Depends(get_db, scope="function")):
     ip = (request.headers.get("x-forwarded-for") or "").split(",")[0].strip() or (request.client and request.client.host)

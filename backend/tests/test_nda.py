@@ -125,7 +125,7 @@ def test_test_mode_confirmation_and_pdf_retry(db, client, monkeypatch):
     from app.services.errors import DomainError
     boss = make_user(db, "superadmin")
     client.put("/api/ndas/company-signature", json={"signature": SIG}, headers=auth(boss))
-    n = client.post("/api/ndas", json={"lang": "KA-EN", "full_name": "B", "personal_id": "2", "telegram": "b_agent"},
+    n = client.post("/api/ndas", json={"iban_gel": "GE00TB0000000000000001", "lang": "KA-EN", "full_name": "B", "personal_id": "2", "telegram": "b_agent"},
                     headers=auth(boss)).json()
     token = n["path"].split("/")[-1]
     monkeypatch.setattr(N, "_test_mode", lambda: True)
@@ -195,7 +195,7 @@ def test_ie_number_from_profile(db, client, fake_chrome, tg_sent):
     assert client.get("/api/auth/me", headers=auth(ag)).json()["profile_missing"] == ["ie_number"]
     assert "ie_number" not in client.get("/api/auth/me", headers=auth(boss)).json()["profile_missing"]
     client.put("/api/ndas/company-signature", json={"signature": SIG}, headers=auth(boss))
-    body = {"lang": "KA-RU", "full_name": "Nino B", "personal_id": "01001055555", "telegram": "nino_agent"}
+    body = {"iban_gel": "GE00TB0000000000000001", "lang": "KA-RU", "full_name": "Nino B", "personal_id": "01001055555", "telegram": "nino_agent"}
     signed = client.post("/api/ndas", json=body, headers=auth(boss)).json()
     assert signed["details"]["ie"] == ""
     token = signed["path"].split("/")[-1]
@@ -232,7 +232,7 @@ def test_ie_from_signed_nda_to_profile(db, client):
     boss = make_user(db, "superadmin")
     ag = make_user(db, "agent", tg_id=777001)
     client.put("/api/ndas/company-signature", json={"signature": SIG}, headers=auth(boss))
-    n = client.post("/api/ndas", json={"full_name": "N", "personal_id": "1", "ie": "406112233"}, headers=auth(boss)).json()
+    n = client.post("/api/ndas", json={"iban_gel": "GE00TB0000000000000001", "full_name": "N", "personal_id": "1", "ie": "406112233"}, headers=auth(boss)).json()
     token = n["path"].split("/")[-1]
     client.post(f"/api/public/nda/{token}/telegram", json=_widget())
     v = client.get(f"/api/public/nda/{token}").json()
@@ -287,9 +287,19 @@ def test_team_without_nda_prefill_send_and_writeback(db, client, monkeypatch):
     token = n2["path"].split("/")[-1]
     client.post(f"/api/public/nda/{token}/telegram", json=_widget())
     v = client.get(f"/api/public/nda/{token}").json()
+    # the agent's own details on the signing page: an IBAN is required, ИП optional; the text is re-rendered
+    sig = {"signature": SIG, "consent": True, "doc_sha256": v["doc_sha256"]}
+    assert client.post(f"/api/public/nda/{token}", json=sig).status_code == 400
+    assert client.post(f"/api/public/nda/{token}/details", json={"iban_gel": "", "iban_usd": ""}).status_code == 400
+    assert client.post(f"/api/public/nda/{token}/details", json={"iban_gel": "GE12 nope"}).status_code == 400
+    v2 = client.post(f"/api/public/nda/{token}/details", json={"iban_usd": "ge29 tb00 0000 0000 0000 01", "ie": "406112233"}).json()
+    assert v2["details"] == {"iban_gel": "", "iban_usd": "GE29TB0000000000000001", "ie": "406112233"}
+    assert v2["doc_sha256"] != v["doc_sha256"] and "GE29TB0000000000000001" in v2["html"]
+    v = v2
     assert client.post(f"/api/public/nda/{token}", json={"signature": SIG, "consent": True, "doc_sha256": v["doc_sha256"]}).status_code == 200
     db.expire_all()
     assert db.get(type(nino), nino.id).personal_id == "01001055555"
+    assert db.get(type(nino), nino.id).iban_usd == "GE29TB0000000000000001"
     r = client.get("/api/ndas/team", headers=auth(boss)).json()
     assert [x["user_id"] for x in r["items"]] == [gio.id] and r["signed"] == 1
     assert client.get("/api/ndas/team", headers=auth(nino)).status_code == 403

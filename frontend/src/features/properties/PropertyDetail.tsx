@@ -24,8 +24,19 @@ import { t, LOCALE } from '../../lib/i18n';
 
 const REQUEST_SENT = t('Изменение ушло оператору на проверку');
 
-// one Telegram album (backend properties.MAX_MEDIA)
-const MAX_PHOTO = 9, MAX_VIDEO = 1;
+// backend properties.MAX_MEDIA / MIN_PHOTOS / ALBUM_PHOTOS: the site shows every photo, the Telegram album the first 9 + the video
+const MAX_PHOTO = 40, MAX_VIDEO = 1, MIN_PHOTOS = 9, ALBUM_PHOTOS = 9;
+const ALBUM_MAX = 10; // Telegram album limit
+/** The Telegram album of a pick in order: the first ALBUM_PHOTOS photos + the video, ≤ ALBUM_MAX (backend notify._album). */
+export function albumOf<T>(ids: T[], isVideo: (id: T) => boolean): T[] {
+  let ph = 0;
+  return ids.filter((id) => isVideo(id) || ++ph <= ALBUM_PHOTOS).slice(0, ALBUM_MAX);
+}
+/** Why the object can't go to review / be published yet: fewer than MIN_PHOTOS photos (backend require_min_photos). */
+export function fewPhotos(media: { kind: string }[]): string | null {
+  const n = media.filter((m) => m.kind === 'photo').length;
+  return n < MIN_PHOTOS ? t('Нужно минимум {min} фото, сейчас {n}', { min: MIN_PHOTOS, n }) : null;
+}
 export const ROOMS = ['Гостиная', 'Кухня', 'Спальня 1', 'Спальня 2', 'Спальня 3', 'Ванная', 'Балкон', 'Вид из окна', 'Подъезд'];
 const STEPS = ['Взят', 'Звонок', 'Собственник', 'Съёмка', 'Пост и фото', 'Проверка', 'Публикация'].map((s) => t(s));
 
@@ -298,12 +309,12 @@ function PostGeneratorStep({ p, canEdit }: { p: Property; canEdit: boolean }) {
   const [queue, setQueue] = useState<{ name: string; state: 'wait' | 'prep' | 'up' | 'done' | 'err'; pct?: number; msg?: string }[]>([]);
   const busy = queue.some((q) => q.state === 'wait' || q.state === 'prep' || q.state === 'up');
   const doneN = queue.filter((q) => q.state === 'done').length;
-  /** The ones that fit 9 photos + 1 video go up 3 at a time, photos resized first; one request per file. */
+  /** The ones that fit MAX_PHOTO photos + 1 video go up 3 at a time, photos resized first; one request per file. */
   const uploadFiles = async (picked: File[]) => {
     let ph = nPhoto, vd = nVideo;
     const isVideo = (x: File) => x.type.startsWith('video/') || /\.(mp4|mov|m4v|webm|avi|mkv)$/i.test(x.name);
     const fit = picked.filter((x) => (isVideo(x) ? ++vd <= MAX_VIDEO : ++ph <= MAX_PHOTO));
-    if (fit.length < picked.length) toast(t('Не добавлено {n}: у объекта максимум {p} фото и {v} видео (столько уходит в пост Telegram)', { n: picked.length - fit.length, p: MAX_PHOTO, v: MAX_VIDEO }), true);
+    if (fit.length < picked.length) toast(t('Не добавлено {n}: у объекта максимум {p} фото и {v} видео', { n: picked.length - fit.length, p: MAX_PHOTO, v: MAX_VIDEO }), true);
     if (!fit.length) return;
     setQueue(fit.map((x) => ({ name: x.name, state: 'wait' })));
     const mark = (i: number, ch: Partial<(typeof queue)[number]>) => setQueue((q) => q.map((x, j) => (j === i ? { ...x, ...ch } : x)));
@@ -455,8 +466,9 @@ function PostGeneratorStep({ p, canEdit }: { p: Property; canEdit: boolean }) {
             <input ref={fileRef} type="file" accept="image/*,video/*" multiple hidden onChange={(e) => { const fl = Array.from(e.target.files || []); e.target.value = ''; if (fl.length) uploadFiles(fl); }} />
             <Button block loading={busy} disabled={full} onClick={() => fileRef.current?.click()}><Upload size={16} />{full ? t('Загружено максимум файлов') : t('Загрузить фото и видео')}</Button>
             <div className="muted" style={{ fontSize: 12 }}>
-              {full ? t('Чтобы заменить файл, удалите его. В пост Telegram уходит до {p} фото и {v} видео.', { p: MAX_PHOTO, v: MAX_VIDEO })
-                : `${t('До {p} фото и {v} видео — выберите в галерее сразу все.', { p: MAX_PHOTO, v: MAX_VIDEO })}${roomsOn ? t(' Комнату под фото указывать необязательно.') : ''}`}
+              {full ? t('Чтобы заменить файл, удалите его.')
+                : `${t('От {min} до {p} фото и {v} видео — выберите в галерее сразу все.', { min: MIN_PHOTOS, p: MAX_PHOTO, v: MAX_VIDEO })}${roomsOn ? t(' Комнату под фото указывать необязательно.') : ''}`}
+              {' '}{t('В пост Telegram уходят первые {n} фото и видео, на сайте — все фото. Порядок — перетаскиванием.', { n: ALBUM_PHOTOS })}
             </div>
             {queue.length > 0 && (
               <div className="upload-queue">
@@ -497,8 +509,8 @@ function PostGeneratorStep({ p, canEdit }: { p: Property; canEdit: boolean }) {
       {canEdit && (
         <>
           {missing.length > 0 && !dirty && <div className="alert alert-warn" style={{ display: 'block' }}>{t('Чтобы отправить, заполните:')} <b>{missing.join(', ')}</b></div>}
-          {!media.length && <div className="alert alert-warn" style={{ display: 'block' }}>{t('Загрузите фото или видео')}</div>}
-          <Button size="lg" variant="ok" disabled={!media.length || missing.length > 0 || dirty} loading={submit.isPending}
+          {fewPhotos(media) && <div className="alert alert-warn" style={{ display: 'block' }}>{fewPhotos(media)}</div>}
+          <Button size="lg" variant="ok" disabled={!!fewPhotos(media) || missing.length > 0 || dirty} loading={submit.isPending}
             onClick={() => { if (window.confirm(t('Отправить объект на модерацию? Пост, фото и видео больше нельзя будет менять.'))) submit.mutate(); }}>
             <Send size={18} />{t('Отправить на модерацию')}
           </Button>
@@ -849,7 +861,6 @@ function Deals({ p, compact }: { p: Property; compact?: boolean }) {
   );
 }
 
-const ALBUM_MAX = 10; // Telegram album limit
 const CAPTION_MAX = 1024; // Telegram caption limit for a post with media
 
 /** The post generator in the card (replaces the agency's HTML generator): the caption built by the backend from the
@@ -868,7 +879,10 @@ function PostComposer({ p }: { p: Property }) {
   const byId = new Map(files.map((m) => [m.id, m]));
   const all = [...order.filter((id) => byId.has(id)), ...files.filter((m) => !order.includes(m.id)).map((m) => m.id)];
   const ids = [...all.filter((id) => byId.get(id)!.kind !== 'video'), ...all.filter((id) => byId.get(id)!.kind === 'video')];  // the grid's order
-  const picked = ids.filter((id) => !off.has(id)).slice(0, ALBUM_MAX);
+  const isVid = (id: number) => byId.get(id)!.kind === 'video';
+  const picked = albumOf(ids.filter((id) => !off.has(id)), isVid);
+  const shown = new Set(ids.filter((id) => !picked.includes(id)));  // unchecked in the grid: switched off or past the 9th photo
+  const few = fewPhotos(files);
   const text = edited ?? draft.data?.text ?? '';
   const tags = [...new Set(text.match(/#[\p{L}\p{N}_]+/gu) || [])];
   const blocked = !!p.exclusive_conflict?.length;
@@ -888,7 +902,9 @@ function PostComposer({ p }: { p: Property }) {
   if (publish.isPending && prog.data?.step) lastStep.current = prog.data;
   const toggle = (id: number) => setOff((o) => {
     const n = new Set(o);
-    if (n.has(id)) { if (picked.length >= ALBUM_MAX) { toast(t('В пост Telegram уходит до {n} файлов', { n: ALBUM_MAX }), true); return o; } n.delete(id); } else n.add(id);
+    if (picked.includes(id)) { n.add(id); return n; }
+    n.delete(id);
+    if (!albumOf(ids.filter((x) => !n.has(x)), isVid).includes(id)) { toast(t('В пост Telegram уходят {n} фото и видео: снимите галочку с другого фото', { n: ALBUM_PHOTOS }), true); return o; }
     return n;
   });
   const shots: Shot[] = ids.map((id) => { const m = byId.get(id)!; return { id, kind: m.kind, room: m.room, src: m.url || m.path }; });
@@ -910,14 +926,15 @@ function PostComposer({ p }: { p: Property }) {
       </div>
       {picked.length > 0 && text.length > CAPTION_MAX && <div className="alert alert-warn">{t('Подпись к альбому длиннее {n} символов: Telegram обрежет конец.', { n: CAPTION_MAX })}</div>}
       <div>
-        <div className="row row-between"><span className="label">{t('Фото и видео в посте')}</span><span className="muted num" style={{ fontWeight: 700 }}>{picked.length}/{Math.min(ids.length, ALBUM_MAX)}</span></div>
+        <div className="row row-between"><span className="label">{t('Фото и видео в посте')}</span><span className="muted num" style={{ fontWeight: 700 }}>{picked.length}/{albumOf(ids, isVid).length}</span></div>
         <div className="muted" style={{ fontSize: 12, margin: '4px 0 8px' }}>{t('Перетащите, чтобы поменять порядок (на телефоне — долгое нажатие); галочка — файл в посте; нажмите, чтобы открыть. Первый файл — обложка, на фото ставится водяной знак.')}</div>
         {!ids.length ? <div className="muted" style={{ fontSize: 13 }}>{t('Файлов нет: уйдёт текстовый пост')}</div>
-          : <MediaGrid items={shots} grouped off={off} onToggle={(id) => toggle(Number(id))} onOrder={(next) => setOrder(next.map(Number))} />}
+          : <MediaGrid items={shots} grouped off={shown} onToggle={(id) => toggle(Number(id))} onOrder={(next) => setOrder(next.map(Number))} />}
       </div>
+      {few && <div className="alert alert-warn">{few}</div>}
       {blocked && <div className="alert alert-warn">{t('Эксклюзив ещё висит на других сайтах: публикация закрыта до «Проверено: снято».')}</div>}
       <PublishTargets site={toSite} tg={toTg} onSite={setToSite} onTg={setToTg} />
-      <Button variant="ok" size="lg" disabled={blocked || (!toSite && !toTg) || (toTg && !text.trim())} loading={publish.isPending} onClick={() => publish.mutate()}>
+      <Button variant="ok" size="lg" disabled={blocked || !!few || (!toSite && !toTg) || (toTg && !text.trim())} loading={publish.isPending} onClick={() => publish.mutate()}>
         <Send size={18} />{t('Опубликовать')}
       </Button>
       {publish.isPending && <div className="alert alert-info" role="status">{stepText(prog.data?.step ? prog.data : lastStep.current)}</div>}

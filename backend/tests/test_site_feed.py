@@ -171,7 +171,7 @@ def test_crm_car_and_validation(db, client):
     r = client.post("/api/offers/car", headers=h, json={"deal": "rent", "title": "Kia Rio", "price": 40, "period": "day",
                                                          "year": 2020, "gearbox": "auto", "pickup": "Airport"})
     cid = r.json()["id"]
-    assert up(client, h, "car", cid, 10).status_code == 422  # max 9 photos
+    assert up(client, h, "car", cid, 41).status_code == 422  # max 40 photos
     assert client.post(f"/api/offers/car/{cid}/media", headers=h, files=[("files", ("a.exe", b"x", "x/y"))]).status_code == 400
     assert up(client, h, "car", cid).status_code == 200
     r = client.post(f"/api/offers/car/{cid}/media", headers=h, files=[("files", ("v.mp4", b"vid", "video/mp4"))])

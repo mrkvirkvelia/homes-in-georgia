@@ -934,19 +934,30 @@ def agency_chat():
     return ch
 
 
+def _album(items, n_photos=9):
+    """The album's share of [(kind, ...)] in order: the first n_photos photos + the videos, ≤10 (Telegram's limit);
+    the rest of the photos are only on the site (properties.ALBUM_PHOTOS)."""
+    out, ph = [], 0
+    for it in items:
+        if it[0] != "video":
+            ph += 1
+            if ph > n_photos:
+                continue
+        out.append(it)
+    return out[:10]
+
+
 def media_paths(pid, tmp, ids=None):
-    """[(kind, local path, storage key)] of the first 10 files that exist (MEDIA_STORAGE=s3: downloaded into the tmp dir).
-    ids: the operator's pick in album order (None = all, by position)."""
+    """[(kind, local path, storage key)] of the album's files that exist (MEDIA_STORAGE=s3: downloaded into the tmp dir):
+    _album() of ids, the operator's pick in album order (None = all, by position)."""
     rows = store.q("SELECT id, kind, path FROM property_media WHERE property_id = %s AND kind IN ('photo', 'video') ORDER BY position, id", (pid,))
     if ids is not None:
         by_id = {r["id"]: r for r in rows}
         rows = [by_id[i] for i in ids if i in by_id]
     out = []
-    for r in rows:
-        if len(out) == 10:
-            break
-        if p := storage.fetch(r["path"], tmp):
-            out.append((r["kind"] or "photo", p, r["path"]))
+    for k, key in _album([(r["kind"] or "photo", r["path"]) for r in rows]):
+        if p := storage.fetch(key, tmp):
+            out.append((k, p, key))
     return out
 
 
@@ -1156,7 +1167,7 @@ def publish_post(prop):
     pk = g(prop, "progress_key")  # properties.publish: the card shows each step (app/progress.py)
     with tempfile.TemporaryDirectory() as tmp:  # [(photo|video, storage key)]: sale objects and cars keep keys in the row
         progress.step(pk, "files")
-        media = ([(k, p, key) for k, key in keys[:10] if (p := storage.fetch(key, tmp))] if keys is not None
+        media = ([(k, p, key) for k, key in _album(keys) if (p := storage.fetch(key, tmp))] if keys is not None
                  else media_paths(g(prop, "id"), tmp, g(prop, "post_media_ids")))
         sent = []
         if media and originals_topic:

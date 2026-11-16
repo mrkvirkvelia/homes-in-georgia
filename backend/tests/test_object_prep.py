@@ -60,11 +60,11 @@ def test_deal_form_cadastral(db, client):
     assert r.status_code == 200 and r.json()["cadastral"] == "01.14.12.003.045"
 
 
-def test_media_limit_9_photos_1_video(db):
+def test_media_limit_40_photos_1_video(db):
     ag, p = _object(db, "ss902")
-    properties.upload_media(db, p.id, [(f"{i}.jpg", b"\xff\xd8x") for i in range(9)], None, ag)
+    properties.upload_media(db, p.id, [(f"{i}.jpg", b"\xff\xd8x") for i in range(40)], None, ag)
     properties.upload_media(db, p.id, [("v.mp4", b"\0\0video")], None, ag)
-    for extra in ("10.jpg", "v2.mov"):
+    for extra in ("41.jpg", "v2.mov"):
         with pytest.raises(DomainError) as e:
             properties.upload_media(db, p.id, [(extra, b"\xff\xd8x")], None, ag)
         assert e.value.code == "media_limit" and e.value.status == 422
@@ -73,9 +73,26 @@ def test_media_limit_9_photos_1_video(db):
     properties.delete_media(db, p.id, m[0].id, ag)
     with pytest.raises(DomainError):
         properties.upload_media(db, p.id, [("a.jpg", b"\xff\xd8x"), ("b.jpg", b"\xff\xd8x")], None, ag)
-    assert len(properties.media(db, p.id)) == 9
-    properties.upload_media(db, p.id, [("a.jpg", b"\xff\xd8x")], None, ag)
-    assert [m.kind for m in properties.media(db, p.id)].count("photo") == 9
+    assert len(properties.media(db, p.id)) == 40
+
+
+def test_min_9_photos_to_review_and_publish(db, monkeypatch):
+    monkeypatch.setattr(properties, "MIN_PHOTOS", 9)
+    ag, p = _object(db, "ss904")
+    properties.upload_media(db, p.id, [(f"{i}.jpg", b"\xff\xd8x") for i in range(8)] + [("v.mp4", b"\0\0video")], None, ag)
+    with pytest.raises(DomainError) as e:
+        properties.require_min_photos(db, p)
+    assert e.value.code == "few_photos" and "минимум 9 фото, сейчас 8" in e.value.message
+    properties.upload_media(db, p.id, [("9.jpg", b"\xff\xd8x")], None, ag)
+    properties.require_min_photos(db, p)  # 9 photos: ok
+
+
+def test_album_first_9_photos_and_the_video():
+    from app.telegram.notify import _album as album
+    items = [("photo", n) for n in range(15)] + [("video", "v")]
+    assert album(items) == [("photo", n) for n in range(9)] + [("video", "v")]
+    assert album([("video", "v")] + items[:12]) == [("video", "v")] + items[:9]
+    assert album(items[:3]) == items[:3]
 
 
 def test_rooms_optional_and_switchable(db):

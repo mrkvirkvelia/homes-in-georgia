@@ -14,7 +14,7 @@ import { errText, useToast } from '../../components/toast';
 import { Badge, Button, Card, Empty, ErrorBox, Field, Input, Lightbox, Loading, PageHead, Seg, Select, Switch, Tabs, Textarea } from '../../components/ui';
 import { money } from '../../lib/format';
 import { pool, shrinkPhoto } from '../../lib/upload';
-import { Chips, MediaGrid, PublishTargets, type Shot } from '../properties/PropertyDetail';
+import { albumOf, Chips, MediaGrid, PublishTargets, type Shot } from '../properties/PropertyDetail';
 
 const KIND = 'car' as const;
 const PATH = '/cars';
@@ -23,7 +23,7 @@ const CURRENCY = [{ value: 'USD', label: '$ USD' }, { value: 'GEL', label: '₾ 
 const GEARBOX: Record<string, string> = { auto: 'Автомат', manual: 'Механика' };
 const FUEL: Record<string, string> = { petrol: 'Бензин', diesel: 'Дизель', hybrid: 'Гибрид', electric: 'Электро', gas: 'Газ' };
 const BODY: Record<string, string> = { sedan: 'Седан', suv: 'Внедорожник', hatchback: 'Хэтчбек', wagon: 'Универсал', coupe: 'Купе', minivan: 'Минивэн', business: 'Бизнес', pickup: 'Пикап', convertible: 'Кабриолет' };
-const MAX_PHOTO = 9, ALBUM_MAX = 10;
+const MAX_PHOTO = 40;
 const TABS: { value: OfferStatus | 'all'; label: string }[] = [{ value: 'all', label: 'Все' }, { value: 'draft', label: 'Не на сайте' }, { value: 'published', label: 'На сайте' }, { value: 'archived', label: 'Архив' }];
 const siteUrl = (o: Offer) => `https://hge.ge/listing/${o.item_id}`;
 const shots = (o: Offer): Shot[] => [...o.photos.map((k) => ({ id: k, kind: 'photo' as const, room: null, src: k })), ...(o.video ? [{ id: o.video, kind: 'video' as const, room: null, src: o.video }] : [])];
@@ -181,7 +181,7 @@ function Publish({ o, dirty, onChange }: { o: Offer; dirty: boolean; onChange: (
   const known = new Set(own.map((m) => String(m.id)));
   const ordered = [...(order || []).filter((k) => known.has(k)), ...own.map((m) => String(m.id)).filter((k) => !(order || []).includes(k))];
   const items = ordered.map((k) => own.find((m) => m.id === k)!);
-  const picked = ordered.filter((k) => !off.has(k)).slice(0, ALBUM_MAX);
+  const picked = albumOf(ordered.filter((k) => !off.has(k)), (k) => own.find((m) => m.id === k)?.kind === 'video');
   const text = edited ?? post.data?.text ?? '';
   const tg = toTg && isStaff;
   const publish = useMutation({
@@ -216,10 +216,10 @@ function Publish({ o, dirty, onChange }: { o: Offer; dirty: boolean; onChange: (
             )}
             {edited !== null && <Button size="sm" variant="ghost" onClick={() => setEdited(null)}><RotateCcw size={14} />Исходный текст</Button>}
             <div>
-              <div className="row row-between"><span className="label">Фото и видео в посте</span><span className="muted num" style={{ fontWeight: 700 }}>{picked.length}/{Math.min(items.length, ALBUM_MAX)}</span></div>
+              <div className="row row-between"><span className="label">Фото и видео в посте</span><span className="muted num" style={{ fontWeight: 700 }}>{picked.length}/{albumOf(ordered, (k) => own.find((m) => m.id === k)?.kind === 'video').length}</span></div>
               <div className="muted" style={{ fontSize: 12, margin: '4px 0 8px' }}>Перетащите, чтобы поменять порядок; галочка — файл в посте; нажмите, чтобы открыть. Первый файл — обложка.</div>
-              <MediaGrid items={items} grouped off={off as Set<Shot['id']>} onOrder={(ids) => setOrder(ids.map(String))}
-                onToggle={(k) => setOff((x) => { const n = new Set(x); if (n.has(String(k))) n.delete(String(k)); else n.add(String(k)); return n; })} />
+              <MediaGrid items={items} grouped off={new Set<Shot['id']>(ordered.filter((k) => !picked.includes(k)))} onOrder={(ids) => setOrder(ids.map(String))}
+                onToggle={(k) => setOff((x) => { const n = new Set(x); if (picked.includes(String(k))) n.add(String(k)); else n.delete(String(k)); return n; })} />
             </div>
           </>
         )}

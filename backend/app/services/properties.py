@@ -50,8 +50,11 @@ POST_LOCKED = ("deposit", "sale_price")
 VIDEO_EXT = {".mp4", ".mov", ".m4v", ".webm", ".avi", ".mkv"}
 PHOTO_EXT = {".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif", ".gif"}
 MAX_UPLOAD = 300 * 1024 * 1024
-# one Telegram album: 9 photos + 1 video per object (the channel post sends ≤10 media)
-MAX_MEDIA = {"photo": 9, "video": 1}
+# Stanislav 11-16: up to 40 photos + 1 video per object; the site shows them all, the Telegram album takes the first
+# ALBUM_PHOTOS photos in card order + the video (9 + 1 = Telegram's 10-item album, notify._album). A rent / sale object
+# needs at least MIN_PHOTOS photos to go to review or be published.
+MAX_MEDIA = {"photo": 40, "video": 1}
+ALBUM_PHOTOS = MIN_PHOTOS = 9
 # the owner's signed exclusive contract (PDF): a property_media row of its own kind, never in a post/album/slideshow
 CONTRACT = "exclusive_contract"
 POST_KINDS = ("photo", "video")
@@ -1053,8 +1056,8 @@ def upload_media(db: Session, pid: int, files: list[tuple[str, bytes]], room: st
         kind = "video" if ext in VIDEO_EXT else "photo"
         have[kind] = have.get(kind, 0) + 1
         if have[kind] > MAX_MEDIA[kind]:
-            raise DomainError("media_limit", f"У объекта максимум {MAX_MEDIA['photo']} фото и {MAX_MEDIA['video']} видео "
-                              "(столько уходит в пост Telegram). Удалите лишнее, чтобы добавить новое", 422)
+            raise DomainError("media_limit", f"У объекта максимум {MAX_MEDIA['photo']} фото и {MAX_MEDIA['video']} видео. "
+                              "Удалите лишнее, чтобы добавить новое", 422)
     out = []
     for name, content in files:
         ext = os.path.splitext(name or "")[1].lower() or ".jpg"
@@ -1422,12 +1425,19 @@ def _same_object(db: Session, p: Property) -> Property | None:
     return None
 
 
+def require_min_photos(db: Session, p: Property) -> None:
+    n = sum(m.kind == "photo" for m in media(db, p.id))
+    if n < MIN_PHOTOS:
+        raise DomainError("few_photos", f"Нужно минимум {MIN_PHOTOS} фото, сейчас {n}")
+
+
 def submit_for_review(db: Session, pid: int, agent: User) -> Property:
     p = _prop(db, pid, lock=True)
     _require_owner(p, agent)
     _require_status(p, "media_uploaded", "returned", "shoot_scheduled")
     if not media(db, p.id):
         raise DomainError("no_media", "upload photos or videos first")
+    require_min_photos(db, p)
     if p.is_exclusive and not contract(db, p.id):
         raise DomainError("no_exclusive_contract", "Эксклюзив: загрузите подписанный собственником эксклюзивный договор (PDF)")
     if docs := missing_owner_docs(db, p):
@@ -1923,6 +1933,7 @@ def publish(db: Session, pid: int, actor: User, text: str | None = None, media_i
         raise DomainError("bad_channel", f"unknown channel {channel}")
     _require_status(p, "review", "published")
     _require_no_exclusive_conflict(db, p)
+    require_min_photos(db, p)  # no override: a published object with fewer can't be republished until topped up
     if media_ids is not None:
         own = {m.id for m in media(db, p.id)}
         if not set(media_ids) <= own:

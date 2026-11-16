@@ -173,3 +173,10 @@ def fill_required(db, pid, owner=True):
         p.owner_id = o.id
     db.commit()
     return p
+
+
+@pytest.fixture(autouse=True)
+def _one_photo_is_enough(monkeypatch):
+    """Most tests build an object with a photo or two; the 9-photo minimum has its own tests (test_object_prep)."""
+    from app.services import properties
+    monkeypatch.setattr(properties, "MIN_PHOTOS", 1)

@@ -473,6 +473,8 @@ function SettingsAdmin() {
         <div className="col">
           <Switch checked={str('room_picker') !== '0'} onChange={(v) => setK('room_picker', v ? '1' : '0')} label={t('Выбор комнаты под фото (необязательный)')} />
           <div className="muted" style={{ fontSize: 12 }}>{t('Выключите, чтобы агенты не видели выбор комнаты и «Что снято». Отправку на модерацию комнаты не блокируют в любом случае.')}</div>
+          <Field label={t('Возврат взятого объекта без действий, мин')}><Input type="number" min={0} value={str('take_idle_min')} onChange={(e) => setK('take_idle_min', e.target.value)} /></Field>
+          <div className="muted" style={{ fontSize: 12 }}>{t('Объект, взятый из «Новых объявлений», возвращается туда, если агент ничего не сделал по нему за это время (за 15 минут бот предупредит). 0 — выключено.')}</div>
         </div>
       </Card>
       <Card label={t('Главная')} title={t('Метрики дашборда')}>

@@ -2,7 +2,7 @@
 import argparse
 import logging
 import time
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 from sqlalchemy.orm import Session
 
@@ -10,7 +10,7 @@ from app.config import settings as env
 from app.db import SessionLocal
 from app.models import Deal, Job, Lead, Property
 from app.services import birthdays, catalog, jobs, leads, settings
-from app.services.common import TZ, log_event, now
+from app.services.common import TZ, aware, log_event, now
 from app.telegram import notify
 
 log = logging.getLogger("app.worker")
@@ -45,6 +45,27 @@ def lead_sla(db: Session, job: Job):
     else:
         notify.sla_overdue(lead, stage)
         log_event(db, "lead", lead.id, "sla_overdue", None, "bot", stage=stage)
+
+
+@handler("take_idle")
+def take_idle(db: Session, job: Job):
+    """An object taken from «Новые объявления» with no action by its agent: a warning, then back to the feed."""
+    from app.services import properties
+    p = db.get(Property, _ref_id(job), with_for_update=True)
+    pl = job.payload or {}
+    if (not p or p.agent_id != pl.get("agent_id") or not p.taken_at
+            or abs((aware(p.taken_at) - datetime.fromisoformat(pl["taken_at"])).total_seconds()) > 1):
+        return "stale"  # re-taken / reassigned / released: its own job (if any) is planned
+    if not properties.idle_since_take(db, p):
+        return "acted"
+    if properties.take_idle_minutes(db) <= 0:  # turned off in Управление → Настройки after the take
+        return "off"
+    if pl.get("phase") == "warn":
+        notify.property_idle_warning(p, properties.TAKE_IDLE_WARN_BEFORE)
+        jobs.schedule(db, "take_idle", p.id, datetime.fromisoformat(pl["return_at"]), {**pl, "phase": "return"})
+        return None
+    agent_id = properties.return_idle(db, p, int(pl.get("minutes") or 60))
+    notify.property_idle_returned(p, agent_id, int(pl.get("minutes") or 60))
 
 
 @handler("call_retry")

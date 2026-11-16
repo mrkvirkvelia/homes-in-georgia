@@ -605,7 +605,7 @@ def apply_update(db: Session, p: Property, data: dict, actor: User) -> None:
     _apply(p, data)
     if p.rent_to != was_rent_to:
         schedule_lease_reminders(db, p)
-    _set_owner_contact(db, p, data.get("owner_name"), data.get("owner_phone"), actor)
+    _set_owner_contact(db, p, data.get("owner_name"), data.get("owner_phone"), actor, bool(data.get("owner_separate")))
     if p.is_exclusive and not was_exclusive:
         for a in external_ads(db, [p.id]).get(p.id, []):
             log_event(db, "property", p.id, "exclusive_conflict", actor, **a)
@@ -615,19 +615,28 @@ def apply_update(db: Session, p: Property, data: dict, actor: User) -> None:
         log_event(db, "property", p.id, "updated", actor, fields=fields)
 
 
-def _set_owner_contact(db: Session, p: Property, name: str | None, phone: str | None, actor: User) -> None:
-    """Fix the owner's name/phone from the object card (a typo like "Sofa" for "Nadia"). A phone that already belongs
-    to another owner in the base re-links the object to that owner instead of creating a twin."""
+def _mask_phone(phone: str | None) -> str:
+    d = re.sub(r"\D", "", phone or "")
+    return f"…{d[-4:]}" if d else "—"
+
+
+def _set_owner_contact(db: Session, p: Property, name: str | None, phone: str | None, actor: User,
+                       separate: bool = False) -> None:
+    """Fix the owner's name/phone from the object card (a typo like "Sofa" for "Nadia"). The contact lives on the Owner,
+    so his other objects show the fix too. A phone that already belongs to another owner in the base re-links the object
+    to that owner instead of creating a twin, unless separate (the agent chose «оставить отдельным»). Logged on the
+    object's timeline as old → new, the phones masked."""
     name, phone = (name or "").strip() or None, (phone or "").strip() or None
     if not name and not phone:
         return
     o = db.get(Owner, p.owner_id) if p.owner_id else None
+    before = (o.name, o.phone) if o else (None, None)
     if o is None:
         o, _ = upsert_owner(db, name, phone, p.address, p.source_url, actor=actor)
         p.owner_id = o.id
         _bind_owner(db, p, o, actor)
     elif phone and norm_phone(phone) != o.phone_norm:
-        other = find_owner(db, phone)
+        other = None if separate else find_owner(db, phone)
         if other and other.id != o.id:
             p.owner_id, o = other.id, other
             _bind_owner(db, p, o, actor)
@@ -635,6 +644,13 @@ def _set_owner_contact(db: Session, p: Property, name: str | None, phone: str | 
             o.phone, o.phone_norm = phone, norm_phone(phone)
     if name:
         o.name = name
+    changes = []
+    if before[0] != o.name:
+        changes.append(f"{before[0] or '—'} → {o.name or '—'}")
+    if norm_phone(before[1]) != o.phone_norm:
+        changes.append(f"{_mask_phone(before[1])} → {_mask_phone(o.phone)}")
+    if changes:
+        log_event(db, "property", p.id, "owner_contact", actor, owner_id=o.id, note="; ".join(changes))
 
 
 def owner_refused(db: Session, pid: int, agent: User, comment: str | None = None) -> Property:

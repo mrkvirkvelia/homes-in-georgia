@@ -1265,6 +1265,53 @@ function EditModal({ p, open, onClose }: { p: Property; open: boolean; onClose: 
   );
 }
 
+/** The owner card's «Изменить»: name / phone of the owner (the contact is on the owner, so his other objects show it too).
+ * A new number that is another owner's in the base: link the object to him or keep this owner separate (backend
+ * properties._set_owner_contact). After verification an agent's change is a «Запрос оператору». */
+function OwnerEditModal({ p, open, onClose }: { p: Property; open: boolean; onClose: () => void }) {
+  const { toast, set } = useProp(p.id);
+  const [name, setName] = useState(p.owner?.name || '');
+  const [phone, setPhone] = useState(p.owner?.phone || '');
+  const [link, setLink] = useState<'link' | 'separate'>('link');
+  const [reason, setReason] = useState('');
+  const digits = (s?: string | null) => (s || '').replace(/\D/g, '').replace(/^995/, '').replace(/^0/, '');
+  const changed = digits(phone) !== digits(p.owner?.phone);
+  const [q, setQ] = useState('');
+  useEffect(() => { const h = setTimeout(() => setQ(changed && digits(phone).length >= 9 ? phone : ''), 300); return () => clearTimeout(h); }, [phone, changed]);
+  const found = useQuery({ queryKey: ['owners', 'same-phone', q], queryFn: () => api.owners.list(q, 'all'), enabled: !!q });
+  // agents get only full-number matches with the phone hidden; staff get substring matches: compare the digits
+  const other = q ? itemsOf(found.data).find((o) => o.id !== p.owner?.id && (!o.phone || digits(o.phone) === digits(q))) : undefined;
+  const locked = (p.locked_fields || []).includes('owner_phone');
+  const save = useMutation({
+    mutationFn: () => api.properties.update(p.id, other && link === 'link' ? { owner_id: other.id, reason: reason || undefined }
+      : { owner_name: name, owner_phone: phone, owner_separate: !!other || undefined, reason: reason || undefined }),
+    onSuccess: (r) => { set(r); toast(r.change_request ? REQUEST_SENT : t('Сохранено')); onClose(); },
+    onError: (e) => toast(errText(e), true),
+  });
+  return (
+    <Modal open={open} onClose={onClose} title={t('Контакт собственника')}>
+      <div className="form-grid">
+        <Field label={t('Имя собственника')}><Input value={name} onChange={(e) => setName(e.target.value)} /></Field>
+        <Field label={t('Телефон собственника')}><Input type="tel" inputMode="tel" value={phone} placeholder="+995 5__ __ __ __" onChange={(e) => setPhone(phoneInput(e))} /></Field>
+      </div>
+      {other && (
+        <div className="alert alert-warn col gap-sm mt" style={{ fontSize: 13 }}>
+          <span>{t('Этот номер уже есть в базе: {name}', { name: other.name || '—' })}{other.address ? ` · ${other.address}` : ''}</span>
+          <Seg value={link} onChange={setLink} options={[{ value: 'link', label: t('Привязать к нему') }, { value: 'separate', label: t('Оставить отдельным') }]} />
+        </div>
+      )}
+      <div className="muted mt" style={{ fontSize: 12 }}>{t('Контакт меняется у собственника — и во всех его объектах. В посты контакты не попадают.')}</div>
+      {locked && (
+        <div className="col gap-sm mt">
+          <div className="alert alert-info" style={{ fontSize: 13 }}>{t('Объект проверен оператором: изменение уйдёт ему на проверку')}</div>
+          <Field label={t('Причина изменения')}><Input value={reason} placeholder={t('Например: собственник сменил номер')} onChange={(e) => setReason(e.target.value)} /></Field>
+        </div>
+      )}
+      <div className="row mt-lg"><Button loading={save.isPending} disabled={!name.trim() && !phone.trim()} onClick={() => save.mutate()}>{t('Сохранить')}</Button><Button variant="ghost" onClick={onClose}>{t('Отмена')}</Button></div>
+    </Modal>
+  );
+}
+
 /** «В архив» with a mandatory reason; «Дубль» deletes the object (its leads and deals move to the original). After verification the agent's archive is a request. */
 function ArchiveModal({ p, open, onClose, preset = '' }: { p: Property; open: boolean; onClose: () => void; preset?: string }) {
   const { toast, set } = useProp(p.id);
@@ -1303,6 +1350,7 @@ export function PropertyDetail({ id, compact }: { id: number; compact?: boolean 
   const { data: p, isLoading, error } = useQuery({ queryKey: ['property', id], queryFn: () => api.properties.get(id) });
   const hist = useQuery({ queryKey: ['property-history', id], queryFn: () => api.properties.history(id) });
   const [edit, setEdit] = useState(false);
+  const [ownerEdit, setOwnerEdit] = useState(false);
   const [archiving, setArchiving] = useState<string | false>(false);
   const step = useMemo(() => (p ? stepOf(p) : 0), [p]);
 
@@ -1406,7 +1454,8 @@ export function PropertyDetail({ id, compact }: { id: number; compact?: boolean 
           {!compact && <Card label={t('История')} title={t('События объекта')}><Timeline events={itemsOf(hist.data)} /></Card>}
         </div>
         <div className="col gap-lg">
-          <Card label={t('Собственник')} title={<>{p.owner?.name || '—'} {p.owner?.is_agent ? <Badge tone="warn">{t('агент')}</Badge> : null}</>}>
+          <Card label={t('Собственник')} title={<>{p.owner?.name || '—'} {p.owner?.is_agent ? <Badge tone="warn">{t('агент')}</Badge> : null}</>}
+            actions={canWork && (ownerVisible || !p.owner) ? <Button size="sm" variant="secondary" onClick={() => setOwnerEdit(true)}><Pencil size={14} />{p.owner ? t('Изменить') : t('Добавить')}</Button> : undefined}>
             <KV items={[
               [t('Телефон'), <OwnerPhone p={p} />],
               // one agent line: the owner's agent (stage 6.5 binding, backend deal_block); no owner binding yet → the object's agent
@@ -1445,6 +1494,7 @@ export function PropertyDetail({ id, compact }: { id: number; compact?: boolean 
         </div>
       </div>
       <EditModal p={p} open={edit} onClose={() => setEdit(false)} />
+      {ownerEdit && <OwnerEditModal p={p} open onClose={() => setOwnerEdit(false)} />}
       {archiving !== false && <ArchiveModal key={archiving} p={p} preset={archiving} open onClose={() => setArchiving(false)} />}
     </div>
   );

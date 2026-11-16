@@ -61,7 +61,7 @@ def test_after_verification_locked_fields_become_a_request_others_apply(db, clie
     p = db.get(Property, pid)
     assert db.get(Owner, p.owner_id).phone == "+995 577 00 00 00" and p.post_fields == {"amenities": ["WiFi"], "deposit": 500}
     acts = [e.action for e in db.query(Event).filter_by(entity="property", entity_id=str(pid)).order_by(Event.id)]
-    assert acts[-3:] == ["change_requested", "updated", "change_request_approved"]
+    assert acts[-4:] == ["change_requested", "owner_contact", "updated", "change_request_approved"]
     assert sent.of("change_request_decided")
     assert client.post(f"/api/change-requests/{cr['id']}/decide", json={"approve": True}, headers=auth(nino)).json()["code"] == "bad_status"
 

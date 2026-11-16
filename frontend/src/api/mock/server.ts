@@ -289,7 +289,14 @@ on('GET', '/properties/deal-search', (_m, _b, q) => {
 });
 on('GET', '/properties/:id/history', (m) => page([...(F.propertyEvents[Number(m[1])] || [])].reverse()));
 on('GET', '/properties/:id', (m) => propOut(getProp(Number(m[1])), currentUser()));
-on('PATCH', '/properties/:id', (m, b) => { const p = getProp(Number(m[1])); Object.assign(p, b); return propOut(p, currentUser()); });
+on('PATCH', '/properties/:id', (m, b) => {
+  const p = getProp(Number(m[1]));
+  const { owner_name, owner_phone, owner_id, owner_separate: _sep, reason: _r, ...rest } = b as Record<string, unknown>;
+  Object.assign(p, rest);
+  if (owner_id || owner_name || owner_phone) p.owner = { ...(p.owner || { id: nextId(), is_agent: false }), ...(owner_id ? { id: Number(owner_id) } : {}),
+    name: (owner_name as string) || p.owner?.name, phone: (owner_phone as string) || p.owner?.phone };
+  return propOut(p, currentUser());
+});
 on('POST', '/properties/:id/call', (m, b) => {
   const u = currentUser(); const p = getProp(Number(m[1]));
   p.call_attempts = (p.call_attempts || 0) + 1;

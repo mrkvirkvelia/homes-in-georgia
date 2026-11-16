@@ -209,6 +209,15 @@ def test_fix_owner_name_and_phone_from_card(db, client):
     db.add(other); db.commit()
     r = client.patch(f"/api/properties/{pid}", json={"owner_phone": "577000001"}, headers=auth(georgiy)).json()
     assert r["owner"]["id"] == other.id  # a known number links to that owner instead of making a twin
+    r = client.patch(f"/api/properties/{pid}", json={"owner_phone": "+995 599 11 22 33"}, headers=auth(georgiy)).json()
+    assert r["owner"]["id"] != other.id
+    first = r["owner"]["id"]
+    r = client.patch(f"/api/properties/{pid}", json={"owner_phone": "577000001", "owner_separate": True},
+                     headers=auth(georgiy)).json()
+    assert r["owner"]["id"] == first and r["owner"]["phone"] == "577000001"  # «оставить отдельным»: no re-link
+    notes = [e["data"]["note"] for e in client.get(f"/api/properties/{pid}/history", headers=auth(georgiy)).json()
+             if e["action"] == "owner_contact"]
+    assert "Sofa → Надя" in notes and "…6262 → …2233" in notes and "595" not in "".join(notes)
 
 
 def test_owner_refused_returns_object_to_feed_with_note(db, client):

@@ -111,6 +111,7 @@ class PropertyIn(BaseModel):
     owner_name: str | None = None
     owner_phone: str | None = None
     owner_id: int | None = None  # picked from the owners list
+    owner_separate: bool | None = None  # the new phone is another owner's: keep this owner, don't re-link
     post_fields: dict | None = None  # services.properties.POST_ONE / POST_MANY / POST_NUM
     rent_from: str | None = None  # «Сдан» by hand: YYYY-MM-DD, "" clears
     rent_to: str | None = None

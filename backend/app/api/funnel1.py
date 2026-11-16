@@ -149,7 +149,7 @@ class DupIn(BaseModel):
 
 @router.get("/properties")
 def properties_list(status: str | None = None, agent_id: int | None = None, q: str | None = None, mine: int = 0,
-                    base: int = 0, rented: int = 0, limit: int = 50, offset: int = 0,
+                    base: int = 0, rented: int = 0, freeing: int = 0, limit: int = 50, offset: int = 0,
                     source: list[str] | None = Query(None), district: list[str] | None = Query(None), metro: str | None = None,
                     bedrooms: str | None = None, price_min: int | None = Query(None, ge=0), price_max: int | None = Query(None, ge=0),
                     archive_reason: str | None = None, deal: Literal["rent", "sale"] | None = None,
@@ -158,7 +158,7 @@ def properties_list(status: str | None = None, agent_id: int | None = None, q: s
     deal: rent | sale (post_fields.deal), the «Аренда / Продажа» switch of «Объекты»."""
     stmt = P.query(db, user, status, agent_id, q, bool(mine), base=bool(base), rented=bool(rented), source=source,
                    district=district, metro=metro, bedrooms=bedrooms, price_min=price_min, price_max=price_max,
-                   archive_reason=archive_reason, deal=deal)
+                   archive_reason=archive_reason, deal=deal, freeing=bool(freeing))
     total = db.scalar(select(func.count()).select_from(stmt.order_by(None).subquery()))
     rows = db.scalars(stmt.limit(max(1, min(limit, 500))).offset(max(0, offset)))
     return {"items": P.outs(db, rows, user), "total": total}
@@ -281,6 +281,13 @@ class RefusedIn(BaseModel):
     comment: str | None = None
 
 
+class RentedSelfIn(BaseModel):
+    comment: str | None = None
+    rent_from: str | None = None
+    rent_to: str | None = None
+    price: str | None = None
+
+
 @router.post("/properties/{pid}/refused")
 def properties_refused(pid: int, body: RefusedIn, db: Session = Depends(get_db, scope="function"), user: User = Depends(current_user)):
     return P.out(db, P.owner_refused(db, pid, user, body.comment), user, full=True)
@@ -302,8 +309,8 @@ def properties_resume(pid: int, db: Session = Depends(get_db, scope="function"),
 
 
 @router.post("/properties/{pid}/rented-self")
-def properties_rented_self(pid: int, body: RefusedIn, db: Session = Depends(get_db, scope="function"), user: User = Depends(current_user)):
-    return P.out(db, P.owner_rented_self(db, pid, user, body.comment), user, full=True)
+def properties_rented_self(pid: int, body: RentedSelfIn, db: Session = Depends(get_db, scope="function"), user: User = Depends(current_user)):
+    return P.out(db, P.owner_rented_self(db, pid, user, body.comment, body.rent_from, body.rent_to, body.price), user, full=True)
 
 
 @router.post("/properties/{pid}/shoot")
@@ -546,13 +553,16 @@ class ArchiveIn(BaseModel):
     reason: str | None = None  # models.ARCHIVE_REASONS
     comment: str | None = None
     duplicate_of: int | None = None
+    rent_from: str | None = None  # «Собственник сдал»: the owner's lease, required
+    rent_to: str | None = None
+    price: str | None = None
 
 
 @router.post("/properties/{pid}/archive")
 def properties_archive(pid: int, body: ArchiveIn | None = None, db: Session = Depends(get_db, scope="function"),
                        user: User = Depends(current_user)):
     b = body or ArchiveIn()
-    return _with_request(db, P.archive(db, pid, user, b.reason, b.comment, b.duplicate_of), user)
+    return _with_request(db, P.archive(db, pid, user, b.reason, b.comment, b.duplicate_of, b.rent_from, b.rent_to, b.price), user)
 
 
 # ---------------------------------------------------------------- «Запросы» (stage 6)

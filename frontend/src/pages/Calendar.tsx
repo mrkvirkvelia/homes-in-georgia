@@ -9,6 +9,7 @@ import { api } from '../api';
 import { itemsOf } from '../api/client';
 import type { Deal } from '../api/types';
 import { Card, Empty, ErrorBox, Loading, PageHead, Seg } from '../components/ui';
+import { t } from '../lib/i18n';
 
 type Kind = 'showing' | 'shoot' | 'call' | 't14' | 'expiry';
 interface Ev { id: string; at: Date; allDay: boolean; kind: Kind; title: string; meta?: string; to: string }
@@ -47,7 +48,10 @@ export function useCalendarEvents(agentId?: number) {
       if (d.rent_to) out.push({ id: `e${d.id}`, at: parseDay(d.rent_to), allDay: true, kind: 'expiry', title: d.address || `Сделка #${d.id}`, meta: d.client_name || undefined, to: `/deals?open=${d.id}` });
     }
     for (const p of itemsOf(leases.data)) {
-      if (p.rent_to) out.push({ id: `r${p.id}`, at: parseDay(p.rent_to), allDay: true, kind: 'expiry', title: p.address || `Объект #${p.id}`, meta: p.tenant_name || 'Окончание аренды', to: `/objects/${p.id}` });
+      if (!p.rent_to) continue;
+      // «Собственник сдал»: the flat frees up — call the owner and post it again (Stanislav 11-16)
+      if (p.status === 'archived' && p.archive_reason === 'rented_by_owner') out.push({ id: `r${p.id}`, at: parseDay(p.rent_to), allDay: true, kind: 'expiry', title: t('Освобождается: {a}', { a: p.address || `#${p.id}` }), meta: t('Позвоните собственнику и выложите заново'), to: `/objects/${p.id}` });
+      else out.push({ id: `r${p.id}`, at: parseDay(p.rent_to), allDay: true, kind: 'expiry', title: p.address || `Объект #${p.id}`, meta: p.tenant_name || 'Окончание аренды', to: `/objects/${p.id}` });
     }
     return out.filter((e) => !Number.isNaN(e.at.getTime())).sort((a, b) => a.at.getTime() - b.at.getTime());
   }, [leads.data, props.data, deals.data, leases.data]);

@@ -101,6 +101,8 @@ def _apply(db: Session, cr: ChangeRequest, p: Property, operator: User) -> None:
         new = lambda k: (pl.get(k) or {}).get("new")  # noqa: E731
         a = P.check_archive(db, p, new("archive_reason"), new("archive_comment"), new("duplicate_of"))
         P._archive_now(db, p, operator, a["reason"], a["comment"], a["duplicate_of"])
+        if a["reason"] == "rented_by_owner" and new("rent_to"):
+            P.set_owner_lease(db, p, new("rent_from"), new("rent_to"), operator)
     elif cr.kind == "transfer_owner":
         P.transfer_owner(db, pl["owner_id"], pl["agent_id"], operator, cr.reason, commit=False)
 

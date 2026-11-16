@@ -117,6 +117,6 @@ def test_existing_flows_set_reasons_and_transfer_request(db, client, sent):
     a = client.post("/api/properties", json={"listing_id": make_listing(db, "ss6003").id}, headers=auth(georgiy)).json()["id"]
     b = client.post("/api/properties", json={"listing_id": make_listing(db, "ss6004").id}, headers=auth(georgiy)).json()["id"]
     assert client.post(f"/api/properties/{a}/refused", json={}, headers=auth(georgiy)).json()["archive_reason"] == "owner_refused"
-    assert client.post(f"/api/properties/{b}/rented-self", json={}, headers=auth(georgiy)).json()["archive_reason"] == "rented_by_owner"
+    assert client.post(f"/api/properties/{b}/rented-self", json={"rent_from": "2026-11-01", "rent_to": "2027-11-01"}, headers=auth(georgiy)).json()["archive_reason"] == "rented_by_owner"
     # re-taking a refused object clears its archive reason
     assert client.post("/api/properties", json={"listing_id": "ss6003"}, headers=auth(levan)).json()["archive_reason"] is None

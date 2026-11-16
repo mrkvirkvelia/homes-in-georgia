@@ -529,11 +529,18 @@ def _apply(p: Property, data: dict):
         setattr(p, k, v)
 
 
+def owner_lease_days(db: Session) -> list[int]:
+    """«Собственник сдал»: days before the lease end the agent is reminded (Управление → Настройки)."""
+    return [int(x) for x in str(settings_svc.get(db, "owner_lease_remind_days") or "").split(",") if x.strip().isdigit()]
+
+
 def schedule_lease_reminders(db: Session, p: Property) -> None:
-    """The agent hears CONTRACT_REMIND_DAYS (30,7,1) before the end of a hand-typed lease, at 10:00 Tbilisi."""
+    """The agent hears CONTRACT_REMIND_DAYS (30,7,1) before the end of a hand-typed lease, at 10:00 Tbilisi;
+    an owner's own lease («Собственник сдал») — owner_lease_days, then the object shows in «Освобождаются»."""
     from app.services.deals import _at_10
     jobs.cancel(db, "property_lease_expiry", ref_prefix=f"{p.id}:")
-    for days in env.contract_remind_days if p.rent_to else ():
+    days_list = owner_lease_days(db) if p.archive_reason == "rented_by_owner" else env.contract_remind_days
+    for days in days_list if p.rent_to else ():
         due = _at_10(p.rent_to - timedelta(days=days))
         if due > now():
             jobs.schedule(db, "property_lease_expiry", f"{p.id}:{days}", due, {"days": days})
@@ -754,12 +761,42 @@ def owner_thinking(db: Session, pid: int, agent: User, until, comment: str | Non
     return p
 
 
-def owner_rented_self(db: Session, pid: int, agent: User, comment: str | None = None) -> Property:
-    """The owner rented the flat out himself: the object is closed and its listing never comes back to the feed."""
+def check_owner_lease(rent_from, rent_to) -> tuple:
+    """«Собственник сдал» needs the lease dates (Stanislav 11-16): without them the flat is lost when it frees up."""
+    from app.services.deals import parse_date
+    try:
+        f, t = parse_date(rent_from), parse_date(rent_to)
+    except ValueError:
+        f = t = None
+    if not f or not t:
+        raise DomainError("lease_dates_required", "Укажите, с какого по какое число собственник сдал")
+    if t <= f:
+        raise DomainError("bad_lease_dates", "«Сдано по» должно быть позже «Сдано с»")
+    return f, t
+
+
+def _lease_comment(comment: str | None, price) -> str | None:
+    n = _num(price)
+    return " · ".join(x for x in (f"сдано за ${n:g}" if n else None, (comment or "").strip() or None) if x) or None
+
+
+def set_owner_lease(db: Session, p: Property, rent_from, rent_to, actor: User | None) -> None:
+    """The owner's own lease on a «Собственник сдал» object: the dates, the agent's reminders, the calendar. No commit."""
+    p.rent_from, p.rent_to = check_owner_lease(rent_from, rent_to)
+    schedule_lease_reminders(db, p)
+    log_event(db, "property", p.id, "owner_lease", actor, rent_from=p.rent_from.isoformat(), rent_to=p.rent_to.isoformat())
+
+
+def owner_rented_self(db: Session, pid: int, agent: User, comment: str | None = None, rent_from=None, rent_to=None,
+                      price=None) -> Property:
+    """The owner rented the flat out himself: the object is closed (with the lease dates) and its listing never comes
+    back to the feed; when the lease ends it shows in «Освобождаются»."""
     p = _prop(db, pid, lock=True)
     _require_owner(p, agent)
     _require_status(p, "taken", "call_failed", "owner_confirmed", "shoot_scheduled")
-    _archive_now(db, p, agent, "rented_by_owner", comment, action="owner_rented_self")
+    check_owner_lease(rent_from, rent_to)
+    _archive_now(db, p, agent, "rented_by_owner", _lease_comment(comment, price), action="owner_rented_self")
+    set_owner_lease(db, p, rent_from, rent_to, agent)
     listing = db.get(Listing, p.listing_id) if p.listing_id else None
     if listing:
         listing.decision, listing.status, listing.status_reason = "rejected", "rejected", "сдал сам"
@@ -849,13 +886,17 @@ def purge_duplicate(db: Session, p: Property) -> str:
 
 
 def archive(db: Session, pid: int, actor: User, reason: str | None = None, comment: str | None = None,
-            duplicate_of: int | None = None) -> Property:
+            duplicate_of: int | None = None, rent_from=None, rent_to=None, price=None, lease_required: bool = True) -> Property:
     """«В архив» with a mandatory reason; «Дубль» deletes the object (_merge_duplicate). Staff (and the agent before verification) archive
     right away; a verified object's agent sends a «Запрос оператору» (p.change_request)."""
     p = _prop(db, pid, lock=True)
     _require_owner(p, actor)
     if p.status == "archived":
         raise DomainError("bad_status", "Объект уже в архиве")
+    # lease_required=False: the bot's «Уже сдана» on a lead — no dates there, the card asks for them later
+    lease = check_owner_lease(rent_from, rent_to) if reason == "rented_by_owner" and (lease_required or rent_to) else None
+    if lease:
+        comment = _lease_comment(comment, price)
     a = check_archive(db, p, reason, comment, duplicate_of)
     p.change_request = None
     if is_locked_for(p, actor):
@@ -865,9 +906,14 @@ def archive(db: Session, pid: int, actor: User, reason: str | None = None, comme
             payload["archive_comment"] = {"old": None, "new": a["comment"]}
         if a["duplicate_of"]:
             payload["duplicate_of"] = {"old": p.duplicate_of, "new": a["duplicate_of"]}
+        if lease:
+            payload["rent_from"] = {"old": None, "new": lease[0].isoformat()}
+            payload["rent_to"] = {"old": None, "new": lease[1].isoformat()}
         p.change_request = change_requests.create(db, "property", p.id, "archive", payload, actor, a["comment"])
     else:
         _archive_now(db, p, actor, a["reason"], a["comment"], a["duplicate_of"])
+        if lease:
+            set_owner_lease(db, p, *lease, actor)
     db.commit()
     if p.change_request is not None:
         _notify("change_request_new", p.change_request)
@@ -1999,9 +2045,19 @@ def set_site(db: Session, pid: int, actor: User, on: bool) -> Property:
 
 
 def resume(db: Session, pid: int, actor: User) -> Property:
-    """«Снять с паузы»: a paused object goes back to the base as it was before (published, if it ever was)."""
+    """«Снять с паузы»: a paused object goes back to the base as it was before (published, if it ever was).
+    «Снова в работу» («Собственник сдал», the lease ends): back to «Взят» with its agent (an agent: him) to call the owner."""
     p = _prop(db, pid, lock=True)
     _require_owner(p, actor)
+    if p.status == "archived" and p.archive_reason == "rented_by_owner":
+        p.archive_reason, p.archive_comment, p.archived_at = None, None, None
+        if not at_least(actor, "operator") or not p.agent_id:
+            p.agent_id = actor.id
+        p.taken_at, p.rent_from, p.rent_to = now(), None, None
+        schedule_lease_reminders(db, p)  # cancels what's left
+        _status(db, p, "taken", actor, "back_to_work")
+        db.commit()
+        return p
     if p.status != "archived" or p.archive_reason != "paused":
         raise DomainError("bad_status", "Объект не на паузе")
     p.archive_reason, p.archive_comment, p.archived_at = None, None, None
@@ -2312,8 +2368,9 @@ def query(db: Session, user: User, status: str | None = None, agent_id: int | No
           mine: bool = False, everyone: bool = False, base: bool = False, rented: bool = False,
           source: list[str] | None = None, district: list[str] | None = None, metro: str | None = None,
           bedrooms: str | None = None, price_min: int | None = None, price_max: int | None = None,
-          archive_reason: str | None = None, deal: str | None = None):
-    """source / district: any of the values; metro: the post's tag (post_fields.metro); the base's filter block (11-13).
+          archive_reason: str | None = None, deal: str | None = None, freeing: bool = False):
+    """freeing: «Освобождаются» — the owner's own lease («Собственник сдал») has ended, the flat goes back to work.
+    source / district: any of the values; metro: the post's tag (post_fields.metro); the base's filter block (11-13).
     deal: rent | sale — «Объекты» shows rent and sale apart (Stanislav 11-15); None = both."""
     stmt = select(Property)
     if deal:
@@ -2335,6 +2392,10 @@ def query(db: Session, user: User, status: str | None = None, agent_id: int | No
         stmt = stmt.where(Property.archive_reason == archive_reason)
     if rented:  # the calendar: objects with a hand-typed lease end
         stmt = stmt.where(Property.rent_to.isnot(None))
+    if freeing:
+        from app.services.daily_rent import today
+        stmt = stmt.where(Property.status == "archived", Property.archive_reason == "rented_by_owner",
+                          Property.rent_to <= today())
     if base:
         stmt = stmt.where(Property.status.in_(BASE_STATUSES), Property.published_at.isnot(None))
     # agents see only their own objects in every list, «База объектов» too (Stanislav 11-11); staff see all.

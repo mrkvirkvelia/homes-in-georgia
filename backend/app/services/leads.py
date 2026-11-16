@@ -364,7 +364,8 @@ def object_gone(db: Session, lead_id: int, actor: User) -> Lead:
     db.commit()
     if lead.property_id:
         try:
-            properties.archive(db, lead.property_id, actor, "rented_by_owner", f"Агент: уже сдана (заявка #{lead.id})")
+            properties.archive(db, lead.property_id, actor, "rented_by_owner", f"Агент: уже сдана (заявка #{lead.id})",
+                               lease_required=False)
         except DomainError:  # already archived
             db.rollback()
     _notify("object_gone_staff", lead)

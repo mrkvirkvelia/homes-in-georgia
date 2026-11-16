@@ -475,6 +475,8 @@ function SettingsAdmin() {
           <div className="muted" style={{ fontSize: 12 }}>{t('Выключите, чтобы агенты не видели выбор комнаты и «Что снято». Отправку на модерацию комнаты не блокируют в любом случае.')}</div>
           <Field label={t('Возврат взятого объекта без действий, мин')}><Input type="number" min={0} value={str('take_idle_min')} onChange={(e) => setK('take_idle_min', e.target.value)} /></Field>
           <div className="muted" style={{ fontSize: 12 }}>{t('Объект, взятый из «Новых объявлений», возвращается туда, если агент ничего не сделал по нему за это время (за 15 минут бот предупредит). 0 — выключено.')}</div>
+          <Field label={t('«Собственник сдал»: напомнить агенту за N дней до конца аренды')}><Input value={str('owner_lease_remind_days')} placeholder="30,7" onChange={(e) => setK('owner_lease_remind_days', e.target.value)} /></Field>
+          <div className="muted" style={{ fontSize: 12 }}>{t('Через запятую, например 30,7. Бот напишет агенту «Квартира освобождается — позвоните собственнику», в день окончания объект появится в «Освобождаются».')}</div>
         </div>
       </Card>
       <Card label={t('Главная')} title={t('Метрики дашборда')}>

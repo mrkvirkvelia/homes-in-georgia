@@ -816,7 +816,12 @@ def contract_expiry(deal, days):
 @safe
 def property_lease_expiry(prop, days):
     ag = store.user(g(prop, "agent_id")) or {}
-    if ag.get("tg_id"):
+    if ag.get("tg_id") and g(prop, "archive_reason") == "rented_by_owner":  # «Собственник сдал»: the flat frees up
+        addr = g(prop, "address") or f"#{g(prop, 'id')}"
+        tg.send(ag["tg_id"], f"🔔 Квартира {e(addr)} освобождается "
+                f"<b>{fmt_date(g(prop, 'rent_to'))}</b> — позвоните собственнику и выложите заново.",
+                kb([[app_btn("🏠 Открыть объект", links.property_app(g(prop, "id")))]]))
+    elif ag.get("tg_id"):
         tenant = " ".join(str(x) for x in (g(prop, "tenant_name"), g(prop, "tenant_phone"), g(prop, "tenant_tg")) if x) or "—"
         tg.send(ag["tg_id"], f"🔔 Через <b>{days} дн.</b> заканчивается аренда: {e(g(prop, 'address') or '')} "
                 f"(до {fmt_date(g(prop, 'rent_to'))}).\nАрендатор: {e(tenant)}",

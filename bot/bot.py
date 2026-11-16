@@ -291,6 +291,15 @@ def prepare_card(lid):
         return i, []
 
 
+def warm_embed():
+    """SigLIP weights + catalog vectors at startup: the first search after a deploy paid ~7.5 s for them."""
+    try:
+        import embed
+        embed._load(), embed.load()
+    except Exception as e:  # noqa: BLE001  the search loads them itself
+        print("embed warm-up failed:", e)
+
+
 async def keep_typing(bot, chat_id):
     while True:  # Telegram shows "typing…" for 5 s per call
         try:
@@ -645,6 +654,7 @@ def build(token):
         # the commands / menu buttons in the background: awaited here, a slow Bot API (Telegram's outage 11-16: each call
         # timing out) kept the bot from polling for minutes after a restart — it answered nobody
         app.bot_data["setup_task"] = asyncio.get_running_loop().create_task(tg_setup(app))
+        app.bot_data["embed_warm"] = asyncio.get_running_loop().create_task(asyncio.to_thread(warm_embed))
         # keep a strong reference: a bare asyncio task can be garbage-collected and the loop silently dies
         with db.tx() as c:  # forget "no video" marks: an access error before the bot became an admin could leave them
             c.execute("DELETE FROM channel_videos WHERE file_id = '' AND media_group_id LIKE 'post:%'")

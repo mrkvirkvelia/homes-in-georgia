@@ -18,8 +18,8 @@ from app.config import settings as env
 from app.api.deps import paginate
 from app.models import CARS_ONLY, Car, User, at_least
 from app.services import properties as P
-from app.services import site_feed
-from app.services.common import get_or_404, log_event
+from app.services import jobs, site_feed
+from app.services.common import get_or_404, log_event, now
 from app.services.errors import DomainError, forbidden
 from app.telegram import notify
 
@@ -117,6 +117,7 @@ def upload(db: Session, model, oid: int, files: list[tuple[str, bytes]], actor: 
         storage.put_preview(key, content)
         if ext in P.VIDEO_EXT:
             o.video = key
+            jobs.schedule(db, "tg_video", key, now())  # the Telegram copy (notify._tg_video), not in the publish request
         else:
             photos.append(key)
         keys.append(key)

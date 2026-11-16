@@ -944,6 +944,8 @@ def upload_media(db: Session, pid: int, files: list[tuple[str, bytes]], room: st
                           position=pos, uploaded_by=actor.id)
         db.add(m)
         out.append(m)
+        if kind == "video":  # the worker prepares the Telegram copy now, not the publish request (notify._tg_video)
+            jobs.schedule(db, "tg_video", key, now())
     if p.status in ("owner_confirmed", "shoot_scheduled", "returned"):
         _status(db, p, "media_uploaded", actor, files=len(files))
     else:

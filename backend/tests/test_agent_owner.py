@@ -152,7 +152,7 @@ def test_sale_post(db):
     assert "#WiFi" not in "\n".join(lines)
 
 
-def test_post_video_keeps_its_shape_and_sale_footer_links(tmp_path):
+def test_post_video_keeps_its_shape_and_sale_footer_links(tmp_path, monkeypatch):
     """David 11-15: a video went square (no width/height to the Bot API); «SALE IN TBILISI» had no channel link."""
     import os
     import shutil
@@ -173,3 +173,13 @@ def test_post_video_keeps_its_shape_and_sale_footer_links(tmp_path):
         subprocess.run(["ffmpeg", "-v", "error", "-i", v, "-c", "copy", "-metadata:s:v", "rotate=90", r], check=True)
     out = _bot_media([("video", r)], str(tmp_path))[0][1]
     assert out != r and video_meta(out)["width"] == 568 and video_meta(out)["height"] == 320
+    # 11-16: made once (the worker's tg_video job at upload) and kept in the storage: publishing never encodes again
+    from app import storage
+    from app.telegram import notify
+    with open(r, "rb") as fh:
+        storage.put("properties/1/r.mp4", fh.read())
+    first = notify._tg_video("properties/1/r.mp4", str(tmp_path))
+    assert video_meta(first)["width"] == 568 and storage.local_path(notify._tg_video_key("properties/1/r.mp4")).is_file()
+    monkeypatch.setattr(notify, "_squeeze_video", None)  # a second encode would raise
+    assert video_meta(notify._tg_video("properties/1/r.mp4", str(tmp_path)))["width"] == 568
+    assert _bot_media([("video", first)], str(tmp_path)) == [("video", first)]  # upright and small: as it is

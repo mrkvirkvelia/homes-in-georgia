@@ -164,6 +164,15 @@ def nda_drive(db: Session, job: Job):
     return nda.drive_upload(db, _ref_id(job))
 
 
+@handler("tg_video")
+def tg_video(db: Session, job: Job):
+    """A video just uploaded (ref = its storage key) -> its Telegram-ready copy, so publishing does not run ffmpeg."""
+    import tempfile
+    from app.telegram import notify
+    with tempfile.TemporaryDirectory() as tmp:
+        notify._tg_video(job.ref, tmp)
+
+
 @handler("review_batch")
 def review_batch(db: Session, job: Job):
     return "noop"  # the bot's own review loop handles catalog moderation cards

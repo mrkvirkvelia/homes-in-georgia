@@ -32,6 +32,9 @@ class OpenAIProvider(unittest.TestCase):
         s = mock.patch.object(llm.time, "sleep")
         self.sleep = s.start()
         self.addCleanup(s.stop)
+        u = mock.patch.object(llm, "record_usage")
+        self.usage = u.start()
+        self.addCleanup(u.stop)
 
     def run_ask(self, handler, **kw):
         transport = httpx.MockTransport(handler)
@@ -52,6 +55,7 @@ class OpenAIProvider(unittest.TestCase):
         with mock.patch("sys.stderr", new=io.StringIO()) as err:
             out = self.run_ask(handler, images=[img])
         self.assertEqual(out, {"answer": "a flat"})
+        self.usage.assert_called_once_with("gpt-test", 12, 3)
         req = seen[0]
         self.assertEqual(str(req.url), "https://proxy.test/openai/v1/chat/completions")
         self.assertEqual(req.headers["authorization"], "Bearer sk-test")
@@ -119,6 +123,20 @@ class OpenAIProvider(unittest.TestCase):
     def test_codex_only_when_asked(self):
         with mock.patch.dict(os.environ, {"LLM_PROVIDER": "codex"}), mock.patch.object(llm, "ask_codex", return_value={"answer": "c"}):
             self.assertEqual(llm.ask("hi", SCHEMA), {"answer": "c"})
+
+
+class Usage(unittest.TestCase):
+    def test_tokens_add_up_per_day_and_model(self):
+        import db
+        import pg
+        pg.ensure()
+        pg.reset()
+        llm.record_usage("m1", 100, 10)
+        llm.record_usage("m1", 50, 5)
+        llm.record_usage("m2", 1, 1)
+        u = json.loads(db.get_setting("llm_usage"))
+        (day,) = u
+        self.assertEqual(u[day], {"m1": [2, 150, 15], "m2": [1, 1, 1]})
 
 
 if __name__ == "__main__":

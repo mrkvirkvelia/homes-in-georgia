@@ -639,6 +639,10 @@ const keysOut = () => ({ items: [...new Set([...Object.keys(KEY_NOTES), ...Objec
   name, title: KEY_NOTES[name]?.[0] ?? null, note: KEY_NOTES[name]?.[1] ?? null, source: mockKeys[name] ? 'crm' : name === 'OPENAI_API_KEY' ? 'env' : null,
   tail: mockKeys[name] ? mockKeys[name].slice(-4) : name === 'OPENAI_API_KEY' ? 'a1b2' : null })) });
 on('GET', '/keys', () => keysOut());
+on('GET', '/spend', () => ({ apify: { today_usd: 0.07, week_usd: 0.92, by_source_week: { facebook: 0.61, ss: 0.31 },
+  accounts: [{ tail: 'ab12', used_usd: 4.68, limit_usd: 5, cycle_end: '2026-11-29', error: null }, { tail: 'cd34', used_usd: null, limit_usd: null, cycle_end: null, error: 'invalid_key' }] },
+  ai: { provider: 'openai', model: 'gpt-4.1-mini', today: { calls: 41, prompt: 182000, completion: 9100, usd: 0.0874, unpriced: [] },
+    month: { calls: 640, prompt: 2900000, completion: 150000, usd: 1.4, unpriced: [] }, balance_rub: null } }));
 on('PUT', '/keys/:name', (m, b) => { mockKeys[m[1]] = String(b.value); return keysOut(); });
 on('DELETE', '/keys/:name', (m) => { delete mockKeys[m[1]]; return keysOut(); });
 on('GET', '/settings', () => F.settings);

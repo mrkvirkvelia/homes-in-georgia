@@ -9,7 +9,7 @@ import { ADMIN_ROLES, SUPER_ROLES, atLeast } from '../api/types';
 import { useAuth } from '../auth/AuthContext';
 import { errText, useToast } from '../components/toast';
 import { Avatar, Badge, Button, Card, Checkbox, Drawer, Empty, ErrorBox, Field, Input, Loading, Modal, PageHead, Seg, Select, Switch, Tabs } from '../components/ui';
-import { ROLE_LABEL, ago, fmtDateTime, phoneBlur, phoneFocus, phoneInput } from '../lib/format';
+import { ROLE_LABEL, ago, fmtDateTime, num, phoneBlur, phoneFocus, phoneInput } from '../lib/format';
 import { AvatarEdit, EMAIL_RE, birthdayLabel } from './Cabinet';
 import { parseMetrics } from '../lib/useUserNames';
 import { ANALYTICS_METRICS, ANALYTICS_SECTIONS } from '../features/deals/Analytics';
@@ -541,6 +541,42 @@ function KeysAdmin() {
   );
 }
 
+/** What Apify and the AI cost (superadmin): Apify runs the parser recorded + each key's month from Apify; AI tokens the
+ *  bot/parser recorded per call (bot/llm.py), $ estimated at OpenAI prices (backend /spend). */
+function SpendCard() {
+  const q = useQuery({ queryKey: ['spend'], queryFn: api.spend });
+  if (q.isLoading) return <Loading />;
+  if (q.error) return <ErrorBox error={q.error} />;
+  const { apify, ai } = q.data!;
+  const usd = (v: number | null | undefined) => (v == null ? '—' : `$${v.toFixed(2)}`);
+  const sum = (x: typeof ai.today) => `${usd(x.usd)} · ${t('{calls} вызовов, {tokens} токенов', { calls: num(x.calls), tokens: num(x.prompt + x.completion) })}`;
+  const bySource = Object.entries(apify.by_source_week).map(([k, v]) => `${k} ${usd(v)}`).join(', ');
+  return (
+    <Card label={t('Только для администраторов')} title={t('Расходы')}>
+      <div className="label">{t('Apify (парсеры)')}</div>
+      <div className="list-row"><span className="grow">{t('Сегодня')}</span><b>{usd(apify.today_usd)}</b></div>
+      <div className="list-row"><span className="grow">{t('За 7 дней')}{bySource ? ` (${bySource})` : ''}</span><b>{usd(apify.week_usd)}</b></div>
+      {apify.accounts.length === 0 && <p className="muted">{t('Ключей Apify нет')}</p>}
+      {apify.accounts.map((a) => (
+        <div key={a.tail} className="list-row">
+          <span className="grow">{t('Ключ')} <span style={{ fontFamily: 'monospace' }}>…{a.tail}</span>{a.cycle_end ? ` · ${t('месяц до {date}', { date: a.cycle_end })}` : ''}</span>
+          {a.error ? <Badge tone="warn">{a.error === 'invalid_key' ? t('ключ не работает') : t('Apify не отвечает')}</Badge>
+            : <b>{usd(a.used_usd)}{a.limit_usd != null ? ` ${t('из')} ${usd(a.limit_usd)}` : ''}</b>}
+        </div>
+      ))}
+      <div className="label mt">{t('ИИ (нейросеть)')} · <span style={{ fontFamily: 'monospace' }}>{ai.model}</span></div>
+      {ai.provider !== 'openai' && <p className="muted">{t('Сейчас ИИ идёт через подписку Codex: токены не считаются')}</p>}
+      <div className="list-row"><span className="grow">{t('Сегодня')}</span><b>{sum(ai.today)}</b></div>
+      <div className="list-row"><span className="grow">{t('За месяц')}</span><b>{sum(ai.month)}</b></div>
+      <p className="muted" style={{ fontSize: 12 }}>
+        {ai.balance_rub != null ? t('Баланс ProxyAPI: {rub} ₽', { rub: num(Math.round(ai.balance_rub)) }) : t('Баланс ProxyAPI этот ключ не показывает, он виден в кабинете proxyapi.ru')}
+        {' · '}{t('$ примерно, по ценам OpenAI; ProxyAPI списывает рубли со своей наценкой')}
+        {[...new Set([...ai.today.unpriced, ...ai.month.unpriced])].map((m) => ` · ${t('нет цены для {m}', { m })}`)}
+      </p>
+    </Card>
+  );
+}
+
 export function AdminPage() {
   const [tab, setTab] = useState<'users' | 'sources' | 'ticker' | 'settings' | 'keys'>('users');
   return (
@@ -555,7 +591,7 @@ export function AdminPage() {
       {tab === 'sources' && <Sources />}
       {tab === 'ticker' && <TickerAdmin />}
       {tab === 'settings' && <SettingsAdmin />}
-      {tab === 'keys' && <KeysAdmin />}
+      {tab === 'keys' && <><SpendCard /><KeysAdmin /></>}
     </>
   );
 }

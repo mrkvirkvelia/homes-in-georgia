@@ -167,6 +167,89 @@ def keys_delete(name: str, db: Session = Depends(get_db, scope="function"), user
     return keys_list(db, user)
 
 
+# ---------------------------------------------------------------- spend: Apify + AI (Управление → Ключи, superadmin)
+
+# $ per 1M tokens [prompt, completion], OpenAI list prices. ProxyAPI bills in rubles with its own markup: an estimate.
+# ponytail: a fixed table; add a model here when LLM_MODEL changes to one not listed (unknown models show no $)
+LLM_PRICES = {"gpt-4.1-mini": (0.4, 1.6), "gpt-4.1": (2.0, 8.0), "gpt-4.1-nano": (0.1, 0.4), "gpt-4o-mini": (0.15, 0.6),
+              "gpt-4o": (2.5, 10.0), "gpt-5-mini": (0.25, 2.0), "gpt-5": (1.25, 10.0)}
+
+
+def _llm_sum(days: dict) -> dict:
+    out = {"calls": 0, "prompt": 0, "completion": 0, "usd": 0.0, "unpriced": []}
+    for models in days.values():
+        for model, (calls, pin, pout) in models.items():
+            out["calls"] += calls
+            out["prompt"] += pin
+            out["completion"] += pout
+            price = LLM_PRICES.get(model)
+            if price:
+                out["usd"] += (pin * price[0] + pout * price[1]) / 1e6
+            elif model not in out["unpriced"]:
+                out["unpriced"].append(model)
+    out["usd"] = round(out["usd"], 4)
+    return out
+
+
+def _apify_accounts() -> list[dict]:
+    """Each Apify key's monthly usage from the Apify API (last 4 characters only, never the key)."""
+    import httpx
+    toks = [t.strip() for t in (os.environ.get("APIFY_TOKENS") or "").replace(";", ",").split(",")]
+    toks = list(dict.fromkeys(t for t in [*toks, (os.environ.get("APIFY_TOKEN") or "").strip()] if t))
+    out = []
+    for tok in toks:
+        a = {"tail": tok[-4:], "used_usd": None, "limit_usd": None, "cycle_end": None, "error": None}
+        try:
+            r = httpx.get("https://api.apify.com/v2/users/me/limits", headers={"Authorization": f"Bearer {tok}"}, timeout=10)
+            if r.status_code == 200:
+                d = r.json()["data"]
+                a |= {"used_usd": round((d.get("current") or {}).get("monthlyUsageUsd") or 0, 3),
+                      "limit_usd": (d.get("limits") or {}).get("maxMonthlyUsageUsd"),
+                      "cycle_end": ((d.get("monthlyUsageCycle") or {}).get("endAt") or "")[:10] or None}
+            else:
+                a["error"] = "invalid_key" if r.status_code in (401, 403) else f"http_{r.status_code}"
+        except Exception:  # noqa: BLE001
+            a["error"] = "unreachable"
+        out.append(a)
+    return out
+
+
+def _proxyapi_balance() -> float | None:
+    """ProxyAPI balance in rubles, when the key may read it (a key needs that permission in the ProxyAPI cabinet)."""
+    import httpx
+    if "proxyapi" not in (os.environ.get("OPENAI_BASE_URL") or ""):
+        return None
+    try:
+        r = httpx.get("https://api.proxyapi.ru/proxyapi/balance",
+                      headers={"Authorization": f"Bearer {os.environ.get('OPENAI_API_KEY', '')}"}, timeout=10)
+        return float(r.json()["balance"]) if r.status_code == 200 else None
+    except Exception:  # noqa: BLE001
+        return None
+
+
+@router.get("/spend")
+def spend(db: Session = Depends(get_db, scope="function"), user: User = Depends(require_level("admin"))):
+    """Apify: today / 7 days from the runs the parser recorded (source_runs) + each key's month from the Apify API.
+    AI: tokens per day and model the bot/parser recorded (bot/llm.py record_usage, llm_usage), with a $ estimate."""
+    from datetime import datetime, timezone
+    keys.refresh()
+    now = datetime.now(timezone.utc)
+    today, month = now.strftime("%Y-%m-%d"), now.strftime("%Y-%m")
+    day0 = now.replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
+    runs = jload(settings.get(db, "source_runs"), {})
+    flat = [r for rr in runs.values() for r in rr]
+    usage = jload(settings.get(db, "llm_usage"), {})
+    return {
+        "apify": {"today_usd": round(sum(r[1] for r in flat if r[0] >= day0), 3), "week_usd": round(sum(r[1] for r in flat), 3),
+                  "by_source_week": {k: round(sum(r[1] for r in rr), 3) for k, rr in runs.items() if rr},
+                  "accounts": _apify_accounts()},
+        "ai": {"provider": (os.environ.get("LLM_PROVIDER") or "openai").lower(), "model": os.environ.get("LLM_MODEL") or "gpt-4.1-mini",
+               "today": _llm_sum({d: m for d, m in usage.items() if d == today}),
+               "month": _llm_sum({d: m for d, m in usage.items() if d.startswith(month)}),
+               "balance_rub": _proxyapi_balance()},
+    }
+
+
 # ---------------------------------------------------------------- settings / sources
 
 @router.get("/settings")

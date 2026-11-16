@@ -766,4 +766,10 @@ export interface Offer {
   [field: string]: unknown;  // the kind's own columns (service, rooms, … / deal, year, …)
 }
 
+export interface LlmSum { calls: number; prompt: number; completion: number; usd: number; unpriced: string[] }
+export interface Spend {
+  apify: { today_usd: number; week_usd: number; by_source_week: Record<string, number>;
+    accounts: { tail: string; used_usd: number | null; limit_usd: number | null; cycle_end: string | null; error: string | null }[] };
+  ai: { provider: string; model: string; today: LlmSum; month: LlmSum; balance_rub: number | null };
+}
 export interface IntegrationKey { name: string; title: string | null; note: string | null; source: 'crm' | 'env' | null; tail: string | null }

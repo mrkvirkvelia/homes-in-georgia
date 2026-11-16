@@ -4,7 +4,7 @@ import {
   normAgentStat, normAuth, normBoard, normCabinet, normClient, normCounter, normDashboard, normEvent, normLead, normListing, normPage,
   normProperty, normRecommend, normReport,
 } from './normalize';
-import type { IntegrationKey,
+import type { IntegrationKey, Spend,
   Birthday, Invite, InviteInfo,
   AgentStat, AppConfig, AuthOut, Cabinet, Client, Contract, ContractCloseReason, ContractDraftIn, ContractIn, CounterRow, Dashboard, Deal, DealCalcIn, DealCalcOut,
   EventItem, Evaluation, Lead, LeadContract, LeadStatus, DealPrefill, Listing, NewsItem, Owner, Page, Property, RecommendedAgent, Report, ReportKind,
@@ -260,6 +260,7 @@ export const api = {
     put: (name: string, value: string) => http.put<{ items: IntegrationKey[] }>(`/keys/${encodeURIComponent(name)}`, { value }),
     remove: (name: string) => http.del<{ items: IntegrationKey[] }>(`/keys/${encodeURIComponent(name)}`),
   },
+  spend: () => http.get<Spend>('/spend'),  // Управление → Ключи → Расходы: Apify + AI
   settings: {
     get: () => http.get<Settings>('/settings'),
     put: (b: Settings) => http.put<Settings>('/settings', b),

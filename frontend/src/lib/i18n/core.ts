@@ -127,6 +127,8 @@ export const D: Record<string, [ka: string, en: string]> = {
   'Снят с паузы': ['პაუზა მოიხსნა', 'Resumed'],
   'Пост в Telegram обновлён · старый удалён': ['Telegram-ის პოსტი განახლდა · ძველი წაიშალა', 'Telegram post updated · the old one deleted'],
   'Посты удалены из Telegram': ['პოსტები წაიშალა Telegram-იდან', 'Posts deleted from Telegram'],
+  'Сюда перенесён удалённый дубль': ['აქ გადმოვიდა წაშლილი დუბლი', 'A deleted duplicate was merged here'],
+  'Удалён как дубль': ['წაიშალა როგორც დუბლი', 'Deleted as a duplicate'],
   'не удалось удалить: {n}': ['ვერ წაიშალა: {n}', 'not deleted: {n}'],
   'Добавлены фото / видео': ['დაემატა ფოტო / ვიდეო', 'Photos / videos added'],
   'Файл удалён': ['ფაილი წაიშალა', 'File deleted'],

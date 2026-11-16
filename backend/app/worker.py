@@ -175,6 +175,16 @@ def tg_unpost(db: Session, job: Job):
     return "ok" if not r["failed"] else f"not deleted: {', '.join(r['failed'])}"[:500]
 
 
+@handler("dup_purge")
+def dup_purge(db: Session, job: Job):
+    """«Дубль»: the archived duplicate is deleted with its posts and files (properties.purge_duplicate)."""
+    from app.services import properties
+    p = db.get(Property, _ref_id(job))
+    if p is None or p.archive_reason != "duplicate":
+        return "noop"
+    return properties.purge_duplicate(db, p)
+
+
 @handler("tg_video")
 def tg_video(db: Session, job: Job):
     """A video just uploaded (ref = its storage key) -> its Telegram-ready copy, so publishing does not run ffmpeg."""

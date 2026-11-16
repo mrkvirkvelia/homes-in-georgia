@@ -21,7 +21,8 @@ from sqlalchemy.orm import Session
 
 from app import districts, progress, storage
 from app.config import settings as env
-from app.models import (ARCHIVE_REASONS, PUBLICATION_CHANNELS, ChannelPost, Deal, Event, Listing, ListingMatch, Owner,
+from app.models import (ARCHIVE_REASONS, PUBLICATION_CHANNELS, ChannelPost, ClientView, Contract, Deal, Event, Lead, Listing,
+                        ListingMatch, Owner,
                         Property, PropertyListing, PropertyMedia, PropertyPublication, Source, User, at_least, is_field)
 from app.services import jobs
 from app.services import users as users_svc
@@ -706,6 +707,9 @@ def check_archive(db: Session, p: Property, reason: str | None, comment: str | N
         dup = int(duplicate_of) if str(duplicate_of or "").strip().lstrip("#").isdigit() else None
         if dup is None or dup == p.id or db.get(Property, dup) is None:
             raise DomainError("bad_duplicate", "Укажите номер объекта, дублем которого является этот")
+        if p.is_exclusive or db.scalar(select(PropertyMedia.id).where(PropertyMedia.property_id == p.id,
+                                                                       PropertyMedia.kind == CONTRACT)):
+            raise DomainError("dup_has_contract", "У объекта эксклюзивный договор — дубль не удаляется, сначала перенесите договор")
     return {"reason": reason, "comment": comment, "duplicate_of": dup}
 
 
@@ -722,11 +726,47 @@ def _archive_now(db: Session, p: Property, actor: User | None, reason: str, comm
             **({"duplicate_of": duplicate_of} if duplicate_of else {}))
     if reason in RENTED_REASONS:
         _unpost_later(db, p)
+    if reason == "duplicate" and duplicate_of:
+        _merge_duplicate(db, p, duplicate_of, actor)
+
+
+def _merge_duplicate(db: Session, p: Property, orig: int, actor: User | None) -> None:
+    """«Дубль» deletes the object (Stanislav 11-16): its leads / showings, deals, contracts, client views, matched
+    channel posts and outside ads move to the object that stays; the worker (job dup_purge) then deletes its Telegram
+    posts, files and the row itself."""
+    moved = {}
+    for model in (Lead, Deal, Contract, ClientView, ChannelPost, PropertyListing):
+        n = db.execute(update_(model).where(model.property_id == p.id).values(property_id=orig)).rowcount
+        if n:
+            moved[model.__tablename__] = n
+    db.execute(update_(Property).where(Property.duplicate_of == p.id).values(duplicate_of=orig))
+    log_event(db, "property", p.id, "deleted_as_duplicate", actor, original=orig, moved=moved)
+    log_event(db, "property", orig, "duplicate_merged", actor, duplicate=p.id, moved=moved)
+    jobs.schedule(db, "dup_purge", p.id, now())
+    from app.services import site_feed
+    site_feed.clear_cache()
+
+
+def purge_duplicate(db: Session, p: Property) -> str:
+    """Worker: the duplicate's Telegram posts, then its files (photos, videos + previews, owner docs), then the row.
+    A post Telegram refused keeps the object in the archive (the card shows it) so the post isn't lost track of."""
+    r = unpost(db, p, None)
+    if r["failed"]:
+        db.commit()
+        return f"not deleted: {', '.join(r['failed'])}"[:500]
+    for path in db.scalars(select(PropertyMedia.path).where(PropertyMedia.property_id == p.id)):
+        try:
+            storage.delete(path)
+        except Exception:
+            log.warning("could not delete %s", path)
+    db.delete(p)
+    db.commit()
+    return "ok"
 
 
 def archive(db: Session, pid: int, actor: User, reason: str | None = None, comment: str | None = None,
             duplicate_of: int | None = None) -> Property:
-    """«В архив» with a mandatory reason. Objects are never deleted. Staff (and the agent before verification) archive
+    """«В архив» with a mandatory reason; «Дубль» deletes the object (_merge_duplicate). Staff (and the agent before verification) archive
     right away; a verified object's agent sends a «Запрос оператору» (p.change_request)."""
     p = _prop(db, pid, lock=True)
     _require_owner(p, actor)

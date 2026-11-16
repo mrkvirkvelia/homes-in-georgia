@@ -2,7 +2,7 @@
 // owner, where it is published, its ads on other sites, deals, history. Used by /objects/:id and /m/properties/:id.
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Archive, ArrowRightLeft, Camera, CheckCircle2, Copy, FileText, ChevronDown, Clock, ExternalLink, Globe, Home, Pencil, Phone, PhoneOff, Play, RotateCcw, Send, Sparkles, Trash2, Upload, Wand2 } from 'lucide-react';
 import { api, type PublishProgress } from '../../api';
@@ -1265,15 +1265,23 @@ function EditModal({ p, open, onClose }: { p: Property; open: boolean; onClose: 
   );
 }
 
-/** «В архив» with a mandatory reason; objects are never deleted. After verification the agent's archive is a request. */
+/** «В архив» with a mandatory reason; «Дубль» deletes the object (its leads and deals move to the original). After verification the agent's archive is a request. */
 function ArchiveModal({ p, open, onClose, preset = '' }: { p: Property; open: boolean; onClose: () => void; preset?: string }) {
   const { toast, set } = useProp(p.id);
   const [reason, setReason] = useState(preset);
   const [comment, setComment] = useState('');
   const [dup, setDup] = useState('');
+  const nav = useNavigate();
   const m = useMutation({
     mutationFn: () => api.properties.archive(p.id, { reason, comment: comment || undefined, duplicate_of: reason === 'duplicate' ? Number(dup.replace('#', '')) || null : null }),
-    onSuccess: (r) => { set(r); toast(r.change_request ? REQUEST_SENT : t('Объект в архиве')); onClose(); },
+    onSuccess: (r) => {
+      if (r.archive_reason === 'duplicate' && r.duplicate_of && !r.change_request) {  // the duplicate is deleted: go to the original
+        toast(t('Дубль удалён')); onClose();
+        nav(`${window.location.pathname.startsWith('/m/') ? '/m/properties' : '/objects'}/${r.duplicate_of}`);
+        return;
+      }
+      set(r); toast(r.change_request ? REQUEST_SENT : t('Объект в архиве')); onClose();
+    },
     onError: (e) => toast(errText(e), true),
   });
   const ok = !!reason && (reason !== 'other' || !!comment.trim()) && (reason !== 'duplicate' || !!dup.trim());
@@ -1281,10 +1289,10 @@ function ArchiveModal({ p, open, onClose, preset = '' }: { p: Property; open: bo
     <Modal open={open} onClose={onClose} title={preset ? ARCHIVE_REASON[preset] : t('В архив')}>
       <div className="col gap-lg">
         <Field label={t('Причина')}><Select value={reason} placeholder="—" onChange={(e) => setReason(e.target.value)} options={Object.entries(ARCHIVE_REASON).map(([value, label]) => ({ value, label }))} /></Field>
-        {reason === 'duplicate' && <Field label={t('Дубль объекта №')} hint={t('Номер объекта, который остаётся в базе')}><Input inputMode="numeric" value={dup} placeholder="#123" onChange={(e) => setDup(e.target.value)} /></Field>}
+        {reason === 'duplicate' && <Field label={t('Дубль объекта №')} hint={t('Номер объекта, который остаётся в базе. Этот объект будет удалён, его заявки, показы и сделки перейдут туда')}><Input inputMode="numeric" value={dup} placeholder="#123" onChange={(e) => setDup(e.target.value)} /></Field>}
         <Field label={reason === 'other' ? t('Комментарий (обязательно)') : t('Комментарий')}><Input value={comment} onChange={(e) => setComment(e.target.value)} /></Field>
         {(p.locked_fields || []).length > 0 && <div className="alert alert-info" style={{ fontSize: 13 }}>{t('Объект проверен оператором: архивация уйдёт оператору на проверку.')}</div>}
-        <Button block disabled={!ok} loading={m.isPending} onClick={() => m.mutate()}><Archive size={16} />{(p.locked_fields || []).length ? t('Отправить запрос') : preset ? t('Подтвердить') : t('В архив')}</Button>
+        <Button block disabled={!ok} loading={m.isPending} onClick={() => { if (reason !== 'duplicate' || window.confirm(t('Объект будет удалён как дубль. Это нельзя отменить'))) m.mutate(); }}><Archive size={16} />{(p.locked_fields || []).length ? t('Отправить запрос') : preset ? t('Подтвердить') : t('В архив')}</Button>
       </div>
     </Modal>
   );

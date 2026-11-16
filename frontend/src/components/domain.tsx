@@ -345,6 +345,7 @@ const ACTION_TEXT: Record<string, string> = tmap({
   change_requested: 'Запрос оператору', change_request_approved: 'Запрос одобрен', change_request_rejected: 'Запрос отклонён',
   rent_cancelled: 'Сделка отменена · снова на рынке', resumed: 'Снят с паузы',
   tg_reposted: 'Пост в Telegram обновлён · старый удалён', tg_removed: 'Посты удалены из Telegram',
+  duplicate_merged: 'Сюда перенесён удалённый дубль', deleted_as_duplicate: 'Удалён как дубль',
   media_added: 'Добавлены фото / видео', media_deleted: 'Файл удалён', checklist: 'Чек-лист комнат', verified: 'Объект проверен оператором',
   from_deal: 'Создан из сделки', fast_track: 'Собственник согласен · объект показан клиентам',
   agent_bound: 'Собственник закреплён за агентом', agent_released: 'Собственник освобождён',

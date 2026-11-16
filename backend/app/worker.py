@@ -265,6 +265,7 @@ def main():
     from app.telegram import login_bot
     login_bot.start_thread()  # staff invites: /start inv_<token> in the CRM sign-in bot
     last_ical = time.time() - env.DAILY_RENT_ICAL_MINUTES * 60 + 20  # first fetch 20 s after the start, as ApartFlow
+    last_avatars = time.time() - 23 * 3600  # first pass an hour after the start, then daily
     while True:
         from app import keys
         keys.refresh()  # Управление → Ключи
@@ -277,6 +278,13 @@ def main():
         if env.DAILY_RENT_ICAL_MINUTES > 0 and time.time() - last_ical >= env.DAILY_RENT_ICAL_MINUTES * 60:
             last_ical = time.time()
             daily_rent_ical_tick()
+        if time.time() - last_avatars >= 24 * 3600:  # team members still without a stored photo (telegram/avatars.py)
+            last_avatars = time.time()
+            try:
+                from app.telegram import avatars
+                avatars.run(out=log.info)
+            except Exception:  # noqa: BLE001
+                log.exception("avatar sync failed")
         try:  # the bot's catalog follows the objects (services/catalog.py)
             with SessionLocal() as db:
                 if n := catalog.sync_all(db):

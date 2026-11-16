@@ -465,7 +465,8 @@ def match_new(ids):
         return {"error": len(ids)}
 
 
-SECRET_SETTING = re.compile(r"session|token|secret|password", re.I)
+# never printed: key:* = integration keys from Управление → Ключи (app/keys.py), plus logins / tokens of any kind
+SECRET_SETTING = re.compile(r"^key:|session|token|secret|password|api_?key|credential", re.I)
 
 
 def stats():

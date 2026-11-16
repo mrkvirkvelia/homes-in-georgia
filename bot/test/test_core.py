@@ -124,6 +124,14 @@ class SyncTest(Base):
         db.set_setting("userbot_session", "1BJsecret")  # the QR login of the operator's account (full access)
         self.assertNotIn("1BJsecret", json.dumps(db.stats()))  # refresh.sh prints stats into the logs
 
+    def test_stats_never_print_integration_keys(self):
+        db.set_setting("key:OPENAI_API_KEY", "sk-or-secret1")  # Управление → Ключи
+        db.set_setting("key:APIFY_TOKENS", "apify_api_secret2")
+        out = json.dumps(db.stats())  # bot.py prints "bot up:" with this
+        self.assertNotIn("key:", out)
+        self.assertNotIn("secret1", out)
+        self.assertNotIn("secret2", out)
+
     def test_sources_roundtrip(self):
         out = os.path.join(self.tmp.name, "sources.json")
         db.export_sources(out)

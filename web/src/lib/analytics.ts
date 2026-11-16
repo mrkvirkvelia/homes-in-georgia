@@ -163,10 +163,14 @@ export function trackSearch(service: string, params: string, count: number) {
   }, 1500);
 }
 
+// Noise from in-app browsers (FB/IG), extensions and cross-origin scripts, not our code.
+const NOISE = /Java object is gone|enableDidUserTypeOnKeyboardLogging|Error invoking postMessage|^Script error\.?(\s|$)|(chrome|moz|safari)-extension:|fbq?events|fburl/i;
+
 function onError(message: unknown, where: unknown) {
+  if (NOISE.test(`${message} ${where}`)) return;
   if (errors >= MAX_ERRORS) return;
   errors++;
-  track('error', { x: { msg: String(message || 'error').slice(0, 200), at: String(where || '').slice(0, 120) } });
+  track('error', { x: { msg: String(message || 'error').slice(0, 200), at: String(where || '').split('/').pop()!.slice(0, 120) } });
 }
 
 function measure() {
@@ -193,7 +197,7 @@ export function initAnalytics() {
   active = true;
   try {
     document.addEventListener('click', onClick, true);
-    addEventListener('error', e => onError(e.message, `${(e.filename || '').split('/').pop()}:${e.lineno}`));
+    addEventListener('error', e => onError(e.message, `${e.filename || ''}:${e.lineno}`));
     addEventListener('unhandledrejection', e => onError(e.reason?.message || e.reason, 'promise'));
     addEventListener('pagehide', () => flush(true));
     document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flush(true); });

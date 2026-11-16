@@ -4,6 +4,7 @@ they land in `site_events`, and «Аналитика» (superadmins only) reads 
 The report is the same as the Google Apps Script it replaces (apps-script/site-analytics.gs aggregate_ in
 PlatformDGE/-rentintbilisi-crm), so the CRM page did not change.
 """
+import re
 import json
 import threading
 import time
@@ -18,6 +19,8 @@ from app.config import settings
 from app.models import SiteEvent
 
 PERIODS = (1, 7, 30, 90)
+# In-app browser / extension noise, not our code (also filtered on the site)
+_ERR_NOISE = re.compile(r"Java object is gone|enableDidUserTypeOnKeyboardLogging|Error invoking postMessage|^Script error\.?(\s|$)|(chrome|moz|safari)-extension:|fbq?events|fburl", re.I)
 TYPES = {"pageview", "listing", "contact", "share", "fav", "search", "error", "perf", "social"}
 MAX_BATCH = 50
 CACHE_SEC = 120
@@ -173,6 +176,8 @@ def aggregate(cur: list, prev: list, start: datetime, end: datetime, days: int) 
                 _inc(zero, k)
         if t == "error":
             m = str(x.get("msg") or "")[:140]
+            if _ERR_NOISE.search(f"{m} {x.get('at') or ''}"):
+                continue
             er = errors.setdefault(m, {"name": m, "n": 0, "sessions": set(), "page": e.path, "device": e.device, "last": 0})
             er["n"] += 1
             er["sessions"].add(e.session)

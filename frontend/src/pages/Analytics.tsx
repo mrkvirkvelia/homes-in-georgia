@@ -287,7 +287,7 @@ function Report({ r }: { r: SiteReport }) {
         <Sec wide title="Ошибки у посетителей">
           <Table rows={r.errors} cols={[
             { t: 'Ошибка', v: (x) => <code>{x.name}</code> },
-            { t: 'Где', v: (x) => x.page },
+            { t: 'Где', v: (x) => <span title={x.page}>{x.page.replace(/([?&])(fbclid|gclid|utm_\w+|igshid)=[^&]*&?/g, '$1').replace(/[?&]+$/, '')}</span> },
             { t: 'Раз', n: true, v: (x) => num(x.n) },
             { t: 'Людей', n: true, v: (x) => num(x.sessions) }]} />
         </Sec>

@@ -366,11 +366,11 @@ def operator_dm_link(cl, listing_id):
 
 
 INTRO = {"ru": ("Здравствуйте! Я оператор Homes in Georgia 👋\nВы отметили: {what}\n"
-                "Уточню пару деталей и подключу агента — он договорится о просмотре."),
+                "Подключаю агента — он договорится с собственником о просмотре."),
          "en": ("Hello! I'm the Homes in Georgia operator 👋\nYou liked: {what}\n"
-                "I'll clarify a couple of details and connect an agent who will arrange the viewing."),
+                "I'm connecting an agent who will arrange the viewing with the owner."),
          "ka": ("გამარჯობა! მე ვარ Homes in Georgia-ს ოპერატორი 👋\nთქვენ მოიწონეთ: {what}\n"
-                "რამდენიმე დეტალს დავაზუსტებ და დაგაკავშირებთ აგენტს — ის ნახვას შეგითანხმებთ.")}
+                "გაკავშირებთ აგენტთან — ის მესაკუთრესთან ნახვას შეგითანხმებთ.")}
 MORE = {"ru": "и ещё {n}", "en": "and {n} more", "ka": "და კიდევ {n}"}
 
 

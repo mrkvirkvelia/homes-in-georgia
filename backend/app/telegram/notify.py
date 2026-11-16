@@ -192,7 +192,7 @@ def group_text(lead, timer=True):
 
 
 def group_kb(lead, stage=None):
-    """The lead card for operators (their DMs, or the group): «Взять» until an operator leads it, «Написать клиенту» /
+    """The lead card for operators (their DMs, or the group; in practice the one connected operator account): «Написать клиенту» /
     «Написать агенту» (t.me links: need a @username), «Назначить агента» in the panel while there is none.
     stage is kept for old callers; the buttons follow the lead itself."""
     lid = g(lead, "id")
@@ -200,8 +200,6 @@ def group_kb(lead, stage=None):
     def make(private):
         cl, ag = store.client(g(lead, "client_id")) or {}, store.user(g(lead, "agent_id")) or {}
         rows = []
-        if not g(lead, "operator_id") and g(lead, "status") in (None, "new", "operator_taken", "agent_assigned"):
-            rows.append([cb("✋ Взять заявку", f"lg:take:{lid}")])
         rows.append([url_btn("💬 Написать клиенту", cl.get("username") and links.tg_user(cl["username"])),
                      url_btn("💬 Написать агенту", ag.get("username") and links.tg_user(ag["username"]))])
         rows.append([app_btn("📋 Открыть в панели" if ag else "👤 Назначить агента", links.lead_app(lid), private)])
@@ -707,9 +705,9 @@ def sla_warning(lead, stage):
             tg.send(ag["tg_id"], f"{head}{left_t}, чтобы предложить время просмотра.\n{info}",
                     kb([[app_btn("🕐 Предложить время", links.lead_app(lid))]]))
         return
-    action = cb("✋ Взять заявку", f"lg:take:{lid}") if stage == "operator_take" else None
     to_operators(None, lid, f"{head}{left_t} на {STAGE_RU.get(stage, stage)}.\n{info}",
-                 lambda private: kb([[action], [app_btn("📋 Открыть в панели", links.lead_app(lid), private)]]))
+                 lambda private: kb([[app_btn("👤 Назначить агента" if stage == "operator_take" else "📋 Открыть в панели",
+                                              links.lead_app(lid), private)]]))
 
 
 @safe
@@ -722,7 +720,7 @@ def sla_overdue(lead, stage):
         body = f"Агент <b>{e(staff_name(ag))}</b> {env_int('SLA_AGENT_SLOTS_MIN', 30)} минут не предлагает время просмотра.\n\nПереназначить заявку?"
         rows = [cb("🔁 Переназначить", f"lg:assign:{lid}"), url_btn(f"💬 Написать {staff_name(ag)}", links.tg_user(ag.get("username"), ag.get("tg_id")))]
     elif stage == "operator_take":
-        body, rows = f"Заявку никто не взял за {env_int('SLA_OPERATOR_TAKE_MIN', 5)} минут.", [cb("✋ Взять заявку", f"lg:take:{lid}")]
+        body, rows = f"Агент не назначен за {env_int('SLA_OPERATOR_TAKE_MIN', 5)} минут.", []
     else:
         body, rows = "Время от агента пришло, клиенту ещё не отправлено.", []
     text = f"{head}{body}\n{info}"

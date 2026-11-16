@@ -358,19 +358,33 @@ def operator_dm_link(cl, listing_id):
     if not i:
         return None
     lang = texts.lang_of(cl.get("lang"))
-    if link := channel_post_of(listing_id):
+    if (link := channel_post_of(listing_id)) and "t.me/c/" not in link:  # a private-channel post: the operator's #obj path
         return f"https://t.me/{u}?text=" + quote(LIKE_DM_POST[lang].format(url=link))
     prop = store.q("SELECT id FROM properties WHERE listing_id = %s ORDER BY id LIMIT 1", (listing_id,), one=True)
     what = " · ".join(x for x in (address(i, lang), i.get("price_usd") and texts.money(i["price_usd"])) if x)
     return f"https://t.me/{u}?text=" + quote(LIKE_DM[lang].format(obj=prop["id"] if prop else listing_id, what=what))
 
 
-INTRO = {"ru": ("Здравствуйте! Я оператор Homes in Georgia 👋\nВы отметили вариант: {what}\n"
-                "Агент уже узнаёт у собственника время просмотра, варианты пришлю сюда."),
-         "en": ("Hello! I'm the Homes in Georgia operator 👋\nYou liked this option: {what}\n"
-                "The agent is checking viewing times with the owner, I'll send them here."),
-         "ka": ("გამარჯობა! მე ვარ Homes in Georgia-ს ოპერატორი 👋\nთქვენ მოიწონეთ ვარიანტი: {what}\n"
-                "აგენტი მესაკუთრესთან აზუსტებს ნახვის დროს, ვარიანტებს აქ გამოგიგზავნით.")}
+INTRO = {"ru": ("Здравствуйте! Я оператор Homes in Georgia 👋\nВы отметили: {what}\n"
+                "Уточню пару деталей и подключу агента — он договорится о просмотре."),
+         "en": ("Hello! I'm the Homes in Georgia operator 👋\nYou liked: {what}\n"
+                "I'll clarify a couple of details and connect an agent who will arrange the viewing."),
+         "ka": ("გამარჯობა! მე ვარ Homes in Georgia-ს ოპერატორი 👋\nთქვენ მოიწონეთ: {what}\n"
+                "რამდენიმე დეტალს დავაზუსტებ და დაგაკავშირებთ აგენტს — ის ნახვას შეგითანხმებთ.")}
+MORE = {"ru": "и ещё {n}", "en": "and {n} more", "ka": "და კიდევ {n}"}
+
+
+def public_link(listing_id):
+    """A link the client can open: our public channel's post, else the object's card on our site (SITE_URL/map?q=o<id>).
+    Never a t.me/c/ post — the private test channel (PUBLISH_CHAT_ID before launch) opens only for its members."""
+    post = channel_post_of(listing_id)
+    if post and "t.me/c/" not in post:
+        return post
+    prop = store.q("SELECT id FROM properties WHERE listing_id = %s OR 'obj' || id = %s ORDER BY id LIMIT 1",
+                   (listing_id, listing_id), one=True)
+    return prop and f"{conf('SITE_URL').rstrip('/')}/map?q=o{prop['id']}"
+
+
 WRITE_FIRST = {"ru": ("Чтобы оператор прислал вам время просмотра, отправьте ему одно сообщение — оно уже готово 👇",
                       "💬 Написать оператору"),
                "en": ("So that the operator can send you viewing times, send them one message — it's ready 👇",
@@ -385,8 +399,12 @@ def operator_intro(lead):
     checks that this needs no Stars / Premium and that the client is reachable). If it can't, the bot gives the client
     the prefilled DM link instead -> 'userbot' | 'link' | None."""
     cl, i, lang = ctx(lead)
-    what = channel_post_of(g(lead, "listing_id")) or " · ".join(
-        x for x in (address(i, lang), i.get("price_usd") and texts.money(i["price_usd"])) if x)
+    lid = g(lead, "id")
+    ids = [r["id"] for r in store.q("SELECT id FROM leads WHERE client_id = %s ORDER BY id", (g(lead, "client_id"),))]
+    if ids and ids[0] < lid:  # two ❤️ at once both looked «first» (knows_operator): only the earliest lead writes
+        return None
+    what = "\n".join(x for x in (headline(i, lang), public_link(g(lead, "listing_id")),
+                                  len(ids) > 1 and MORE[lang].format(n=len(ids) - 1)) if x)
     from app.telegram import userbot
     if userbot.send_to_client(cl, INTRO[lang].format(what=what)):
         return "userbot"

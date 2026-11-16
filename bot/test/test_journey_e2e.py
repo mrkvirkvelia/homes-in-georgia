@@ -289,7 +289,7 @@ class JourneyE2E(unittest.TestCase):
         self.assertIn("2 человека", grp["text"])
         ack = self.find(cid, lambda c: c["method"] == "editMessageReplyMarkup" and c.get("message_id") == card["message_id"], m, "A3 mark")
         self.assertEqual(self.fake.markup(ack)[0][0]["text"], "❤️ Нравится ✅")   # the same card marks the like
-        intro = self.find(cid, lambda c: "Вы отметили вариант: https://t.me/" in (c.get("text") or ""), m, "operator intro")
+        intro = self.find(cid, lambda c: "Вы отметили: " in (c.get("text") or ""), m, "operator intro")
         self.assertIn("оператор Homes in Georgia", intro["text"])                 # the operator's account wrote first
         self.assertFalse([c for c in f.calls(chat=cid, since=m) if c["method"].startswith("send")])   # nothing from the bot
         with db.tx() as c:

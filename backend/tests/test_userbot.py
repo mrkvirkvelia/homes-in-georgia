@@ -224,6 +224,29 @@ def test_operator_intro_userbot_first_else_the_dm_link(db, monkeypatch):
     assert "t.me/op_nino?text=" in msg["reply_markup"]
 
 
+
+def test_operator_intro_names_the_liked_object_never_a_private_post(db, monkeypatch):
+    """A post in the private test channel (t.me/c/…) opens for nobody: the intro gives the site card instead, with
+    district · bedrooms · price; a second «first» ❤️ at the same time (both before any lead) sends nothing (11-16)."""
+    from app.models import Property
+    from app.telegram import client as tg
+    monkeypatch.undo()
+    monkeypatch.setattr(tg, "_client", lambda: FakeHttp())
+    monkeypatch.setenv("SITE_URL", "https://hge.ge")
+    cl, a = make_client(db, external_id=5550025), make_listing(db, "tg2001", obj=False)
+    p = Property(listing_id=a.id, status="published", address="x", post_url="https://t.me/c/4388563601/23",
+                 post_message_id="23")
+    db.add(p)
+    db.commit()
+    b = make_listing(db, "tg2002")
+    first, second = leads.create_from_like(db, cl.id, a.id), leads.create_from_like(db, cl.id, b.id)
+    sent = []
+    monkeypatch.setattr(userbot, "send_to_client", lambda c, text, **kw: sent.append(text) or {"ok": True, "message_id": 1})
+    assert notify.operator_intro(second) is None and not sent
+    assert notify.operator_intro(first) == "userbot"
+    assert f"https://hge.ge/map?q=o{p.id}" in sent[0] and "t.me/c/" not in sent[0] and "и ещё 1" in sent[0]
+    assert notify.headline(notify.store.listing(a.id)) in sent[0]
+
 def test_paid_dm_blocks_the_userbot_send(db):
     """A client who takes DMs only for Stars: send() refuses (the caller falls back), no message goes out."""
     from telethon.tl import types

@@ -12,6 +12,7 @@ DEFAULTS = {
     "sla_operator_take_min": str(env.SLA_OPERATOR_TAKE_MIN), "sla_agent_slots_min": str(env.SLA_AGENT_SLOTS_MIN),
     "sla_slots_to_client_min": str(env.SLA_SLOTS_TO_CLIENT_MIN), "client_promise_min": str(env.CLIENT_PROMISE_MIN),
     "sla_enabled": "1",  # 0: no step deadlines on leads (no timers, reminders, escalations)
+    "take_idle_min": "60",  # an object taken from «Новые объявления» with no action goes back after N min; 0 = off
     "room_picker": "1",  # media upload: the per-photo room tag (always optional); 0 hides it
     "dashboard_metrics": '["deals","platform","active_objects","leaderboard","funnel","response_times"]',
 }
@@ -60,6 +61,12 @@ def validate(body: dict) -> None:
             n = None
         if isinstance(v, bool) or n is None or n != int(n) or not 1 <= n <= 1440:
             raise DomainError("bad_setting", f"{k} must be a whole number of minutes in 1..1440")
+
+
+    if "take_idle_min" in body:
+        v = str(body["take_idle_min"]).strip()
+        if not v.isdigit() or int(v) > 1440:
+            raise DomainError("bad_setting", "take_idle_min must be a whole number of minutes in 0..1440")
 
 
 def set(db: Session, key: str, value, commit: bool = True) -> None:  # noqa: A001

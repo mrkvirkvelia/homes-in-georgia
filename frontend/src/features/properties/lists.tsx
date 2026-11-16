@@ -104,7 +104,6 @@ export function NewListings({ base = '' }: { base?: string }) {
 /** «Объекты → База → Конкуренты»: every ad of the sources marked «Конкурент» (Управление → Источники), read only:
  * not our inventory, so no «Беру в работу» (never in the work board, never published, not on the site). */
 export function CompetitorListings({ base = '' }: { base?: string }) {
-  if (useDeal() === 'sale') return <Empty text={t('Объявления о продаже пока не собираем: объект продажи добавляется кнопкой «Объект вручную»')} />;
   return <RentListings base={base} competitor />;
 }
 
@@ -123,7 +122,7 @@ function RentListings({ base = '', competitor = false }: { base?: string; compet
   const toast = useToast();
   const navigate = useNavigate();
   const [peek, setPeek] = useState<{ id: number; listing: Listing; reasons?: string[] } | null>(null);
-  const q = competitor ? { ...f, flag: '', known: '', competitor: '1' } : f;
+  const q = competitor ? { ...f, flag: f.flag === 'ours' || f.flag === 'not_ours' ? f.flag : '', known: '', competitor: '1' } : f;
   const { data, isLoading, isFetching, error } = useQuery({ queryKey: ['listings', 'new', q, view === 'map' ? MAP_LIMIT : limit], queryFn: () => api.listings.new(q, view === 'map' ? MAP_LIMIT : limit), placeholderData: (p) => p });
   const { data: facets } = useQuery({ queryKey: ['listings', 'facets', competitor], queryFn: () => api.listings.facets(competitor), staleTime: 60_000 });
   const filtered = Object.entries(f).some(([k, v]) => (Array.isArray(v) ? v.length : v) && k !== 'q' && k !== 'known');
@@ -206,7 +205,8 @@ function RentListings({ base = '', competitor = false }: { base?: string; compet
         </form>
       </Modal>
       <FeedFilters f={f} patch={(p) => setF((o) => ({ ...o, ...p }))} view={view} onView={setView} facets={facets} sourceLabel={sourceName}
-        seg={competitor ? undefined : { value: f.flag || '', onChange: set('flag'), options: [
+        seg={competitor ? { value: q.flag || '', onChange: set('flag'), options: [
+          { value: '', label: t('Все') }, { value: 'ours', label: t('Есть у нас') }, { value: 'not_ours', label: t('Нет у нас') }] } : { value: f.flag || '', onChange: set('flag'), options: [
           { value: '', label: t('Все') }, { value: 'owner', label: t('Собственник') }, { value: 'agent_suspect', label: t('Агент?') },
           // the card's red label «В базе / В архиве по этому адресу» (11-13; the old «Дубль» = agency channel matched nothing)
           { value: 'in_base', label: t('В базе') }, { value: 'in_archive', label: t('В архиве') }] }}

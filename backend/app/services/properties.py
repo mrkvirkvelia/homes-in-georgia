@@ -240,6 +240,8 @@ def new_listings(db: Session, q: str | None = None, source: str | list[str] | No
     linked = select(PropertyListing.listing_id).join(Property, Property.id == PropertyListing.property_id).where(
         Property.listing_id.is_distinct_from(PropertyListing.listing_id))
     known_total = db.scalar(select(func.count()).select_from(stmt.where(Listing.id.in_(linked)).subquery()))
+    if competitor and flag in ("ours", "not_ours"):  # «Конкуренты»: the ads of a flat we already have (the «Уже в базе» chip)
+        stmt = stmt.where(Listing.id.in_(linked) if flag == "ours" else Listing.id.not_in(linked))
     if not known and not competitor:
         stmt = stmt.where(Listing.id.not_in(linked))
     total = db.scalar(select(func.count()).select_from(stmt.subquery()))

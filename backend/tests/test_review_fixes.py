@@ -6,7 +6,7 @@ from sqlalchemy import select, update
 
 from app import worker
 from app.importers import sheets_csv
-from app.models import Deal, Job, Lead, LeadSlot, Owner, Property
+from app.models import Deal, Job, Lead, LeadSlot, Owner, Property, User
 from app.services import deals, jobs, leads, properties
 from app.services.dedup import address_match, extract_phones, phone_match
 from app.services.errors import DomainError
@@ -294,6 +294,19 @@ def test_importer_keeps_rerent_in_another_month_and_schedules_reminders(tmp_path
     stats = sheets_csv.run(tmp_path, db)
     assert stats["Reports_Deals"]["imported"] == 2 and stats["Reports_Deals"]["merged"] == 1
     assert {d.month for d in db.scalars(select(Deal))} == {"3/2026", "5/2030"}
+
+
+def test_importer_keeps_every_merge_and_strips_recruit_suffix(tmp_path, db):
+    """The 2nd twin's key must persist too (in-place JSONB append was lost), «Гия (рекрут)» is Гия."""
+    (tmp_path / "Agents.csv").write_text("id,name,telegram,is_active,level,,photo_url,user_id\n1,Гия,@gia,TRUE,50,,,1\n",
+                                         encoding="utf-8-sig")
+    rows = [f"2026-03-0{i},1,Гия (рекрут),50,3,https://l,1000,500,250,250,01.01,К,+995,О,+995,01.03.2026,Эксклюзив,{src},,rent,3/2026"
+            for i, src in ((1, "miniapp"), (2, "bot"), (3, "form"))]
+    (tmp_path / "Reports_Deals.csv").write_text("column_01\n" + "\n".join(rows) + "\n", encoding="utf-8-sig")
+    assert sheets_csv.run(tmp_path, db)["Reports_Deals"] == {"imported": 1, "merged": 2}
+    assert sheets_csv.run(tmp_path, db)["Reports_Deals"] == {"unchanged": 3}
+    (d,) = db.scalars(select(Deal)).all()
+    assert db.get(User, d.agent_id).name == "Гия" and len(d.raw["_merged"]) == 2
 
 
 def test_extract_georgian_mobile_phone_groups():

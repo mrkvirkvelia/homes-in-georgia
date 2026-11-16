@@ -144,7 +144,7 @@ class Importer:
 
     def user_by_name(self, name) -> User | None:
         n = (s(name) or "").lstrip("#@").replace("_", " ").strip().lower()
-        n = re.sub(r"\s*\(\d+%\)\s*$", "", n)
+        n = re.sub(r"\s*\([^)]*\)\s*$", "", n)  # «David (90%)», «Eduard (рекрут)»
         if not n:
             return None
         if self._users_by_name is None:
@@ -285,6 +285,7 @@ class Importer:
     def owners(self):
         def owner(r, _):
             name, phone, addr, link = (pad(r, 4) + [""])[:4]
+            phone = "" if "#ERROR" in phone else re.sub(r"[\u200e\u200f\u202a-\u202e]", "", phone)  # broken formula / RTL marks
             if not s(phone) and not s(addr):
                 raise ValueError("owner without phone and address")
             pn, an = norm_phone(phone), norm_address(addr)
@@ -330,9 +331,8 @@ class Importer:
             for k, v in f.items():
                 if v is not None and getattr(twin, k) in (None, "", 0):
                     setattr(twin, k, v)
-            raw = dict(twin.raw or {})
-            raw.setdefault("_merged", []).append(key)
-            twin.raw = raw
+            # a new list: appending to the old one in place leaves the JSONB unchanged for SQLAlchemy, nothing saved
+            twin.raw = {**(twin.raw or {}), "_merged": [*(twin.raw or {}).get("_merged", []), key]}
             return "merged"
         if f.get("commission_total") is None and f.get("price") and f.get("deal_type", "rent") == "rent" and not f.get("is_rerented"):
             # forms without a commission column (Reports_Rental since April 2026): the CRM's own rule, 50% of the rent

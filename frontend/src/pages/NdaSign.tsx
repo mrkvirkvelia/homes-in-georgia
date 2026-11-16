@@ -10,7 +10,7 @@ import { api } from '../api';
 import { errText } from '../components/toast';
 import { Checkbox, Button, ErrorBox, Loading, Seg } from '../components/ui';
 import { SignaturePad, signaturePng } from '../components/SignaturePad';
-import { ContractFrame } from './ESign';
+import { ContractFrame } from '../components/ContractFrame';
 import { fmtDateTime } from '../lib/format';
 
 interface NdaView {

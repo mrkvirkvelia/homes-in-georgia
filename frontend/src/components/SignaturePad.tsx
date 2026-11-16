@@ -1,9 +1,13 @@
-// A finger / mouse signature on a canvas (the exclusive confirmation /sign/<token>, the contract e-signing /esign/<token>).
+// The one finger / mouse signature pad of every signing page: the owner's /sign/<token>, the contract /esign/<token>,
+// the agent's NDA /nda/<token> and the company signature in Управление → NDA.
 import { useEffect, useRef } from 'react';
 import { Button } from './ui';
 
 export function SignaturePad({ onInk, padRef, clearLabel }: { onInk: (v: boolean) => void; padRef: React.RefObject<HTMLCanvasElement>; clearLabel: string }) {
   const last = useRef<[number, number] | null>(null);
+  // where the pad stood on screen when the stroke began, and what scrolls it: content above it that settles meanwhile
+  // (the owner page's registry list, a «saved» note…) would move it under the finger — the scroll takes it back
+  const hold = useRef<{ top: number; box: Element | null } | null>(null);
   const inked = useRef(false);
   // the bitmap follows the canvas's real size: sized again before the first stroke (it may have mounted hidden or
   // before layout, or the phone was turned); strokes map CSS pixels onto whatever bitmap there is
@@ -27,19 +31,34 @@ export function SignaturePad({ onInk, padRef, clearLabel }: { onInk: (v: boolean
     c.addEventListener('touchmove', stop, { passive: false });
     return () => { c.removeEventListener('touchstart', stop); c.removeEventListener('touchmove', stop); };
   }, [padRef]);  // eslint-disable-line react-hooks/exhaustive-deps
-  const at = (e: React.PointerEvent): [number, number] => { const r = padRef.current!.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
+  const at = (e: React.PointerEvent): [number, number] => {
+    const r = padRef.current!.getBoundingClientRect(), h = hold.current, d = h ? r.top - h.top : 0;
+    if (Math.abs(d) > 0.5) (h!.box || window).scrollBy({ top: d, behavior: 'instant' });
+    return [e.clientX - r.left, e.clientY - r.top + d];
+  };
+  const start = (e: React.PointerEvent) => {
+    const c = e.currentTarget;
+    try { c.setPointerCapture(e.pointerId); } catch { /* not capturable */ }
+    // an open keyboard (the phone field just above) pans the page on its own while it stays up
+    if (document.activeElement instanceof HTMLElement && document.activeElement !== document.body) document.activeElement.blur();
+    let box: Element | null = c.parentElement;
+    while (box && !(/(auto|scroll)/.test(getComputedStyle(box).overflowY) && box.scrollHeight > box.clientHeight)) box = box.parentElement;
+    hold.current = { top: c.getBoundingClientRect().top, box };
+    fit(); last.current = at(e);
+  };
+  const end = () => { last.current = null; hold.current = null; };
   const move = (e: React.PointerEvent) => {
     if (!last.current) return;
     const ctx = fit(), p = at(e);
     ctx.beginPath(); ctx.moveTo(...last.current); ctx.lineTo(...p); ctx.stroke();
-    last.current = p; inked.current = true; onInk(true);
+    last.current = p;
+    if (!inked.current) { inked.current = true; onInk(true); }  // not a page re-render per move
   };
   const clear = () => { const c = padRef.current!; c.getContext('2d')!.clearRect(0, 0, c.width, c.height); inked.current = false; onInk(false); };
   return (
     <div className="col gap-sm">
       <canvas ref={padRef} style={{ width: '100%', height: 180, border: '1.5px dashed var(--line, #c9d1e0)', borderRadius: 12, touchAction: 'none', background: '#fff', userSelect: 'none', WebkitUserSelect: 'none', overscrollBehavior: 'contain' }}
-        onPointerDown={(e) => { try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* not capturable */ } fit(); last.current = at(e); }}
-        onPointerMove={move} onPointerUp={() => { last.current = null; }} onPointerCancel={() => { last.current = null; }} />
+        onPointerDown={start} onPointerMove={move} onPointerUp={end} onPointerCancel={end} />
       <Button variant="secondary" size="sm" onClick={clear}>{clearLabel}</Button>
     </div>
   );

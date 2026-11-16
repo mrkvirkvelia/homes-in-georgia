@@ -62,7 +62,7 @@ const UI: Record<Lang, UiT> = {
 export function ExclusiveSignPage() {
   const { token = '' } = useParams();
   const base = `/public/exclusive/${token}`;
-  const q = useQuery({ queryKey: ['exclusive-sign', token], queryFn: () => http.get<SignView>(base), retry: false });
+  const q = useQuery({ queryKey: ['exclusive-sign', token], queryFn: () => http.get<SignView>(base), retry: false, refetchOnWindowFocus: false });
   const [lang, setLang] = useState<Lang>('ka');
   setPageLang(lang);  // the extract link / registry list below speak the page's language
   const [f, setF] = useState<Form>({ full_name: '', personal_id: '', phone: '', cadastral_code: '' });

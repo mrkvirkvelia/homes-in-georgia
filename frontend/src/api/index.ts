@@ -16,6 +16,8 @@ type L<T> = Page<T> | T[];
 const LIMIT = 200;
 const then = <A, B>(p: Promise<A>, f: (a: A) => B) => p.then(f);
 
+export type PublishProgress = { step?: 'files' | 'originals' | 'video' | 'photos' | 'post' | 'site'; n?: number; of?: number; chat?: string };
+
 export const api = {
   config: () => http.get<AppConfig>('/config'),
   geo: {
@@ -114,6 +116,8 @@ export const api = {
     post: (id: number) => http.get<PostDraft>(`/properties/${id}/post`),
     site: (id: number, on: boolean) => then(http.post<Property>(`/properties/${id}/site`, { on }), normProperty),
     publish: (id: number, b?: { text?: string; media_ids?: number[]; channel?: string; comment?: string; tg?: boolean; site?: boolean }) => then(http.post<Property>(`/properties/${id}/publish`, b), normProperty),
+    /** what the running publish does now (backend app/progress.py); {} when none runs */
+    publishProgress: (id: number) => http.get<PublishProgress>(`/properties/${id}/publish/progress`),
     /** reason: ARCHIVE_REASON key; a verified object's agent gets change_request back instead */
     archive: (id: number, b: { reason: string; comment?: string; duplicate_of?: number | null }) => http.post<Property>(`/properties/${id}/archive`, b),
     /** agent's «Запрос оператору»: move the owner to another agent (staff: moved right away, change_request null) */

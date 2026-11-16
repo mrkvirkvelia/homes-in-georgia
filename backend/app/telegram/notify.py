@@ -15,7 +15,7 @@ import tempfile
 from datetime import datetime, timezone
 from urllib.parse import quote
 
-from app import storage
+from app import progress, storage
 from app.telegram import client as tg
 from app.telegram import links, store, texts, userbot
 from app.telegram.client import app_btn, cb, conf, kb, url_btn
@@ -1115,15 +1115,25 @@ def publish_post(prop):
     # a property (no keys) is on the site as o<id>; cars have no «APARTMENTS ON MAP»
     caption = post_html(g(prop, "post_text") or g(prop, "description") or prop_title(prop),
                         g(prop, "id") if keys is None else None)
+    pk = g(prop, "progress_key")  # properties.publish: the card shows each step (app/progress.py)
     with tempfile.TemporaryDirectory() as tmp:  # [(photo|video, storage key)]: sale objects and cars keep keys in the row
+        progress.step(pk, "files")
         media = ([(k, p, key) for k, key in keys[:10] if (p := storage.fetch(key, tmp))] if keys is not None
                  else media_paths(g(prop, "id"), tmp, g(prop, "post_media_ids")))
         sent = []
         if media and originals_topic:
+            progress.step(pk, "originals", chat=chat)
             sent += send_group(chat, originals_topic, [("document", p) for _, p, _ in media]) or []
         m = None
         # once: a squeezed video is reused by the album fallback; videos as prepared at upload (tg_video)
-        ready = _bot_media([(k, _tg_video(key, tmp, p) if k == "video" else p) for k, p, key in media], tmp)
+        videos = [(p, key) for k, p, key in media if k == "video"]
+        prepared = {}
+        for n, (p, key) in enumerate(videos):
+            progress.step(pk, "video", n=n + 1, of=len(videos))
+            prepared[key] = _tg_video(key, tmp, p)
+        progress.step(pk, "photos")
+        ready = _bot_media([(k, prepared[key] if k == "video" else p) for k, p, key in media], tmp)
+        progress.step(pk, "post", chat=chat)
         # RICH_POSTS=1: the post as a rich message (Irakli 2026-11-09), unless the operator rewrote the caption by hand;
         # Telegram refusing it falls back to the album below
         if conf("RICH_POSTS").strip() in ("1", "true") and callable(getattr(prop, "post_rich", None)):

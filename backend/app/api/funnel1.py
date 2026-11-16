@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
+from app import progress
 from app.api.deps import current_user, paginate, require_level
 from app.db import get_db
 from app.models import PUBLICATION_CHANNELS, Lead, Listing, Owner, Property, User, at_least
@@ -502,7 +503,16 @@ class PublishIn(BaseModel):
 def properties_publish(pid: int, body: PublishIn | None = None, db: Session = Depends(get_db, scope="function"),
                        user: User = Depends(require_level("operator"))):
     b = body or PublishIn()
-    return P.out(db, P.publish(db, pid, user, b.text, b.media_ids, b.channel, b.comment, b.tg, b.site), user, full=True)
+    try:
+        return P.out(db, P.publish(db, pid, user, b.text, b.media_ids, b.channel, b.comment, b.tg, b.site), user, full=True)
+    finally:
+        progress.done(f"publish:{pid}")
+
+
+@router.get("/properties/{pid}/publish/progress")
+def properties_publish_progress(pid: int, user: User = Depends(require_level("operator"))):
+    """What the publish of this object is doing now ({step, n, of, chat}; {} when none runs): the card polls it."""
+    return progress.get(f"publish:{pid}")
 
 
 class SiteIn(BaseModel):

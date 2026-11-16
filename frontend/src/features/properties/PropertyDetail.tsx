@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom';
 import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Archive, ArrowRightLeft, Camera, CheckCircle2, Copy, FileText, ChevronDown, Clock, ExternalLink, Globe, Home, Pencil, Phone, PhoneOff, Play, RotateCcw, Send, Sparkles, Trash2, Upload, Wand2 } from 'lucide-react';
-import { api } from '../../api';
+import { api, type PublishProgress } from '../../api';
 import { itemsOf, mediaUrl, thumbUrl } from '../../api/client';
 import type { Media, PostFields, Property } from '../../api/types';
 import { FIELD_FILTER, atLeast } from '../../api/types';
@@ -865,9 +865,18 @@ function PostComposer({ p }: { p: Property }) {
   const blocked = !!p.exclusive_conflict?.length;
   const publish = useMutation({
     mutationFn: () => api.properties.publish(p.id, { text, media_ids: picked, channel: 'tg', tg: toTg, site: toSite }),
+    onMutate: () => { lastStep.current = {}; setFailed(null); },
     onSuccess: (r) => { set(r); toast(toTg ? t('Опубликовано: агенту ушла ссылка на пост') : t('Опубликовано на сайте')); },
-    onError: (e) => toast(errText(e), true),
+    onError: (e) => { setFailed(t('Не получилось: {step} — {error}', { step: stepText(lastStep.current), error: errText(e) })); toast(errText(e), true); },
   });
+  // Stanislav 11-16: the operator sees what the publish is doing now (a 4K video takes a while), polled every second
+  const lastStep = useRef<PublishProgress>({});
+  const [failed, setFailed] = useState<string | null>(null);
+  const prog = useQuery({
+    queryKey: ['publish-progress', p.id], queryFn: () => api.properties.publishProgress(p.id),
+    enabled: publish.isPending, refetchInterval: 1000, gcTime: 0,
+  });
+  if (publish.isPending && prog.data?.step) lastStep.current = prog.data;
   const toggle = (id: number) => setOff((o) => {
     const n = new Set(o);
     if (n.has(id)) { if (picked.length >= ALBUM_MAX) { toast(t('В пост Telegram уходит до {n} файлов', { n: ALBUM_MAX }), true); return o; } n.delete(id); } else n.add(id);
@@ -902,8 +911,23 @@ function PostComposer({ p }: { p: Property }) {
       <Button variant="ok" size="lg" disabled={blocked || (!toSite && !toTg) || (toTg && !text.trim())} loading={publish.isPending} onClick={() => publish.mutate()}>
         <Send size={18} />{t('Опубликовать')}
       </Button>
+      {publish.isPending && <div className="alert alert-info" role="status">{stepText(prog.data?.step ? prog.data : lastStep.current)}</div>}
+      {failed && !publish.isPending && <div className="alert alert-warn" role="alert">{failed}</div>}
     </div>
   );
+}
+
+/** One step of the running publish (backend notify.publish_post / properties.publish → app/progress.py). */
+function stepText(s: PublishProgress): string {
+  switch (s.step) {
+    case 'files': return t('Скачиваем фото и видео из хранилища…');
+    case 'originals': return t('Отправляем оригиналы в Telegram ({chat})…', { chat: s.chat || '' });
+    case 'video': return t('Готовим видео {n} из {of}…', { n: s.n || 1, of: s.of || 1 });
+    case 'photos': return t('Ставим водяной знак на фото…');
+    case 'post': return t('Отправляем пост в Telegram ({chat})…', { chat: s.chat || '' });
+    case 'site': return t('Публикуем на сайт…');
+    default: return t('Начинаем публикацию…');
+  }
 }
 
 /** «На сайт» / «В Telegram» over the «Опубликовать» button (rent, sale and cars alike). */

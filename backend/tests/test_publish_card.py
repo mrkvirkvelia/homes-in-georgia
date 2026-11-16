@@ -74,3 +74,19 @@ def test_publish_failure_keeps_review_and_dev_without_bot_is_a_dry_run(db, clien
     monkeypatch.setattr(settings, "APP_ENV", "dev")
     r = client.post(f"/api/properties/{pid}/publish", headers=auth(nino)).json()
     assert r["status"] == "published" and [(x["status"], x["url"]) for x in r["publications"]] == [("published", None)]
+
+
+def test_publish_progress_shows_the_running_step(db, client, sent, monkeypatch):
+    """Stanislav 11-16: the card shows what the publish does now (polls /publish/progress), not a silent spinner."""
+    from app import progress
+    _, nino, pid, _ = _submitted(db, client)
+    seen = []
+
+    def post(p):
+        progress.step(p.progress_key, "video", n=1, of=2)
+        seen.append(client.get(f"/api/properties/{pid}/publish/progress", headers=auth(nino)).json())
+        return 777, "https://t.me/rent_tbilisi_ge/777", "@rent_tbilisi_ge", [777]
+    monkeypatch.setattr(notify, "publish_post", post)
+    assert client.post(f"/api/properties/{pid}/publish", headers=auth(nino)).status_code == 200
+    assert seen[0]["step"] == "video" and (seen[0]["n"], seen[0]["of"]) == (1, 2)
+    assert client.get(f"/api/properties/{pid}/publish/progress", headers=auth(nino)).json() == {}  # done: cleared

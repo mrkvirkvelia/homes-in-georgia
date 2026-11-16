@@ -351,6 +351,7 @@ on('GET', '/properties/:id/post', (m) => {
     p.price ? `💰 ${p.price}$ + Deposit ${p.price}$` : '', '0% Commission'].join('\n');
   return { text, hashtags: text.match(/#\w+/g) || [], channels: ['tg'] };
 });
+on('GET', '/properties/:id/publish/progress', () => ({}));
 on('POST', '/properties/:id/publish', (m, b) => {
   const u = currentUser(); const p = getProp(Number(m[1]));
   const tg = b.tg !== false, site = b.site !== false;

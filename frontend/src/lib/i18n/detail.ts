@@ -1,6 +1,14 @@
 // detail: Russian (the key, shown as is for ru) → [Georgian, English]
 // PropertyDetail.tsx: the property card
 export const D: Record<string, [ka: string, en: string]> = {
+  "Не получилось: {step} — {error}": ["ვერ მოხერხდა: {step} — {error}", "Failed: {step} — {error}"],
+  "Скачиваем фото и видео из хранилища…": ["ფოტოებს და ვიდეოებს საცავიდან ვტვირთავთ…", "Downloading photos and videos from storage…"],
+  "Отправляем оригиналы в Telegram ({chat})…": ["ორიგინალებს Telegram-ში ვაგზავნით ({chat})…", "Sending the originals to Telegram ({chat})…"],
+  "Готовим видео {n} из {of}…": ["ვამზადებთ ვიდეოს {n} / {of}…", "Preparing video {n} of {of}…"],
+  "Ставим водяной знак на фото…": ["ფოტოებზე წყლის ნიშანს ვადებთ…", "Adding the watermark to the photos…"],
+  "Отправляем пост в Telegram ({chat})…": ["პოსტს Telegram-ში ვაგზავნით ({chat})…", "Sending the post to Telegram ({chat})…"],
+  "Публикуем на сайт…": ["საიტზე ვაქვეყნებთ…", "Publishing on the site…"],
+  "Начинаем публикацию…": ["გამოქვეყნებას ვიწყებთ…", "Starting to publish…"],
   "Изменение ушло оператору на проверку": ["ცვლილება ოპერატორს გადაეგზავნა შესამოწმებლად", "Change sent to the operator for review"],
   "скрыт": ["დამალულია", "hidden"],
   "не указан": ["არ არის მითითებული", "not set"],

@@ -19,7 +19,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app import districts, storage
+from app import districts, progress, storage
 from app.config import settings as env
 from app.models import (ARCHIVE_REASONS, PUBLICATION_CHANNELS, ChannelPost, Deal, Event, Listing, ListingMatch, Owner,
                         Property, PropertyListing, PropertyMedia, PropertyPublication, Source, User, at_least, is_field)
@@ -1814,6 +1814,7 @@ def publish(db: Session, pid: int, actor: User, text: str | None = None, media_i
         # the rich post is built from the fields: a caption the operator rewrote by hand goes out as the plain album
         p.post_rich = (lambda ids: post_rich(db, p, ids)) if p.post_text == auto and not is_sale(p) else None
         p.post_media_ids = media_ids
+        p.progress_key = f"publish:{p.id}"  # the card polls GET /properties/{id}/publish/progress
         _legacy_pub(db, p)  # before post_url turns into the new post's link
         ref = _notify("publish_post", p)
         dry_run = ref is None and not env.BOT_TOKEN and env.APP_ENV == "dev"
@@ -1822,6 +1823,7 @@ def publish(db: Session, pid: int, actor: User, text: str | None = None, media_i
         if ref:
             p.post_message_id, p.post_url = str(ref[0]), ref[1]
     if site:
+        progress.step(f"publish:{p.id}", "site")
         p.site_hidden = False
     elif first:
         p.site_hidden = True

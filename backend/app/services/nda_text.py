@@ -1,5 +1,5 @@
 """The agent agreement (docs/NDA.md): «Agreement on connection to and participation in the cloud platform for independent
-real estate entrepreneurs», edition 1.2 (1.1 PDFs + clause 13.8) — the text of Soglashenie-KA / KA-RU / KA-EN-red-1.1-shablon.pdf (2026-11-14) as
+real estate entrepreneurs», edition 1.3 (1.1 PDFs + clause 13.8; 1.3: clauses 3.2, 8.3, 24.1, B.1) — the text of Soglashenie-KA / KA-RU / KA-EN-red-1.1-shablon.pdf (2026-11-14) as
 data. Generated from the PDFs, then kept here: to change the wording edit this file (all three languages); new agreements
 carry it, sent and signed ones keep their own frozen text.
 
@@ -12,7 +12,7 @@ Fields filled by the system: {num} {date} {name_ka} {name2} (the name in the sec
 The parties' details and signatures (after chapter 24, before the appendices) are built by services/nda.py from
 COMPANY / REQUISITES / SIGNATURES below."""
 
-EDITION = "1.2"
+EDITION = "1.3"
 
 TITLE = {
     "ka": "შეთანხმება უძრავი ქონების სფეროში დამოუკიდებელი მეწარმეებისთვის ღრუბლოვან პლატფორმასთან მიერთებისა და მასში "
@@ -67,9 +67,9 @@ SIGNATURES = {
 
 BLOCKS: list[dict] = [
     {"k": "p", "n": "",
-     "ka": "ხელშეკრულება № {num} · ქ. თბილისი · {date} · რედაქცია 1.2",
-     "ru": "Договор № {num} · г. Тбилиси · {date} · Редакция 1.2",
-     "en": "Agreement No. {num} · Tbilisi · {date} · Version 1.2"},
+     "ka": "ხელშეკრულება № {num} · ქ. თბილისი · {date} · რედაქცია 1.3",
+     "ru": "Договор № {num} · г. Тбилиси · {date} · Редакция 1.3",
+     "en": "Agreement No. {num} · Tbilisi · {date} · Version 1.3"},
     {"k": "n", "n": "0.1",
      "ka": "ინდივიდუალური მეწარმე **დავით თიბელაშვილი**, საიდენტიფიკაციო ნომერი **326129853**, იურიდიული მისამართი: **საქართველო, ქ. თბილისი, მერაბ კოსტავას ქ. №14**, ღრუბლოვანი პლატფორმის ოპერატორი, რომელიც მოქმედებს კომერციული აღნიშვნებით Homes in Georgia, Rent in Tbilisi და ოპერატორის სხვა პროექტებით (შემდგომში — „ოპერატორი“), ერთი მხრივ, და",
      "ru": "Индивидуальный предприниматель **Давид Тибелашвили**, регистрационный номер **326129853**, юридический адрес: **Грузия, г. Тбилиси, ул. Мераба Костава, 14**, оператор облачной платформы, работающей под коммерческими обозначениями Homes in Georgia, Rent in Tbilisi и другими проектами Оператора (далее — «Оператор»), с одной стороны, и",
@@ -155,9 +155,9 @@ BLOCKS: list[dict] = [
      "ru": "Стороны являются независимыми индивидуальными предпринимателями. Оператор не нанимает Участника на работу.",
      "en": "The Parties are independent individual entrepreneurs. The Operator does not employ the Participant."},
     {"k": "n", "n": "3.2",
-     "ka": "მხარეებს შორის არ არსებობს შრომითი ურთიერთობა, თანამდებობა, ხელფასი, შვებულება, სავალდებულო სამუშაო დრო, დისციპლინური სახდელი, შეხვედრებზე გამოუცხადებლობისთვის ჯარიმა, კლიენტების გარანტირებული რაოდენობა ან გარანტირებული შემოსავალი.",
-     "ru": "Между Сторонами нет трудовых отношений, должности, заработной платы, отпуска, обязательного рабочего времени, дисциплинарных взысканий, штрафов за отсутствие на встречах, гарантированного количества клиентов или гарантированного дохода.",
-     "en": "There is no employment relationship, position, salary, leave, mandatory working time, disciplinary sanction, fine for missing meetings, guaranteed number of clients or guaranteed income between the Parties."},
+     "ka": "მხარეებს შორის არ არსებობს შრომითი ურთიერთობა, თანამდებობა, ხელფასი, შვებულება, სავალდებულო სამუშაო დრო, დისციპლინური სახდელი, ჯარიმა (გარდა 11.2.4 პუნქტით გათვალისწინებული პირგასამტეხლოსი), კლიენტების გარანტირებული რაოდენობა ან გარანტირებული შემოსავალი.",
+     "ru": "Между Сторонами нет трудовых отношений, должности, заработной платы, отпуска, обязательного рабочего времени, дисциплинарных взысканий, штрафов (за исключением неустойки по п. 11.2.4), гарантированного количества клиентов или гарантированного дохода.",
+     "en": "There is no employment relationship, position, salary, leave, mandatory working time, disciplinary sanction, fine (except the penalty under clause 11.2.4), guaranteed number of clients or guaranteed income between the Parties."},
     {"k": "n", "n": "3.3",
      "ka": "მონაწილე დამოუკიდებლად აწყობს თავის საქმიანობას, ირჩევს დროს, ადგილს, მოცულობასა და ხერხებს, კლიენტებს უგზავნის დოკუმენტებს, ფარავს საკუთარ ხარჯებს და ატარებს სამეწარმეო რისკს.",
      "ru": "Участник самостоятельно организует свою работу, выбирает время, место, объём и способы деятельности, выставляет документы клиентам, несёт свои расходы и предпринимательский риск.",
@@ -319,9 +319,9 @@ BLOCKS: list[dict] = [
      "ru": "Плата за Платформу — это плата одного индивидуального предпринимателя другому за использование облачного сервиса, инфраструктуры, брендов, базы и стандартов. Она не является удержанием из заработной платы, и Оператор не выплачивает Участнику вознаграждение за его услуги клиентам.",
      "en": "The Platform Fee is a fee paid by one individual entrepreneur to another for the use of the cloud service, infrastructure, brands, database and standards. It is not a deduction from a salary, and the Operator does not pay the Participant for its services to clients."},
     {"k": "n", "n": "8.3",
-     "ka": "ობიექტი დადასტურებული ექსკლუზივის გარეშე გამოითვლება არაუმეტეს 50-ე დონით. 70-ე და 90-ე დონეები ვრცელდება მხოლოდ დადასტურებულ ექსკლუზიურ ობიექტებზე და დონის პირობების შესრულებისას მე-5 დანართის მიხედვით.",
-     "ru": "Объект без Подтверждённого эксклюзива рассчитывается по уровню не выше 50. Уровни 70 и 90 применяются только к Подтверждённым эксклюзивным объектам и при выполнении условий уровня по Приложению 5.",
-     "en": "A property without a Confirmed Exclusive is calculated at a Level not higher than 50. Levels 70 and 90 apply only to Confirmed Exclusive properties and when the Level conditions under Appendix 5 are met."},
+     "ka": "ობიექტი დადასტურებული ექსკლუზივის გარეშე გამოითვლება 50%-ით, ყველა საკომისიოს ჩათვლით. 70% და 90% ვრცელდება მხოლოდ დადასტურებულ ექსკლუზიურ ობიექტებზე და პირობების შესრულებისას მე-5 დანართის მიხედვით.",
+     "ru": "Объект без Подтверждённого эксклюзива рассчитывается по уровню 50% с учётом всех комиссий. Уровни 70% и 90% применяются только к Подтверждённым эксклюзивным объектам и при выполнении условий уровня по Приложению 5.",
+     "en": "A property without a Confirmed Exclusive is calculated at the 50% Level, including all commissions. Levels 70% and 90% apply only to Confirmed Exclusive properties and when the Level conditions under Appendix 5 are met."},
     {"k": "n", "n": "8.4",
      "ka": "რამდენიმე პირის მონაწილეობისას როლები და წილები ნაწილდება 1-ლი დანართის მიხედვით. როლები, პროცენტები და თითოეული წილის გადამხდელი წინასწარ, მნიშვნელოვან ქმედებამდე ფიქსირდება CRM-ში.",
      "ru": "При участии нескольких лиц роли и доли распределяются по Приложению 1. Роли, проценты и плательщик каждой доли фиксируются в CRM заранее, до Значимого действия.",
@@ -756,13 +756,13 @@ BLOCKS: list[dict] = [
      "ru": "Язык",
      "en": "Language"},
     {"k": "n", "n": "24.1", "only": "KA-RU",
-     "ka": "შეთანხმება შედგენილია ქართულ და რუსულ ენებზე ერთ დოკუმენტში, ერთნაირი სტრუქტურით, ნუმერაციით და შინაარსით და რედაქციის ერთი ნომრით. ორივე ტექსტი ხელმოწერილია ერთდროულად. შეუსაბამობის შემთხვევაში უპირატესობა ენიჭება ქართულ ტექსტს.",
-     "ru": "Соглашение составлено на грузинском и русском языках в одном документе с одинаковой структурой, нумерацией и содержанием и одним номером редакции. Оба текста подписываются одновременно. При расхождении приоритет имеет грузинский текст.",
+     "ka": "შეთანხმება შედგენილია ქართულ და რუსულ ენებზე ერთ დოკუმენტში, ერთნაირი სტრუქტურით, ნუმერაციით და შინაარსით და რედაქციის ერთი ნომრით. ორივე ტექსტი ხელმოწერილია ერთდროულად და აქვს თანაბარი იურიდიული ძალა.",
+     "ru": "Соглашение составлено на грузинском и русском языках в одном документе с одинаковой структурой, нумерацией и содержанием и одним номером редакции. Оба текста подписываются одновременно и имеют равную юридическую силу.",
      "en": ""},
     {"k": "n", "n": "24.1", "only": "KA-EN",
-     "ka": "შეთანხმება შედგენილია ქართულ და ინგლისურ ენებზე ერთ დოკუმენტში, ერთნაირი სტრუქტურით, ნუმერაციით და შინაარსით და რედაქციის ერთი ნომრით. ორივე ტექსტი ხელმოწერილია ერთდროულად. შეუსაბამობის შემთხვევაში უპირატესობა ენიჭება ქართულ ტექსტს.",
+     "ka": "შეთანხმება შედგენილია ქართულ და ინგლისურ ენებზე ერთ დოკუმენტში, ერთნაირი სტრუქტურით, ნუმერაციით და შინაარსით და რედაქციის ერთი ნომრით. ორივე ტექსტი ხელმოწერილია ერთდროულად და აქვს თანაბარი იურიდიული ძალა.",
      "ru": "",
-     "en": "This Agreement is made in Georgian and English in a single document with identical structure, numbering and content and one version number. Both texts are signed at the same time. In the event of any discrepancy the Georgian text prevails."},
+     "en": "This Agreement is made in Georgian and English in a single document with identical structure, numbering and content and one version number. Both texts are signed at the same time and are equally authentic."},
     {"k": "app", "n": "1",
      "ka": "პლატფორმის საფასურისა და როლების მატრიცა",
      "ru": "Матрица Платы за Платформу и ролей",
@@ -1097,9 +1097,9 @@ BLOCKS: list[dict] = [
      "ru": "B. Living Status",
      "en": "B. Living Status"},
     {"k": "n", "n": "B.1",
-     "ka": "Living Status-ის პირობა შესრულებულია კალენდარული თვისთვის, თუ ამ თვეში მონაწილემ შეასრულა ერთი მაინც: CRM-ში დაამატა 60 ახალი ობიექტი; დახურა CRM-ში დადასტურებული 10 გარიგება, მენტორის როლში სასწავლო გარიგებების ჩათვლით; მოიყვანა რეკრუტი, რომელმაც ამ თვეში დაასრულა მე-10 სასწავლო გარიგება.",
-     "ru": "Условие Living Status выполнено за календарный месяц, если в этом месяце Участник выполнил хотя бы одно: добавил в CRM 60 новых объектов; закрыл 10 подтверждённых в CRM сделок, включая учебные сделки в роли Наставника; привёл Рекрута, завершившего в этом месяце 10-ю учебную сделку.",
-     "en": "The Living Status condition is met for a calendar month if in that month the Participant achieved at least one of the following: added 60 new properties to the CRM; closed 10 deals confirmed in the CRM, including training deals as a Mentor; brought a Recruit who completed the 10th training deal in that month."},
+     "ka": "Living Status-ის პირობა შესრულებულია კალენდარული თვისთვის, თუ ამ თვეში მონაწილემ შეასრულა ერთი მაინც: CRM-ში დაამატა 60 ახალი ობიექტი; დახურა CRM-ში დადასტურებული 8 გარიგება, მენტორის როლში სასწავლო გარიგებების ჩათვლით; მოიყვანა რეკრუტი, რომელმაც ამ თვეში დაასრულა მე-10 სასწავლო გარიგება.",
+     "ru": "Условие Living Status выполнено за календарный месяц, если в этом месяце Участник выполнил хотя бы одно: добавил в CRM 60 новых объектов; закрыл 8 подтверждённых в CRM сделок, включая учебные сделки в роли Наставника; привёл Рекрута, завершившего в этом месяце 10-ю учебную сделку.",
+     "en": "The Living Status condition is met for a calendar month if in that month the Participant achieved at least one of the following: added 60 new properties to the CRM; closed 8 deals confirmed in the CRM, including training deals as a Mentor; brought a Recruit who completed the 10th training deal in that month."},
     {"k": "n", "n": "B.2",
      "ka": "ითვლება მხოლოდ კორექტულად რეგისტრირებული, დუბლის გარეშე, D ნაწილის შესაბამისი ობიექტები.",
      "ru": "Засчитываются только корректно зарегистрированные объекты без дублей, соответствующие разделу D.",

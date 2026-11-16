@@ -331,3 +331,27 @@ def test_confirm_in_login_bot(db, client, monkeypatch):
     r = client.post(f"/api/public/nda/{token}", json={"signature": SIG, "consent": True, "doc_sha256": v["doc_sha256"]})
     assert r.status_code == 200 and r.json()["status"] == "signed"
     assert "⚠️" in login_bot.handle(upd("Nino_Agent"))  # signed: no second confirmation
+
+
+def test_correct_signed(db, client):
+    """«Исправить» a signed agreement: a new one for the same member (supersedes), the signed one stays in force until the
+    correction is signed, then it is marked superseded; only a signed one can be corrected."""
+    boss = make_user(db, "superadmin")
+    ag = make_user(db, "agent", first_name="Nino", last_name="B", tg_id=777001, username="nino_agent")
+    client.put("/api/ndas/company-signature", json={"signature": SIG}, headers=auth(boss))
+    body = {"full_name": "Nino Typo", "personal_id": "1", "telegram": "@nino_agent", "iban_gel": "GE00TB0000000000000001",
+            "user_id": ag.id}
+
+    def sign(n):
+        token = n["path"].split("/")[-1]
+        client.post(f"/api/public/nda/{token}/telegram", json=_widget())
+        v = client.get(f"/api/public/nda/{token}").json()
+        assert client.post(f"/api/public/nda/{token}", json={"signature": SIG, "consent": True, "doc_sha256": v["doc_sha256"]}).status_code == 200
+    old = client.post("/api/ndas", json=body, headers=auth(boss)).json()
+    assert client.post("/api/ndas", json={**body, "supersedes": old["id"], "replace": True}, headers=auth(boss)).status_code == 409  # not signed yet
+    sign(old)
+    new = client.post("/api/ndas", json={**body, "full_name": "Nino Beridze", "supersedes": old["id"], "replace": True}, headers=auth(boss)).json()
+    assert new["details"]["supersedes"] == old["id"]
+    assert "superseded_by" not in client.get(f"/api/ndas/{old['id']}", headers=auth(boss)).json()["details"]  # in force meanwhile
+    sign(new)
+    assert client.get(f"/api/ndas/{old['id']}", headers=auth(boss)).json()["details"]["superseded_by"] == new["id"]

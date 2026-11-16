@@ -676,7 +676,9 @@ const ndaBlocks = [{ k: 'h', n: '1', ka: 'ტერმინები', ru: 'Т�
   { k: 'n', n: '1.1', ka: 'პლატფორმა — ოპერატორის ღრუბლოვანი სისტემა.', ru: 'Платформа — облачная система Оператора.', en: 'Platform means the Operator’s cloud system.' },
   { k: 'n', n: '1.2', ka: 'მონაწილე — {name_ka}, პირადი ნომერი {pid}.', ru: 'Участник — {name2}, личный номер {pid}.', en: 'Participant means {name2}, personal number {pid}.' },
   { k: 't', head: [{ ka: 'დონე', ru: 'Уровень', en: 'Level' }], rows: [[{ ka: '25', ru: '25', en: '25' }]] }];
-on('GET', '/ndas', () => page([nda]));
+const ndaSigned = { ...nda, id: 9102, status: 'signed', status_label: 'Подписано', number: '2026-9102', full_name: 'Giorgi Lomidze', path: null, telegram: 'gio_l',
+  signed_at: new Date().toISOString(), tg_username: 'gio_l', has_pdf: true, user_id: 8, details: { level: '50', iban_gel: 'GE29TB0000000000000001', address: 'Tbilisi' } };
+on('GET', '/ndas', () => page([nda, ndaSigned]));
 // team members without a signed agreement: one with no NDA (complete profile), one missing the personal number
 const pre = (id: number, full_name: string, personal_id: string, role: string) => ({ user_id: id, lang: 'KA-RU', full_name, full_name_ka: '', personal_id, ie: '', address: '', phone: '+995 555 000 111', email: '', telegram: '', role, level: role === 'recruit' ? '25' : '50', access: '2026-10-01', iban_gel: '', iban_usd: '' });
 on('GET', '/ndas/team', () => ({ signed: 3, total: 6, items: [

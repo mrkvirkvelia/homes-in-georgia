@@ -17,14 +17,23 @@ interface Nda {
   full_name: string; personal_id: string; phone: string | null; telegram: string | null; role: string | null;
   path: string | null; created_at: string; created_by: { id: number; name: string } | null; signed_at: string | null;
   tg_username: string | null; has_pdf: boolean; number: string;
-  details: { ie?: string; ie_amended?: { ie: string; at: string } }; user_id?: number | null;
+  details: { ie?: string; ie_amended?: { ie: string; at: string }; supersedes?: number; superseded_by?: number } & Partial<Record<'full_name_ka' | 'address' | 'email' | 'level' | 'iban_gel' | 'iban_usd', string>>;
+  user_id?: number | null;
 }
 type Form = Record<'full_name' | 'full_name_ka' | 'personal_id' | 'ie' | 'address' | 'phone' | 'email' | 'telegram' | 'iban_gel' | 'iban_usd' | 'role' | 'level' | 'access' | 'lang', string>;
 interface Member {
   user_id: number; name: string; role: string; level: number | null; username: string | null; can_send: boolean;
   missing: string[]; ready: boolean; status: 'sent' | 'none'; nda: Nda | null; prefill: Form & { user_id: number };
 }
-interface Preset { form: Form & { user_id: number }; replace: boolean; name: string }
+interface Preset { form: Form & { user_id?: number | null }; replace: boolean; name: string; supersedes?: Nda }
+/** «Исправить» a signed agreement: the form from it (today's access), the new one replaces it once signed. */
+const fromSigned = (n: Nda): Preset => ({
+  name: n.full_name, replace: true, supersedes: n,
+  form: { user_id: n.user_id, lang: n.lang, full_name: n.full_name, full_name_ka: n.details.full_name_ka || '', personal_id: n.personal_id,
+    ie: n.details.ie || '', address: n.details.address || '', phone: n.phone || '', email: n.details.email || '',
+    telegram: n.telegram ? `@${n.telegram}` : '', role: 'agent', level: n.details.level || '50', access: new Date().toLocaleDateString('sv-SE'),
+    iban_gel: n.details.iban_gel || '', iban_usd: n.details.iban_usd || '' },
+});
 interface CompanySig { signature: string | null; at: string | null; by_name: string | null; edition?: string }
 const LANGS = [{ value: 'KA-RU', label: 'ქართული + Русский' }, { value: 'KA-EN', label: 'ქართული + English' }, { value: 'KA', label: 'ქართული' }];
 const TONE = { sent: 'blue', signed: 'ok', cancelled: 'grey' } as const;
@@ -100,8 +109,8 @@ function NewNda({ onMade, preset, onReset }: { onMade: (n: Nda) => void; preset?
   // a team member: made and sent to his Telegram by the CRM bot at once; the bot can't write to him → copy the link
   const m = useMutation({
     mutationFn: async () => {
-      const n = await http.post<Nda>('/ndas', preset ? { ...f, user_id: preset.form.user_id, replace: preset.replace } : f);
-      const sent = preset ? (await http.post<{ sent: boolean }>(`/ndas/${n.id}/send`).catch(() => ({ sent: false }))).sent : null;
+      const n = await http.post<Nda>('/ndas', preset ? { ...f, user_id: preset.form.user_id || null, replace: preset.replace && !!preset.form.user_id, supersedes: preset.supersedes?.id } : f);
+      const sent = preset?.form.user_id ? (await http.post<{ sent: boolean }>(`/ndas/${n.id}/send`).catch(() => ({ sent: false }))).sent : null;
       return { n, sent };
     },
     onSuccess: ({ n, sent }) => {
@@ -113,8 +122,8 @@ function NewNda({ onMade, preset, onReset }: { onMade: (n: Nda) => void; preset?
   const sig = useQuery({ queryKey: ['nda-company-sig'], queryFn: () => http.get<CompanySig>('/ndas/company-signature') });
   const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => setF({ ...f, [k]: e.target.value });
   return (
-    <Card label={preset ? t('Участнику команды: {name}', { name: preset.name }) : 'Новому агенту'} title={t('Соглашение о подключении к платформе (ред. {ed})', { ed: sig.data?.edition ?? '…' })}>
-      {preset && <div className="alert alert-info" style={{ marginBottom: 12 }}>{t('Заполнено из профиля — проверьте и дополните пустые поля')} · <button type="button" className="link-btn" onClick={() => { setF({ ...f, ...blank, access: today() }); onReset?.(); }}>{t('Очистить')}</button></div>}
+    <Card label={preset?.supersedes ? t('Исправление соглашения № {num}: {name}', { num: preset.supersedes.number, name: preset.name }) : preset ? t('Участнику команды: {name}', { name: preset.name }) : 'Новому агенту'} title={t('Соглашение о подключении к платформе (ред. {ed})', { ed: sig.data?.edition ?? '…' })}>
+      {preset && <div className="alert alert-info" style={{ marginBottom: 12 }}>{preset.supersedes ? t('Заполнено из подписанного соглашения — исправьте, что нужно') : t('Заполнено из профиля — проверьте и дополните пустые поля')} · <button type="button" className="link-btn" onClick={() => { setF({ ...f, ...blank, access: today() }); onReset?.(); }}>{t('Очистить')}</button></div>}
       <div className="form-grid">
         <Field label="ФИО агента *" hint={t('Имя и фамилия латиницей или кириллицей, как в паспорте')}><Input value={f.full_name} onChange={set('full_name')} placeholder="Nino Beridze" /></Field>
         <Field label="ФИО по-грузински" hint={t('Только грузинскими буквами; пусто — как выше')}><Input value={f.full_name_ka} onChange={set('full_name_ka')} placeholder="ნინო ბერიძე" /></Field>
@@ -129,7 +138,8 @@ function NewNda({ onMade, preset, onReset }: { onMade: (n: Nda) => void; preset?
         <Field label="IBAN USD"><Input value={f.iban_usd} onChange={set('iban_usd')} placeholder="GE…" /></Field>
         <Field label="Язык"><Select value={f.lang} onChange={set('lang')} options={LANGS} /></Field>
       </div>
-      <div className="mt"><Button disabled={f.full_name.trim().split(/\s+/).length < 2 || !f.personal_id.trim() || (!!f.full_name_ka.trim() && !/[\u10a0-\u10ff]/.test(f.full_name_ka))} loading={m.isPending} onClick={() => m.mutate()}><ShieldCheck size={16} />{preset ? t('Создать и отправить в Telegram') : 'Создать ссылку'}</Button></div>
+      <div className="mt"><Button disabled={f.full_name.trim().split(/\s+/).length < 2 || !f.personal_id.trim() || (!!f.full_name_ka.trim() && !/[\u10a0-\u10ff]/.test(f.full_name_ka))} loading={m.isPending} onClick={() => m.mutate()}><ShieldCheck size={16} />{preset?.form.user_id ? t('Создать и отправить в Telegram') : 'Создать ссылку'}</Button></div>
+      {preset?.supersedes && <div className="faint mt" style={{ fontSize: 12 }}>{t('Подписанное № {num} остаётся в силе, пока агент не подпишет исправленное', { num: preset.supersedes.number })}</div>}
     </Card>
   );
 }
@@ -362,14 +372,16 @@ export function NdasPage() {
                     <b>{n.full_name}</b>
                     <small className="muted">№ {n.number} · {n.role || '—'} · {n.lang}{n.telegram ? ` · @${n.telegram}` : ''} · {n.created_by?.name || '—'}, {fmtDate(n.created_at)}</small>
                     {n.signed_at && <small className="muted">Подписал(а) {fmtDateTime(n.signed_at)}{n.tg_username ? ` · Telegram @${n.tg_username}` : ''}</small>}
+                    {n.details?.supersedes && <small className="muted">{t('Исправление к № {num}', { num: rows.find((x) => x.id === n.details.supersedes)?.number ?? n.details.supersedes })}</small>}
                   </span>
-                  <Badge tone={TONE[n.status]}>{n.status_label}</Badge>
+                  {n.details?.superseded_by ? <Badge tone="grey">{t('Заменено')}</Badge> : <Badge tone={TONE[n.status]}>{n.status_label}</Badge>}
                 </div>
                 <div className="row row-wrap gap-sm">
                   {n.status === 'sent' && <TgSend n={n} />}
                   {n.status === 'sent' && <LinkActions n={n} />}
                   {n.status === 'sent' && admin && <Button size="sm" variant="ghost" onClick={() => setEditing(n)}><FileText size={14} />{t('Текст')}</Button>}
                   {n.status === 'sent' && <Button size="sm" variant="ghost" loading={cancel.isPending} onClick={() => { if (window.confirm(`Отменить соглашение для ${n.full_name}? Ссылка перестанет работать.`)) cancel.mutate(n.id); }}><XCircle size={14} />Отменить</Button>}
+                  {n.status === 'signed' && !n.details?.superseded_by && <Button size="sm" variant="ghost" onClick={() => { setPreset(fromSigned(n)); document.getElementById('nda-form')?.scrollIntoView({ behavior: 'smooth' }); }}><FileText size={14} />{t('Исправить')}</Button>}
                   {n.has_pdf && <Button size="sm" variant="secondary" onClick={() => pdf(n).catch((e) => toast(errText(e), true))}><Download size={14} />PDF</Button>}
                   {n.details?.ie_amended && <Button size="sm" variant="secondary" title={t('Подписанное соглашение + дополнение: номер ИП {ie} из профиля', { ie: n.details.ie_amended.ie })} onClick={() => pdf(n, true).catch((e) => toast(errText(e), true))}><Download size={14} />{t('PDF + ИП')}</Button>}
                 </div>

@@ -360,4 +360,10 @@ export const D: Record<string, [ka: string, en: string]> = {
   'Соглашение создано и отправлено в Telegram': ['შეთანხმება შეიქმნა და გაიგზავნა Telegram-ში', 'Agreement created and sent in Telegram'],
   'Соглашение создано, но бот не может написать — скопируйте ссылку ниже': ['შეთანხმება შეიქმნა, მაგრამ ბოტს არ შეუძლია მისწეროს — დააკოპირეთ ბმული ქვემოთ', "Agreement created, but the bot can't message — copy the link below"],
   'Создать и отправить в Telegram': ['შექმნა და Telegram-ში გაგზავნა', 'Create and send in Telegram'],
+  'Исправление соглашения № {num}: {name}': ['შეთანხმების № {num} შესწორება: {name}', 'Correction of agreement No. {num}: {name}'],
+  'Подписанное № {num} остаётся в силе, пока агент не подпишет исправленное': ['ხელმოწერილი № {num} ძალაშია, სანამ აგენტი შესწორებულს არ მოაწერს ხელს', 'Signed No. {num} stays in force until the agent signs the corrected one'],
+  'Исправление к № {num}': ['შესწორება № {num}-ზე', 'Correction to No. {num}'],
+  'Заменено': ['შეცვლილია', 'Replaced'],
+  'Исправить': ['შესწორება', 'Correct'],
+  'Заполнено из подписанного соглашения — исправьте, что нужно': ['შევსებულია ხელმოწერილი შეთანხმებიდან — შეასწორეთ საჭირო', 'Filled from the signed agreement — correct what is needed'],
 };

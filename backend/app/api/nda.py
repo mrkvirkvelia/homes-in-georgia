@@ -31,6 +31,7 @@ class NdaIn(BaseModel):
     iban_usd: str | None = Field(None, max_length=60)
     user_id: int | None = None  # made for this team member (one open agreement each)
     replace: bool = False  # «Пересоздать»: cancel the member's open agreement first
+    supersedes: int | None = None  # «Исправить»: a signed agreement this one replaces once signed
 
 
 class SignatureIn(BaseModel):

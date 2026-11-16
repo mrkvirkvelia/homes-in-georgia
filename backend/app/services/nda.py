@@ -273,6 +273,11 @@ def create(db: Session, body: dict, user: User) -> AgentNda:
         for o in old:
             o.status, o.cancelled_at = "cancelled", now()
             log_event(db, "nda", o.id, "cancelled", user, label=o.full_name, reason="recreated")
+    if body.get("supersedes"):  # «Исправить» a signed agreement: the new one replaces it once signed
+        old = db.get(AgentNda, int(body["supersedes"]))
+        if not old or old.status != "signed":
+            raise DomainError("bad_status", "Исправить можно только подписанное соглашение", 409)
+        d["supersedes"] = old.id
     if not d["ie"] and (u := member or _user_by_username(db, f["telegram"])):
         d["ie"] = u.ie_number or ""  # the profile's ИП number (users.ie_number)
     comp = company_signature()
@@ -540,6 +545,9 @@ def sign(db: Session, token: str, data: dict, ip: str | None, user_agent: str | 
     if u and not u.personal_id and n.personal_id:
         u.personal_id = n.personal_id  # the agreement's personal number → the profile
         log_event(db, "user", u.id, "updated", None, personal_id=n.personal_id, source=f"nda {n.id}")
+    if (sup := (n.details or {}).get("supersedes")) and (old := db.get(AgentNda, int(sup))):
+        old.details = {**(old.details or {}), "superseded_by": n.id, "superseded_at": n.signed_at.isoformat()}
+        log_event(db, "nda", old.id, "superseded", None, label=old.full_name, by=n.id)
     log_event(db, "nda", n.id, "signed", None, label=n.full_name, tg_id=n.tg_id, tg_username=n.tg_username, ip=n.ip,
               user_agent=n.user_agent, doc_sha256=n.doc_sha256)
     db.commit()

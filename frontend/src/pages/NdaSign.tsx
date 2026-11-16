@@ -20,24 +20,28 @@ interface NdaView {
   details: { iban_gel: string; iban_usd: string; ie: string };
 }
 type L = 'ka' | 'ru' | 'en';
+const KEYS = ['iban_gel', 'iban_usd', 'ie'] as const;
+const norm = (x: string) => x.replace(/[\s-]/g, '').toUpperCase();
+const IBAN_RE = /^[A-Z]{2}\d{2}[A-Z0-9]{10,30}$/;  // backend services/nda.IBAN_RE
+const IE_RE = /^(\d{9}|\d{11})$/;
 const LABEL: Record<L, string> = { ka: 'ქართული', ru: 'Русский', en: 'English' };
 const UI: Record<L, Record<string, string>> = {
   ka: { title: 'შეთანხმება პლატფორმასთან მიერთების შესახებ', read: 'გთხოვთ, ყურადღებით წაიკითხოთ შეთანხმება', toSign: 'ხელმოწერაზე გადასვლა ↓',
-    step0: '1. თქვენი რეკვიზიტები', iban: 'მიუთითეთ მინიმუმ ერთი ანგარიში — მასზე მიიღებთ ანაზღაურებას.', ie: 'ი/მ ნომერი (არასავალდებულო)', ieHint: 'შეგიძლიათ მოგვიანებით დაამატოთ პროფილში', saveD: 'შენახვა შეთანხმებაში', savedD: 'შენახულია — შეთანხმების ტექსტი განახლდა', needIban: 'მიუთითეთ IBAN (ნაბიჯი 1)', saveFirst: 'დააჭირეთ „შენახვა შეთანხმებაში“ (ნაბიჯი 1)', needTg: 'დაადასტურეთ Telegram-ით (ნაბიჯი 2)',
+    step0: '1. თქვენი რეკვიზიტები', iban: 'მიუთითეთ მინიმუმ ერთი ანგარიში — მასზე მიიღებთ ანაზღაურებას.', ie: 'ი/მ ნომერი (არასავალდებულო)', ieHint: 'შეგიძლიათ მოგვიანებით დაამატოთ პროფილში', saveD: 'შენახვა შეთანხმებაში', savedD: 'შენახულია — შეთანხმების ტექსტი განახლდა', needIban: 'მიუთითეთ IBAN (ნაბიჯი 1)', saveFirst: 'შეასწორეთ რეკვიზიტები (ნაბიჯი 1)', saving: 'ვინახავთ…', badIban: 'IBAN: GE + 20 სიმბოლო, მაგ. GE29TB0000000000000000', badIe: '9 ან 11 ციფრი', needTg: 'დაადასტურეთ Telegram-ით (ნაბიჯი 2)',
     step1: '2. დაადასტურეთ თქვენი ვინაობა Telegram-ით', tgBtn: 'Telegram Login', tgBot: 'დადასტურება Telegram-ბოტში', tgBotHint: 'გაიხსნება ბოტი — დააჭირეთ „Start“ და დაბრუნდით აქ.', tgHint: 'Telegram გთხოვთ დადასტურებას აპლიკაციაში.',
     tgOnly: 'მხოლოდ ანგარიში', tgOk: 'დადასტურებულია', step2: '3. მოაწერეთ ხელი თითით', clear: 'წაშლა',
     agree: 'წავიკითხე შეთანხმება და ვეთანხმები მის პირობებს', send: 'ხელმოწერა', done: 'შეთანხმება ხელმოწერილია. გმადლობთ!',
     pdf: 'PDF-ის ჩამოტვირთვა', pdfWait: 'PDF მზადდება, განაახლეთ გვერდი ერთ წუთში.', sent: 'ხელმოწერილი PDF გამოგეგზავნათ Telegram-ში.',
     you: 'მონაწილე', test: 'დადასტურება (სატესტო რეჟიმი)', noTg: 'Telegram-ის ჩატვირთვა ვერ მოხერხდა. განაახლეთ გვერდი.' },
   ru: { title: 'Соглашение о подключении к платформе', read: 'Пожалуйста, внимательно прочитайте соглашение', toSign: 'К подписи ↓',
-    step0: '1. Ваши реквизиты', iban: 'Укажите хотя бы один счёт — на него будут приходить выплаты.', ie: 'Номер ИП (ი/მ), необязательно', ieHint: 'Можно добавить позже в профиле', saveD: 'Внести в соглашение', savedD: 'Сохранено — текст соглашения обновлён', needIban: 'Укажите IBAN (шаг 1)', saveFirst: 'Нажмите «Внести в соглашение» (шаг 1)', needTg: 'Подтвердите себя через Telegram (шаг 2)',
+    step0: '1. Ваши реквизиты', iban: 'Укажите хотя бы один счёт — на него будут приходить выплаты.', ie: 'Номер ИП (ი/მ), необязательно', ieHint: 'Можно добавить позже в профиле', saveD: 'Внести в соглашение', savedD: 'Сохранено — текст соглашения обновлён', needIban: 'Укажите IBAN (шаг 1)', saveFirst: 'Исправьте реквизиты (шаг 1)', saving: 'Сохраняем…', badIban: 'IBAN: GE + 20 символов, например GE29TB0000000000000000', badIe: '9 или 11 цифр', needTg: 'Подтвердите себя через Telegram (шаг 2)',
     step1: '2. Подтвердите себя через Telegram', tgBtn: 'Telegram Login', tgBot: 'Подтвердить в Telegram-боте', tgBotHint: 'Откроется бот — нажмите «Start» и вернитесь сюда.', tgHint: 'Telegram попросит подтвердить вход в приложении.',
     tgOnly: 'Только аккаунт', tgOk: 'Подтверждено', step2: '3. Распишитесь пальцем', clear: 'Стереть',
     agree: 'Я прочитал(а) соглашение и согласен(на) с его условиями', send: 'Подписать', done: 'Соглашение подписано. Спасибо!',
     pdf: 'Скачать PDF', pdfWait: 'PDF готовится, обновите страницу через минуту.', sent: 'Подписанный PDF отправлен вам в Telegram.',
     you: 'Участник', test: 'Подтвердить (тестовый режим)', noTg: 'Не удалось загрузить Telegram. Обновите страницу.' },
   en: { title: 'Platform Agreement', read: 'Please read the agreement carefully', toSign: 'Go to signing ↓',
-    step0: '1. Your details', iban: 'Enter at least one account — your payouts go there.', ie: 'IE number (ი/მ), optional', ieHint: 'You can add it later in your profile', saveD: 'Put into the agreement', savedD: 'Saved — the agreement text is updated', needIban: 'Enter an IBAN (step 1)', saveFirst: 'Press «Put into the agreement» (step 1)', needTg: 'Confirm yourself with Telegram (step 2)',
+    step0: '1. Your details', iban: 'Enter at least one account — your payouts go there.', ie: 'IE number (ი/მ), optional', ieHint: 'You can add it later in your profile', saveD: 'Put into the agreement', savedD: 'Saved — the agreement text is updated', needIban: 'Enter an IBAN (step 1)', saveFirst: 'Fix the details (step 1)', saving: 'Saving…', badIban: 'IBAN: GE + 20 characters, e.g. GE29TB0000000000000000', badIe: '9 or 11 digits', needTg: 'Confirm yourself with Telegram (step 2)',
     step1: '2. Confirm yourself with Telegram', tgBtn: 'Telegram Login', tgBot: 'Confirm in the Telegram bot', tgBotHint: 'The bot opens — press «Start» and come back here.', tgHint: 'Telegram will ask you to confirm in the app.',
     tgOnly: 'Only the account', tgOk: 'Confirmed', step2: '3. Sign with your finger', clear: 'Clear',
     agree: 'I have read the agreement and agree to its terms', send: 'Sign', done: 'Agreement signed. Thank you!',
@@ -83,6 +87,16 @@ export function NdaSignPage() {
     onSuccess: (r) => { setErr(''); setSavedOk(true); qc.setQueryData(['nda', token], r); },
     onError: (e) => setErr(errText(e)),
   });
+  // autosave (Stanislav 11-16): a second after the last keystroke, when every filled field is valid and an IBAN is given
+  const bad = { iban_gel: !!norm(d.iban_gel) && !IBAN_RE.test(norm(d.iban_gel)), iban_usd: !!norm(d.iban_usd) && !IBAN_RE.test(norm(d.iban_usd)),
+    ie: !!norm(d.ie) && !IE_RE.test(norm(d.ie)) };
+  const dirty = !!v && KEYS.some((k) => norm(d[k]) !== norm(v.details?.[k] || ''));
+  const valid = !bad.iban_gel && !bad.iban_usd && !bad.ie && !!(norm(d.iban_gel) || norm(d.iban_usd));
+  useEffect(() => {
+    if (!v || v.status !== 'sent' || !dirty || !valid || details.isPending) return;
+    const id = setTimeout(() => details.mutate(), 1000);
+    return () => clearTimeout(id);
+  }, [d.iban_gel, d.iban_usd, d.ie, dirty, valid, details.isPending]);  // eslint-disable-line react-hooks/exhaustive-deps
   const l: L = lang || (v?.lang === 'KA-EN' ? 'en' : v?.lang === 'KA-RU' ? 'ru' : 'ka');
   const t = UI[l];
 
@@ -107,8 +121,6 @@ export function NdaSignPage() {
   if (q.isLoading) return wrap(<Loading />);
   if (q.error || !v) return wrap(<ErrorBox error={q.error} />);
   const hasIban = !!(v.details?.iban_gel || v.details?.iban_usd);
-  const norm = (x: string) => x.replace(/[\s-]/g, '').toUpperCase();
-  const dirty = (['iban_gel', 'iban_usd', 'ie'] as const).some((k) => norm(d[k]) !== norm(v.details?.[k] || ''));
   const ready = v.confirmed && hasIban && !dirty;
   const langs: L[] = v.lang === 'KA' ? ['ka', 'ru', 'en'] : v.lang === 'KA-RU' ? ['ka', 'ru'] : ['ka', 'en'];
   const head = (
@@ -143,13 +155,13 @@ export function NdaSignPage() {
       <span className="label">{t.step0}</span>
       <span className="muted" style={{ fontSize: 13 }}>{t.iban}</span>
       <div className="form-grid">
-        <Field label="IBAN GEL"><Input value={d.iban_gel} onChange={(e) => { setSavedOk(false); setD({ ...d, iban_gel: e.target.value }); }} placeholder="GE00TB0000000000000000" autoComplete="off" /></Field>
-        <Field label="IBAN USD"><Input value={d.iban_usd} onChange={(e) => { setSavedOk(false); setD({ ...d, iban_usd: e.target.value }); }} placeholder="GE00TB0000000000000000" autoComplete="off" /></Field>
-        <Field label={t.ie} hint={t.ieHint}><Input inputMode="numeric" value={d.ie} onChange={(e) => { setSavedOk(false); setD({ ...d, ie: e.target.value }); }} /></Field>
+        <Field label="IBAN GEL" hint={bad.iban_gel && <span className="text-red">{t.badIban}</span>}><Input value={d.iban_gel} onChange={(e) => { setSavedOk(false); setD({ ...d, iban_gel: e.target.value }); }} placeholder="GE00TB0000000000000000" autoComplete="off" /></Field>
+        <Field label="IBAN USD" hint={bad.iban_usd && <span className="text-red">{t.badIban}</span>}><Input value={d.iban_usd} onChange={(e) => { setSavedOk(false); setD({ ...d, iban_usd: e.target.value }); }} placeholder="GE00TB0000000000000000" autoComplete="off" /></Field>
+        <Field label={t.ie} hint={bad.ie ? <span className="text-red">{t.badIe}</span> : t.ieHint}><Input inputMode="numeric" value={d.ie} onChange={(e) => { setSavedOk(false); setD({ ...d, ie: e.target.value }); }} /></Field>
       </div>
-      {dirty
-        ? <div><Button variant="secondary" disabled={!d.iban_gel.trim() && !d.iban_usd.trim()} loading={details.isPending} onClick={() => details.mutate()}>{t.saveD}</Button></div>
-        : hasIban && savedOk && <div className="alert alert-ok"><CheckCircle2 size={16} style={{ verticalAlign: -3 }} /> {t.savedD}</div>}
+      {dirty && valid
+        ? <span className="muted" style={{ fontSize: 13 }}>{t.saving}</span>
+        : !dirty && hasIban && savedOk && <div className="alert alert-ok"><CheckCircle2 size={16} style={{ verticalAlign: -3 }} /> {t.savedD}</div>}
     </div>
     <div className="col gap-sm">
       <span className="label">{t.step1}</span>
@@ -169,7 +181,7 @@ export function NdaSignPage() {
       <SignaturePad padRef={pad} onInk={setInk} clearLabel={t.clear} />
       <Checkbox checked={agree} onChange={setAgree}>{t.agree}</Checkbox>
     </div>
-    {!ready && <div className="alert alert-warn">{[!hasIban || dirty ? (dirty ? t.saveFirst : t.needIban) : '', !v.confirmed ? t.needTg : ''].filter(Boolean).join(' · ')}</div>}
+    {!ready && <div className="alert alert-warn">{[!hasIban || dirty ? (dirty && valid ? t.saving : !valid && (bad.iban_gel || bad.iban_usd || bad.ie) ? t.saveFirst : t.needIban) : '', !v.confirmed ? t.needTg : ''].filter(Boolean).join(' · ')}</div>}
     {err && <div className="alert alert-warn">{err}</div>}
     <Button size="lg" variant="ok" disabled={!(ready && ink && agree)} loading={sign.isPending} onClick={() => sign.mutate()}>{t.send}</Button>
   </>);

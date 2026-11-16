@@ -114,7 +114,7 @@ export function NdaSignPage() {
         <Seg value={l} onChange={setLang} options={langs.map((x) => ({ value: x, label: LABEL[x] }))} />
       </div>
       <h2 style={{ fontSize: 20 }}><ShieldCheck size={20} style={{ verticalAlign: -3, marginRight: 6 }} />{t.title}</h2>
-      <div className="muted">{t.you}: <b>{v.full_name}</b>{v.role ? ` · ${v.role}` : ''}{v.telegram ? ` · @${v.telegram}` : ''}</div>
+      <div className="muted">{t.you}: <b>{v.full_name}</b>{v.telegram ? ` · @${v.telegram}` : ''}</div>
     </>
   );
   if (v.status === 'signed') {

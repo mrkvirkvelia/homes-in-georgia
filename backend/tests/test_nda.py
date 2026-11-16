@@ -69,10 +69,11 @@ def test_full_flow(db, client, fake_chrome, tg_sent):
     assert n["details"]["level"] == "50" and n["number"].endswith(f"-{n['id']:04d}")
     h = n["html"]
     for s in ("Nino Test", "ნინო ტესტი", "01001055555", "@Nino_Agent", "406112233", "Tbilisi, Vake 1", "nino@example.com",
-              "20.11.2026", "GE00TB0000000000000001", "აგენტი", "Агент", n["number"], "326129853", "GE89TB7085336010100094"):
+              "20.11.2026", "GE00TB0000000000000001", n["number"], "326129853", "GE89TB7085336010100094"):
         assert s in h, s
     assert "Участник" in h and "მონაწილე" in h and "русском" in h and "Приложение 5" in h  # two columns, chapter 24, appendices
     assert "{" not in h.split("<body>")[1]  # every field filled
+    assert "Роль:" not in h and "присвоены роль" not in h and "Уровень:" not in h  # no role / level in the text
     token = n["path"].split("/")[-1]
 
     v = client.get(f"/api/public/nda/{token}").json()  # no login

@@ -160,6 +160,8 @@ export interface Property {
   agent?: UserRef | null;
   agent_id?: number | null;
   taken_at?: string | null;
+  /** full card: «Взят» from the feed with no action yet → when it goes back (Управление → Настройки) */
+  idle_return_at?: string | null;
   call_attempts?: number;
   next_call_at?: string | null;
   shoot_at?: string | null;

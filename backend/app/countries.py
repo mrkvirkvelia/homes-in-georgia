@@ -4,6 +4,11 @@ language via Intl.DisplayNames. ponytail: names only in English + a few aliases;
 unmatched (stored as typed, code null)."""
 import re
 
+# Russian-language clients: their own order of buttons (Stanislav 11-16); stored the same way (code + English name)
+TOP_RU = ("RU", "UA", "BY", "KZ", "IL", "AM", "AZ", "UZ", "KG", "DE")
+NAMES_RU = {"RU": "Россия", "UA": "Украина", "BY": "Беларусь", "KZ": "Казахстан", "IL": "Израиль", "AM": "Армения",
+            "AZ": "Азербайджан", "UZ": "Узбекистан", "KG": "Кыргызстан", "DE": "Германия"}
+
 # the questionnaire's buttons: the most common countries of Tbilisi tenants
 TOP = ("RU", "UA", "BY", "KZ", "IL", "IN", "IR", "TR", "US", "GB", "DE", "PL")
 
@@ -34,7 +39,11 @@ _ALIAS = {"usa": "US", "us": "US", "america": "US", "united states of america": 
           "uae": "AE", "emirates": "AE", "dubai": "AE", "korea": "KR", "czech republic": "CZ", "holland": "NL",
           "turkiye": "TR", "türkiye": "TR", "persia": "IR", "cote d'ivoire": "CI", "macedonia": "MK", "burma": "MM",
           "россия": "RU", "украина": "UA", "беларусь": "BY", "казахстан": "KZ", "израиль": "IL", "индия": "IN",
-          "иран": "IR", "турция": "TR", "сша": "US", "германия": "DE", "армения": "AM", "азербайджан": "AZ"}
+          "иран": "IR", "турция": "TR", "сша": "US", "германия": "DE", "армения": "AM", "азербайджан": "AZ",
+          "узбекистан": "UZ", "кыргызстан": "KG", "киргизия": "KG", "грузия": "GE", "молдова": "MD", "польша": "PL",
+          "великобритания": "GB", "англия": "GB", "франция": "FR", "италия": "IT", "испания": "ES", "китай": "CN",
+          "таджикистан": "TJ", "туркменистан": "TM", "литва": "LT", "латвия": "LV", "эстония": "EE", "оаэ": "AE",
+          "белоруссия": "BY", "канада": "CA", "нидерланды": "NL", "голландия": "NL"}
 _BY_NAME = {**{n.lower(): c for c, n in NAMES.items()}, **_ALIAS}
 
 
@@ -56,6 +65,11 @@ def parse(text):
         return of(t.upper())
     code = _BY_NAME.get(t) or _BY_NAME.get(re.sub(r"^the ", "", t))
     return of(code) if code else {"code": None, "name": text.strip()[:60]}
+
+
+def name_in(c, lang):
+    """The stored English name, or the Russian one for ru clients when we know it."""
+    return (NAMES_RU.get((c or {}).get("code")) if lang == "ru" else None) or (c or {}).get("name")
 
 
 def label(c):

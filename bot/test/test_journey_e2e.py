@@ -220,7 +220,9 @@ class JourneyE2E(unittest.TestCase):
         picked = self.press(CLIENT, cid, "🇷🇺 Русский", since=m)
         self.assertFalse([c for c in f.calls(chat=cid, since=m) if c["seq"] <= picked and "1 из 6" in (c.get("text") or "")])
         self.with_text(cid, "Ответьте на 6 коротких вопросов", m)
-        first = self.with_text(cid, "1 из 6", m)                      # the ONE questionnaire message
+        first = self.with_text(cid, "Откуда вы?", m)                  # ru: the country first = the ONE questionnaire message
+        self.press(CLIENT, cid, "🇷🇺 Россия", since=m)
+        self.with_text(cid, "1 из 6", m)
         self.press(CLIENT, cid, "2", since=m)                         # A1a: 1 of 6
         step2 = self.with_text(cid, "2 из 6", m)
         self.assertEqual((step2["method"], step2["message_id"]), ("editMessageText", first["message_id"]))
@@ -483,6 +485,29 @@ class JourneyE2E(unittest.TestCase):
         self.assertEqual(core.client("tg", 1030)["profile"]["country"], {"code": "IL", "name": "Israel"})
         self.assertEqual(core.client("tg", 1031)["profile"]["country"], {"code": "NL", "name": "Netherlands"})
         self.assertIn("🇮🇱 Israel\n👥 2", texts.profile_summary({"country": {"code": "IL", "name": "Israel"}, "residents": "2"}, "ru"))
+
+    def test_russian_asks_the_country_georgian_gets_georgia(self):
+        """ru: «Откуда вы?» in Russian (button / «Другая страна» + text); ka: no question, country = Georgia."""
+        for u, how in (({"id": 1040, "name": "Олег", "username": "oleg_ru", "lang": "ru"}, "🇮🇱 Израиль"),
+                       ({"id": 1041, "name": "Ира", "username": "ira_ru", "lang": "ru"}, "Франция")):
+            cid = u["id"]
+            m = self.say(u, "/start")
+            m = self.press(u, cid, "🇷🇺 Русский", since=m)
+            first = self.with_text(cid, "Откуда вы?", m)
+            if how.startswith("🇮"):
+                m = self.press(u, cid, how, since=m)
+            else:
+                m = self.press(u, cid, "✏️ Другая страна", since=m)
+                m = self.say(u, how)
+            res = self.with_text(cid, "1 из 6", m)
+            self.assertEqual(res["message_id"], first["message_id"])
+        self.assertEqual(core.client("tg", 1040)["profile"]["country"], {"code": "IL", "name": "Israel"})
+        self.assertEqual(core.client("tg", 1041)["profile"]["country"], {"code": "FR", "name": "France"})
+        u = {"id": 1042, "name": "ნინო", "username": "nino_ge", "lang": "ka"}
+        m = self.say(u, "/start")
+        m = self.press(u, 1042, "🇬🇪 ქართული", since=m)
+        self.with_text(1042, "1 / 6", m)
+        self.assertEqual(core.client("tg", 1042)["profile"]["country"], {"code": "GE", "name": "Georgia"})
 
     def test_text_slots_and_own_time(self):
         """C7 by text («завтра 12:00, завтра 17:30»), then the client asks for another time (A4a «Предложить своё время»)."""

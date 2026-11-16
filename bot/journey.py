@@ -206,8 +206,9 @@ MULTI = {"pets": "pets", "terms": "terms", "beds": "bedrooms"}
 
 
 def steps_of(cl):
-    """English-speaking clients are first asked where they are from (Stanislav 11-16), unnumbered: the rest stays «1 of 6»."""
-    return ("country",) + STEPS if L(cl) == "en" else STEPS
+    """English- and Russian-speaking clients are first asked where they are from (Stanislav 11-16), unnumbered: the rest stays
+    «1 of 6». Georgian-speaking ones aren't asked: start_questionnaire sets Georgia."""
+    return ("country",) + STEPS if L(cl) in ("en", "ru") else STEPS
 
 
 Q = {  # (ru, en, ka)
@@ -275,7 +276,8 @@ def selected(cl, step):
 def question_kb(cl, step):
     if step == "country":
         cur = ((cl.get("profile") or {}).get("country") or {}).get("code")
-        btns = [cb(("✓ " if c == cur else "") + f"{countries.flag(c)} {countries.NAMES[c]}", f"q:country:{c}") for c in countries.TOP]
+        btns = [cb(("✓ " if c == cur else "") + f"{countries.flag(c)} {countries.name_in(countries.of(c), L(cl))}", f"q:country:{c}")
+                for c in (countries.TOP_RU if L(cl) == "ru" else countries.TOP)]
         return markup([btns[i:i + 3] for i in range(0, len(btns), 3)] + [[cb(q(cl, "other"), "q:country:own"), cb(q(cl, "skip"), "q:country:skip")]])
     if step == "place":
         return markup([[cb(q(cl, "map"), "q:place:map")], [cb(q(cl, "districts"), "q:place:districts")], [cb(q(cl, "any"), "q:place:any")]])
@@ -299,7 +301,7 @@ ICON = {"country": "🌍", "res": "👥", "pets": "🐾", "terms": "🕐", "bud"
 def answer_of(cl, step):
     """A finished step as the summary at the top of the questionnaire message shows it."""
     p, lang = cl.get("profile") or {}, L(cl)
-    return {"country": lambda: (p.get("country") or {}).get("name"),
+    return {"country": lambda: countries.name_in(p.get("country"), lang),
             "res": lambda: p.get("residents") and texts._people(p["residents"], lang),
             "pets": lambda: p.get("pets") and texts.pets_text(p["pets"], lang),
             "terms": lambda: p.get("terms") and texts.terms_text(p["terms"], lang),
@@ -355,6 +357,8 @@ async def ask(bot, cl, step, query=None, note=None):
 
 async def start_questionnaire(bot, cl, name):
     await th(set_done, cl, False)
+    if L(cl) == "ka" and not (cl.get("profile") or {}).get("country"):  # Georgian speakers are in Georgia: no question
+        await th(save_profile, cl, lambda p: p.setdefault("country", countries.of("GE")))
     await th(core.update, cl, lambda st, r: st.update(qmsg=None))  # a fresh questionnaire message
     await bot.send_message(int(cl["chat_id"]), q(cl, "intro", name=e(name or "")).replace(", !", "!"))
     await ask(bot, cl, steps_of(cl)[0])

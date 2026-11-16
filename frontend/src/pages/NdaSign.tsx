@@ -23,21 +23,21 @@ type L = 'ka' | 'ru' | 'en';
 const LABEL: Record<L, string> = { ka: 'ქართული', ru: 'Русский', en: 'English' };
 const UI: Record<L, Record<string, string>> = {
   ka: { title: 'შეთანხმება პლატფორმასთან მიერთების შესახებ', read: 'გთხოვთ, ყურადღებით წაიკითხოთ შეთანხმება', toSign: 'ხელმოწერაზე გადასვლა ↓',
-    step0: '1. თქვენი რეკვიზიტები', iban: 'მიუთითეთ მინიმუმ ერთი ანგარიში — მასზე მიიღებთ ანაზღაურებას.', ie: 'ი/მ ნომერი (არასავალდებულო)', ieHint: 'შეგიძლიათ მოგვიანებით დაამატოთ პროფილში', saveD: 'შენახვა შეთანხმებაში', savedD: 'შენახულია — შეთანხმების ტექსტი განახლდა', needIban: 'ჯერ მიუთითეთ IBAN',
+    step0: '1. თქვენი რეკვიზიტები', iban: 'მიუთითეთ მინიმუმ ერთი ანგარიში — მასზე მიიღებთ ანაზღაურებას.', ie: 'ი/მ ნომერი (არასავალდებულო)', ieHint: 'შეგიძლიათ მოგვიანებით დაამატოთ პროფილში', saveD: 'შენახვა შეთანხმებაში', savedD: 'შენახულია — შეთანხმების ტექსტი განახლდა', needIban: 'მიუთითეთ IBAN (ნაბიჯი 1)', saveFirst: 'დააჭირეთ „შენახვა შეთანხმებაში“ (ნაბიჯი 1)', needTg: 'დაადასტურეთ Telegram-ით (ნაბიჯი 2)',
     step1: '2. დაადასტურეთ თქვენი ვინაობა Telegram-ით', tgBtn: 'Telegram-ით დადასტურება', tgHint: 'Telegram გთხოვთ დადასტურებას აპლიკაციაში.',
     tgOnly: 'მხოლოდ ანგარიში', tgOk: 'დადასტურებულია', step2: '3. მოაწერეთ ხელი თითით', clear: 'წაშლა',
     agree: 'წავიკითხე შეთანხმება და ვეთანხმები მის პირობებს', send: 'ხელმოწერა', done: 'შეთანხმება ხელმოწერილია. გმადლობთ!',
     pdf: 'PDF-ის ჩამოტვირთვა', pdfWait: 'PDF მზადდება, განაახლეთ გვერდი ერთ წუთში.', sent: 'ხელმოწერილი PDF გამოგეგზავნათ Telegram-ში.',
     you: 'მონაწილე', test: 'დადასტურება (სატესტო რეჟიმი)', noTg: 'Telegram-ის ჩატვირთვა ვერ მოხერხდა. განაახლეთ გვერდი.' },
   ru: { title: 'Соглашение о подключении к платформе', read: 'Пожалуйста, внимательно прочитайте соглашение', toSign: 'К подписи ↓',
-    step0: '1. Ваши реквизиты', iban: 'Укажите хотя бы один счёт — на него будут приходить выплаты.', ie: 'Номер ИП (ი/მ), необязательно', ieHint: 'Можно добавить позже в профиле', saveD: 'Внести в соглашение', savedD: 'Сохранено — текст соглашения обновлён', needIban: 'Сначала укажите IBAN',
+    step0: '1. Ваши реквизиты', iban: 'Укажите хотя бы один счёт — на него будут приходить выплаты.', ie: 'Номер ИП (ი/მ), необязательно', ieHint: 'Можно добавить позже в профиле', saveD: 'Внести в соглашение', savedD: 'Сохранено — текст соглашения обновлён', needIban: 'Укажите IBAN (шаг 1)', saveFirst: 'Нажмите «Внести в соглашение» (шаг 1)', needTg: 'Подтвердите себя через Telegram (шаг 2)',
     step1: '2. Подтвердите себя через Telegram', tgBtn: 'Подтвердить через Telegram', tgHint: 'Telegram попросит подтвердить вход в приложении.',
     tgOnly: 'Только аккаунт', tgOk: 'Подтверждено', step2: '3. Распишитесь пальцем', clear: 'Стереть',
     agree: 'Я прочитал(а) соглашение и согласен(на) с его условиями', send: 'Подписать', done: 'Соглашение подписано. Спасибо!',
     pdf: 'Скачать PDF', pdfWait: 'PDF готовится, обновите страницу через минуту.', sent: 'Подписанный PDF отправлен вам в Telegram.',
     you: 'Участник', test: 'Подтвердить (тестовый режим)', noTg: 'Не удалось загрузить Telegram. Обновите страницу.' },
   en: { title: 'Platform Agreement', read: 'Please read the agreement carefully', toSign: 'Go to signing ↓',
-    step0: '1. Your details', iban: 'Enter at least one account — your payouts go there.', ie: 'IE number (ი/მ), optional', ieHint: 'You can add it later in your profile', saveD: 'Put into the agreement', savedD: 'Saved — the agreement text is updated', needIban: 'Enter an IBAN first',
+    step0: '1. Your details', iban: 'Enter at least one account — your payouts go there.', ie: 'IE number (ი/მ), optional', ieHint: 'You can add it later in your profile', saveD: 'Put into the agreement', savedD: 'Saved — the agreement text is updated', needIban: 'Enter an IBAN (step 1)', saveFirst: 'Press «Put into the agreement» (step 1)', needTg: 'Confirm yourself with Telegram (step 2)',
     step1: '2. Confirm yourself with Telegram', tgBtn: 'Confirm with Telegram', tgHint: 'Telegram will ask you to confirm in the app.',
     tgOnly: 'Only the account', tgOk: 'Confirmed', step2: '3. Sign with your finger', clear: 'Clear',
     agree: 'I have read the agreement and agree to its terms', send: 'Sign', done: 'Agreement signed. Thank you!',
@@ -159,12 +159,12 @@ export function NdaSignPage() {
             </div>
           </>}
     </div>
-    <div className="col gap-sm" style={ready ? undefined : { opacity: 0.45, pointerEvents: 'none' }}>
-      {v.confirmed && !hasIban && <span className="muted" style={{ fontSize: 13 }}>{t.needIban}</span>}
+    <div className="col gap-sm">
       <span className="label">{t.step2}</span>
       <SignaturePad padRef={pad} onInk={setInk} clearLabel={t.clear} />
       <Checkbox checked={agree} onChange={setAgree}>{t.agree}</Checkbox>
     </div>
+    {!ready && <div className="alert alert-warn">{[!hasIban || dirty ? (dirty ? t.saveFirst : t.needIban) : '', !v.confirmed ? t.needTg : ''].filter(Boolean).join(' · ')}</div>}
     {err && <div className="alert alert-warn">{err}</div>}
     <Button size="lg" variant="ok" disabled={!(ready && ink && agree)} loading={sign.isPending} onClick={() => sign.mutate()}>{t.send}</Button>
   </>);

@@ -1,4 +1,4 @@
-"""Управление → Ключи (app/keys.py): superadmin adds integration keys in the CRM; they win over .env in every process,
+"""Управление → Ключи (app/keys.py): admin and above add integration keys in the CRM; they win over .env in every process,
 the value never comes back from the API, removing one falls back to .env, system keys stay .env-only."""
 import os
 
@@ -15,8 +15,10 @@ def test_keys_from_the_crm(db, client, monkeypatch):
     admin = make_user(db, "admin", "Иракли")
     h = auth(boss)
 
-    assert client.get("/api/keys", headers=auth(admin)).status_code == 403
-    assert client.put("/api/keys/APIFY_TOKEN", json={"value": "x" * 20}, headers=auth(admin)).status_code == 403
+    op = make_user(db, "operator", "Нино")
+    assert client.get("/api/keys", headers=auth(op)).status_code == 403
+    assert client.put("/api/keys/APIFY_TOKEN", json={"value": "x" * 20}, headers=auth(op)).status_code == 403
+    assert client.get("/api/keys", headers=auth(admin)).status_code == 200
 
     secret = "crm-maptiler-key-12345678"
     r = client.put("/api/keys/maptiler_key", json={"value": secret}, headers=h)

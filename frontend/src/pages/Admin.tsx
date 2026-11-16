@@ -512,7 +512,7 @@ function KeysAdmin() {
   if (q.isLoading) return <Loading />;
   if (q.error) return <ErrorBox error={q.error} />;
   return (
-    <Card label={t('Только суперадмин')} title={t('Ключи интеграций')}>
+    <Card label={t('Только для администраторов')} title={t('Ключи интеграций')}>
       <p className="muted" style={{ marginTop: 0 }}>{t('Ключ из CRM главнее ключа на сервере и начинает работать в течение минуты, без перезапуска. Значение после сохранения больше не показывается.')}</p>
       {itemsOf(q.data).map((k) => (
         <div key={k.name} className="list-row" style={{ flexWrap: 'wrap' }}>
@@ -543,20 +543,19 @@ function KeysAdmin() {
 
 export function AdminPage() {
   const [tab, setTab] = useState<'users' | 'sources' | 'ticker' | 'settings' | 'keys'>('users');
-  const isSuper = useAuth().hasRole(...SUPER_ROLES);
   return (
     <>
       <PageHead label={t('Только для администраторов')} title={t('Управление')} />
       <Tabs value={tab} onChange={setTab} tabs={[
         { value: 'users', label: t('Пользователи') }, { value: 'sources', label: t('Источники') },
         { value: 'ticker', label: t('Бегущая строка') }, { value: 'settings', label: t('Настройки') },
-        ...(isSuper ? [{ value: 'keys' as const, label: t('Ключи') }] : []),
+        { value: 'keys', label: t('Ключи') },
       ]} />
       {tab === 'users' && <Users />}
       {tab === 'sources' && <Sources />}
       {tab === 'ticker' && <TickerAdmin />}
       {tab === 'settings' && <SettingsAdmin />}
-      {tab === 'keys' && isSuper && <KeysAdmin />}
+      {tab === 'keys' && <KeysAdmin />}
     </>
   );
 }

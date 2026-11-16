@@ -133,7 +133,7 @@ def _key_name(name: str) -> str:
 
 
 @router.get("/keys")
-def keys_list(db: Session = Depends(get_db, scope="function"), user: User = Depends(require_level("superadmin"))):
+def keys_list(db: Session = Depends(get_db, scope="function"), user: User = Depends(require_level("admin"))):
     """Known + added keys: where the value comes from (crm / env / none) and its last 4 characters, never the value."""
     crm = keys.read(db)
     out = []
@@ -146,7 +146,7 @@ def keys_list(db: Session = Depends(get_db, scope="function"), user: User = Depe
 
 
 @router.put("/keys/{name}")
-def keys_put(name: str, body: KeyIn, db: Session = Depends(get_db, scope="function"), user: User = Depends(require_level("superadmin"))):
+def keys_put(name: str, body: KeyIn, db: Session = Depends(get_db, scope="function"), user: User = Depends(require_level("admin"))):
     name, value = _key_name(name), body.value.strip()
     if not value or len(value) > 4000 or "\n" in value:
         raise DomainError("bad_input", "Пустое или слишком длинное значение")
@@ -158,7 +158,7 @@ def keys_put(name: str, body: KeyIn, db: Session = Depends(get_db, scope="functi
 
 
 @router.delete("/keys/{name}")
-def keys_delete(name: str, db: Session = Depends(get_db, scope="function"), user: User = Depends(require_level("superadmin"))):
+def keys_delete(name: str, db: Session = Depends(get_db, scope="function"), user: User = Depends(require_level("admin"))):
     name = _key_name(name)
     db.execute(delete(Setting).where(Setting.key == keys.PREFIX + name))
     log_event(db, "setting", 0, "key_removed", user, name=name)

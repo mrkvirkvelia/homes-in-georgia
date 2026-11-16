@@ -1,4 +1,4 @@
-"""Integration keys entered in the CRM (Управление → Ключи, superadmin): rows `key:<NAME>` of the settings table, over
+"""Integration keys entered in the CRM (Управление → Ключи, admin and above): rows `key:<NAME>` of the settings table, over
 .env. Every process (api, worker, bot, the parser's scripts) calls refresh(): at most once a minute it puts them into
 os.environ and onto app.config.settings, so a new Apify / OpenAI / MapTiler key works without a restart; a key removed
 in the CRM falls back to .env. The values never leave the server: the API shows the last 4 characters only."""

@@ -13,6 +13,7 @@ DEFAULTS = {
     "sla_slots_to_client_min": str(env.SLA_SLOTS_TO_CLIENT_MIN), "client_promise_min": str(env.CLIENT_PROMISE_MIN),
     "sla_enabled": "1",  # 0: no step deadlines on leads (no timers, reminders, escalations)
     "take_idle_min": "60",  # an object taken from «Новые объявления» with no action goes back after N min; 0 = off
+    "owner_lease_remind_days": "30,7",  # «Собственник сдал»: Telegram to the agent N days before the lease ends
     "room_picker": "1",  # media upload: the per-photo room tag (always optional); 0 hides it
     "dashboard_metrics": '["deals","platform","active_objects","leaderboard","funnel","response_times"]',
 }
@@ -63,6 +64,10 @@ def validate(body: dict) -> None:
             raise DomainError("bad_setting", f"{k} must be a whole number of minutes in 1..1440")
 
 
+    if "owner_lease_remind_days" in body:
+        v = str(body["owner_lease_remind_days"]).replace(" ", "")
+        if v and not all(x.isdigit() and int(x) <= 365 for x in v.split(",")):
+            raise DomainError("bad_setting", "owner_lease_remind_days: days before the lease end, e.g. 30,7")
     if "take_idle_min" in body:
         v = str(body["take_idle_min"]).strip()
         if not v.isdigit() or int(v) > 1440:

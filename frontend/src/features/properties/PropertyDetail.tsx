@@ -160,7 +160,7 @@ function OwnerOutcomes({ p }: { p: Property }) {
   const done = (msg: string) => (r: Property) => { set(r); toast(msg); setThinkOpen(false); setComment(''); };
   const fail = (e: unknown) => toast(errText(e), true);
   const think = useMutation({ mutationFn: () => api.properties.thinking(p.id, localToIso(until)!, comment), onSuccess: done(t('Бот напомнит перезвонить')), onError: fail });
-  const rented = useMutation({ mutationFn: (c: string) => api.properties.rentedSelf(p.id, c), onSuccess: done(t('Отмечено: собственник сдал сам')), onError: fail });
+  const [rentedOpen, setRentedOpen] = useState(false);
   const refused = useMutation({ mutationFn: (c: string) => api.properties.refused(p.id, c), onSuccess: done(t('Объект вернулся в ленту: другой агент увидит, что вы звонили')), onError: fail });
   const ask = (q: string, m: { mutate: (c: string) => void }) => { const c = window.prompt(q, ''); if (c !== null) m.mutate(c); };
   return (
@@ -170,9 +170,10 @@ function OwnerOutcomes({ p }: { p: Property }) {
       )}
       <div className="row row-wrap gap-sm">
         {p.status !== 'shoot_scheduled' && <Button variant="secondary" size="sm" onClick={() => setThinkOpen(true)}><Clock size={14} />{t('Думает')}</Button>}
-        <Button variant="secondary" size="sm" loading={rented.isPending} onClick={() => ask(t('Собственник сдал сам? Объект закроется и не вернётся в ленту. Комментарий (необязательно):'), rented)}><Home size={14} />{t('Сдал сам')}</Button>
+        <Button variant="secondary" size="sm" onClick={() => setRentedOpen(true)}><Home size={14} />{t('Сдал сам')}</Button>
         <Button variant="ghost" size="sm" loading={refused.isPending} onClick={() => ask(t('Собственник не хочет работать. Комментарий для следующего агента (необязательно):'), refused)}><PhoneOff size={14} />{t('Не хочет работать')}</Button>
       </div>
+      {rentedOpen && <OwnerLeaseModal p={p} onClose={() => setRentedOpen(false)} />}
       <Modal open={thinkOpen} onClose={() => setThinkOpen(false)} title={t('Собственник думает')}>
         <div className="col gap-lg">
           <Field label={t('Когда перезвонить')}><Input type="datetime-local" value={until} onChange={(e) => setUntil(e.target.value)} /></Field>
@@ -182,6 +183,55 @@ function OwnerOutcomes({ p }: { p: Property }) {
         </div>
       </Modal>
     </div>
+  );
+}
+
+const dayIso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+const plusMonths = (iso: string, m: number) => { const [y, mo, d] = iso.split('-').map(Number); return dayIso(new Date(y, mo - 1 + m, d)); };
+
+/** «Сдано с / по» of «Собственник сдал»: both required, «по» after «с»; +6 / +12 мес from the start (Stanislav 11-16) */
+function useLease(p?: Property) {
+  const [from, setFrom] = useState(() => p?.rent_from?.slice(0, 10) || dayIso(new Date()));
+  const [to, setTo] = useState(p?.rent_to?.slice(0, 10) || '');
+  const ok = !!from && !!to && to > from;
+  const fields = (
+    <>
+      <div className="form-grid">
+        <Field label={t('Сдано с')}><Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} /></Field>
+        <Field label={t('Сдано по')} hint={from && to && to <= from ? t('«Сдано по» должно быть позже «Сдано с»') : undefined}><Input type="date" min={from || undefined} value={to} onChange={(e) => setTo(e.target.value)} /></Field>
+      </div>
+      <div className="row gap-sm">
+        <Button variant="secondary" size="sm" disabled={!from} onClick={() => setTo(plusMonths(from, 6))}>{t('+6 мес')}</Button>
+        <Button variant="secondary" size="sm" disabled={!from} onClick={() => setTo(plusMonths(from, 12))}>{t('+12 мес')}</Button>
+      </div>
+    </>
+  );
+  return { ok, fields, lease: { rent_from: from, rent_to: to } };
+}
+
+/** «Сдал сам» on a working object, or the dates of an object archived «Собственник сдал» without them (datesOnly). */
+function OwnerLeaseModal({ p, onClose, datesOnly }: { p: Property; onClose: () => void; datesOnly?: boolean }) {
+  const { toast, set } = useProp(p.id);
+  const { ok, fields, lease } = useLease(datesOnly ? p : undefined);
+  const [price, setPrice] = useState('');
+  const [comment, setComment] = useState('');
+  const m = useMutation({
+    mutationFn: () => datesOnly ? api.properties.update(p.id, lease) : api.properties.rentedSelf(p.id, { ...lease, price: price || undefined, comment: comment || undefined }),
+    onSuccess: (r) => { set(r); toast(datesOnly ? t('Даты аренды сохранены') : t('Отмечено: собственник сдал сам')); onClose(); },
+    onError: (e) => toast(errText(e), true),
+  });
+  return (
+    <Modal open onClose={onClose} title={datesOnly ? t('Даты аренды') : t('Собственник сдал')}>
+      <div className="col gap-lg">
+        {fields}
+        {!datesOnly && <>
+          <Field label={t('Цена, $ (необязательно)')}><Input inputMode="numeric" value={price} onChange={(e) => setPrice(e.target.value.replace(/\D/g, ''))} /></Field>
+          <Field label={t('Комментарий')}><Input value={comment} onChange={(e) => setComment(e.target.value)} /></Field>
+        </>}
+        {!datesOnly && <div className="muted" style={{ fontSize: 12 }}>{t('Объект уйдёт в архив. Перед окончанием аренды бот напомнит позвонить собственнику, в календаре будет «Освобождается».')}</div>}
+        <Button block disabled={!ok} loading={m.isPending} onClick={() => m.mutate()}>{t('Сохранить')}</Button>
+      </div>
+    </Modal>
   );
 }
 
@@ -1115,10 +1165,12 @@ function SiteButton({ p }: { p: Property }) {
     </>;
 }
 
-function Resume({ p }: { p: Property }) {
+/** «Снять с паузы», or «Снова в работу» for «Собственник сдал» (back to «Взят», call the owner) */
+export function Resume({ p }: { p: Property }) {
   const { toast, set } = useProp(p.id);
-  const m = useMutation({ mutationFn: () => api.properties.resume(p.id), onSuccess: (r) => { set(r); toast(t('Объект снова в базе')); }, onError: (e) => toast(errText(e), true) });
-  return <Button size="sm" loading={m.isPending} onClick={() => m.mutate()}><RotateCcw size={14} />{t('Снять с паузы')}</Button>;
+  const work = p.archive_reason === 'rented_by_owner';
+  const m = useMutation({ mutationFn: () => api.properties.resume(p.id), onSuccess: (r) => { set(r); toast(work ? t('Объект снова в работе') : t('Объект снова в базе')); }, onError: (e) => toast(errText(e), true) });
+  return <Button size="sm" loading={m.isPending} onClick={() => m.mutate()}><RotateCcw size={14} />{work ? t('Снова в работу') : t('Снять с паузы')}</Button>;
 }
 
 
@@ -1344,9 +1396,13 @@ function ArchiveModal({ p, open, onClose, preset = '' }: { p: Property; open: bo
   const [reason, setReason] = useState(preset);
   const [comment, setComment] = useState('');
   const [dup, setDup] = useState('');
+  const [price, setPrice] = useState('');
+  const owner = reason === 'rented_by_owner';
+  const L = useLease();
   const nav = useNavigate();
   const m = useMutation({
-    mutationFn: () => api.properties.archive(p.id, { reason, comment: comment || undefined, duplicate_of: reason === 'duplicate' ? Number(dup.replace('#', '')) || null : null }),
+    mutationFn: () => api.properties.archive(p.id, { reason, comment: comment || undefined, duplicate_of: reason === 'duplicate' ? Number(dup.replace('#', '')) || null : null,
+      ...(owner ? { ...L.lease, price: price || undefined } : {}) }),
     onSuccess: (r) => {
       if (r.archive_reason === 'duplicate' && r.duplicate_of && !r.change_request) {  // the duplicate is deleted: go to the original
         toast(t('Дубль удалён')); onClose();
@@ -1357,17 +1413,32 @@ function ArchiveModal({ p, open, onClose, preset = '' }: { p: Property; open: bo
     },
     onError: (e) => toast(errText(e), true),
   });
-  const ok = !!reason && (reason !== 'other' || !!comment.trim()) && (reason !== 'duplicate' || !!dup.trim());
+  const ok = !!reason && (reason !== 'other' || !!comment.trim()) && (reason !== 'duplicate' || !!dup.trim()) && (!owner || L.ok);
   return (
     <Modal open={open} onClose={onClose} title={preset ? ARCHIVE_REASON[preset] : t('В архив')}>
       <div className="col gap-lg">
         <Field label={t('Причина')}><Select value={reason} placeholder="—" onChange={(e) => setReason(e.target.value)} options={Object.entries(ARCHIVE_REASON).filter(([value]) => value !== 'idle_return').map(([value, label]) => ({ value, label }))} /></Field>
         {reason === 'duplicate' && <Field label={t('Дубль объекта №')} hint={t('Номер объекта, который остаётся в базе. Этот объект будет удалён, его заявки, показы и сделки перейдут туда')}><Input inputMode="numeric" value={dup} placeholder="#123" onChange={(e) => setDup(e.target.value)} /></Field>}
+        {owner && <>{L.fields}<Field label={t('Цена, $ (необязательно)')}><Input inputMode="numeric" value={price} onChange={(e) => setPrice(e.target.value.replace(/\D/g, ''))} /></Field></>}
         <Field label={reason === 'other' ? t('Комментарий (обязательно)') : t('Комментарий')}><Input value={comment} onChange={(e) => setComment(e.target.value)} /></Field>
         {(p.locked_fields || []).length > 0 && <div className="alert alert-info" style={{ fontSize: 13 }}>{t('Объект проверен оператором: архивация уйдёт оператору на проверку.')}</div>}
         <Button block disabled={!ok} loading={m.isPending} onClick={() => { if (reason !== 'duplicate' || window.confirm(t('Объект будет удалён как дубль. Это нельзя отменить'))) m.mutate(); }}><Archive size={16} />{(p.locked_fields || []).length ? t('Отправить запрос') : preset ? t('Подтвердить') : t('В архив')}</Button>
       </div>
     </Modal>
+  );
+}
+
+/** The archived «Собственник сдал»: the lease (the flat frees up then), or «укажите даты аренды» for one without dates */
+function OwnerLeaseNote({ p, canWork }: { p: Property; canWork: boolean }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className={`alert ${p.rent_to ? 'alert-info' : 'alert-warn'}`}>
+      <span>{p.rent_to
+        ? t('Сдано собственником {from} – {to} · освобождается {to}', { from: p.rent_from ? fmtDate(p.rent_from) : '…', to: fmtDate(p.rent_to) })
+        : <b>{t('Укажите даты аренды: без них квартира потеряется, когда освободится')}</b>}</span>
+      {canWork && <Button size="sm" variant="secondary" onClick={() => setOpen(true)}><Pencil size={14} />{p.rent_to ? t('Изменить даты') : t('Указать даты')}</Button>}
+      {open && <OwnerLeaseModal p={p} datesOnly onClose={() => setOpen(false)} />}
+    </div>
   );
 }
 
@@ -1463,9 +1534,10 @@ export function PropertyDetail({ id, compact }: { id: number; compact?: boolean 
                 {p.archive_reason === 'duplicate' && p.duplicate_of ? <> {t('объекта')} <Link to={objLink(p.duplicate_of)}>#{p.duplicate_of}</Link></> : null}
                 {p.archive_comment ? ` · ${p.archive_comment}` : ''}
               </span>
-              {canWork && p.archive_reason === 'paused' && <Resume p={p} />}
+              {canWork && ['paused', 'rented_by_owner'].includes(p.archive_reason || '') && <Resume p={p} />}
             </div>
           )}
+          {p.status === 'archived' && p.archive_reason === 'rented_by_owner' && <OwnerLeaseNote p={p} canWork={canWork} />}
           {!!p.change_requests?.length && (
             <Card label={t('Запрос оператору')} title={`${t('На проверке у оператора')} · ${p.change_requests.length}`}>
               {p.change_requests.map((r) => <RequestRow key={r.id} r={r} showObject={false} />)}

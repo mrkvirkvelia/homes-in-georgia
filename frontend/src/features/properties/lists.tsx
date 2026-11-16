@@ -13,9 +13,9 @@ import { ChipButton, CompareSide, CopyPhone, ExclusiveConflictBadge, ListingCard
 import { errText, useToast } from '../../components/toast';
 import { Badge, Button, Empty, ErrorBox, Field, Loading, Modal, MultiSelect, Select, Seg } from '../../components/ui';
 import { ListingsMap } from './ListingsMap';
-import { metroLabel } from './PropertyDetail';
+import { Resume, metroLabel } from './PropertyDetail';
 import { usePageState } from '../../layout/back';
-import { ARCHIVE_REASON, PLATFORM, PROPERTY_BOARD, PROPERTY_STATUS, SOURCE_LABEL, ago, bedroomsLabel, demandLabel, districtLabel, fmtDateTime, formatPhone, money, phoneBlur, phoneFocus, phoneInput } from '../../lib/format';
+import { ARCHIVE_REASON, PLATFORM, PROPERTY_BOARD, PROPERTY_STATUS, SOURCE_LABEL, ago, bedroomsLabel, demandLabel, districtLabel, fmtDate, fmtDateTime, formatPhone, money, phoneBlur, phoneFocus, phoneInput } from '../../lib/format';
 import { LOCALE, lx, t } from '../../lib/i18n';
 
 /** "fb:Some group" -> "Facebook · Some group"; site sources stay as they are. */
@@ -448,12 +448,32 @@ export function MyProperties({ base = '' }: { base?: string }) {
   return (
     <div className="col">
       <Seg value={view} onChange={setView} options={[{ value: 'board', label: t('Доска') }, { value: 'list', label: t('Списком') }]} />
+      <FreeingList base={base} />
       {view === 'board' ? <PropertyBoard base={base} /> : <PropertyList mine base={base} />}
     </div>
   );
 }
 
 const WORK = PROPERTY_BOARD.filter((s) => s !== 'published' && s !== 'rented');
+
+/** «Освобождаются»: «Собственник сдал» objects whose lease has ended (backend ?freeing=1): call the owner, one click
+ * «Снова в работу» brings the object back to «Взят» (Stanislav 11-16). Agents see their own, staff all. */
+function FreeingList({ base = '' }: { base?: string }) {
+  const { data } = useQuery({ queryKey: ['properties', 'freeing'], queryFn: () => api.properties.list({ freeing: 1, limit: 100 }) });
+  const items = itemsOf(data);
+  if (!items.length) return null;
+  return (
+    <div className="card col gap-sm" style={{ padding: 14 }}>
+      <div className="label">{t('Освобождаются')} <span className="tab-count">{items.length}</span></div>
+      {items.map((p) => (
+        <div key={p.id} className="row row-wrap gap-sm" style={{ justifyContent: 'space-between' }}>
+          <Link to={propLink(base, p.id)}><b>{p.address || `#${p.id}`}</b> <span className="muted">· {t('свободна с {d}', { d: fmtDate(p.rent_to) })}{p.agent?.name ? ` · ${p.agent.name}` : ''}</span></Link>
+          <Resume p={p} />
+        </div>
+      ))}
+    </div>
+  );
+}
 
 /** «В работе»: the board, or the same objects as a table (Stanislav 11-11); published / rented live in «База объектов».
  * Board: the «СТАТУСЫ» panel (tap = scroll to that column); list: stage chips with counts filter it (again = all). */
@@ -470,6 +490,7 @@ export function WorkProperties() {
         {view === 'list' && <Seg value={stage} onChange={(s) => setStage(stage === s ? '' : s)}
           options={WORK.map((s) => ({ value: s, label: <>{PROPERTY_STATUS[s]} <span className="tab-count">{data?.[s]?.length ?? 0}</span></> }))} />}
       </div>
+      <FreeingList />
       {view === 'board' ? <PropertyBoard statusBar /> : <PropertyList key="work" status={stage || WORK.join(',')} />}
     </div>
   );

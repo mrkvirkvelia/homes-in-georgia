@@ -16,6 +16,9 @@ type L<T> = Page<T> | T[];
 const LIMIT = 200;
 const then = <A, B>(p: Promise<A>, f: (a: A) => B) => p.then(f);
 
+/** «Собственник сдал»: the owner's own lease (price optional, goes to the archive comment) */
+export interface OwnerLease { rent_from: string; rent_to: string; price?: string }
+
 export type PublishProgress = { step?: 'files' | 'originals' | 'video' | 'photos' | 'post' | 'site'; n?: number; of?: number; chat?: string };
 
 export const api = {
@@ -71,7 +74,7 @@ export const api = {
   },
 
   properties: {
-    list: (q?: PropertyScope & { q?: string; rented?: number; limit?: number; offset?: number; source?: string[]; district?: string[]; metro?: string; bedrooms?: string; price_min?: string; price_max?: string; archive_reason?: string }) => then(http.get<L<Property>>('/properties', { limit: LIMIT, ...q }), (d) => normPage(d, normProperty)),
+    list: (q?: PropertyScope & { q?: string; rented?: number; freeing?: number; limit?: number; offset?: number; source?: string[]; district?: string[]; metro?: string; bedrooms?: string; price_min?: string; price_max?: string; archive_reason?: string }) => then(http.get<L<Property>>('/properties', { limit: LIMIT, ...q }), (d) => normPage(d, normProperty)),
     /** the base tabs' filter options with counts (Stanislav 11-13) */
     facets: (q: PropertyScope) => http.get<Record<'sources' | 'districts' | 'metros', { value: string; count: number }[]>>('/properties/facets', q),
     counts: (deal?: 'rent' | 'sale') => http.get<Record<string, number>>('/properties/counts', { deal }),
@@ -119,7 +122,7 @@ export const api = {
     /** what the running publish does now (backend app/progress.py); {} when none runs */
     publishProgress: (id: number) => http.get<PublishProgress>(`/properties/${id}/publish/progress`),
     /** reason: ARCHIVE_REASON key; a verified object's agent gets change_request back instead */
-    archive: (id: number, b: { reason: string; comment?: string; duplicate_of?: number | null }) => http.post<Property>(`/properties/${id}/archive`, b),
+    archive: (id: number, b: { reason: string; comment?: string; duplicate_of?: number | null } & Partial<OwnerLease>) => http.post<Property>(`/properties/${id}/archive`, b),
     /** agent's «Запрос оператору»: move the owner to another agent (staff: moved right away, change_request null) */
     transferRequest: (id: number, agent_id: number, reason?: string) => http.post<{ change_request: ChangeRequest | null }>(`/properties/${id}/transfer-request`, { agent_id, reason }),
     elsewhere: (id: number) => http.get<{ items: Elsewhere[] }>(`/properties/${id}/elsewhere`),
@@ -127,7 +130,8 @@ export const api = {
     refused: (id: number, comment?: string) => http.post<Property>(`/properties/${id}/refused`, { comment }),
     thinking: (id: number, until: string, comment?: string) => http.post<Property>(`/properties/${id}/thinking`, { until, comment }),
     resume: (id: number) => http.post<Property>(`/properties/${id}/resume`),
-    rentedSelf: (id: number, comment?: string) => http.post<Property>(`/properties/${id}/rented-self`, { comment }),
+    /** «Собственник сдал»: the owner's lease dates are required (Stanislav 11-16) */
+    rentedSelf: (id: number, b: OwnerLease & { comment?: string }) => http.post<Property>(`/properties/${id}/rented-self`, b),
     history: (id: number) => then(http.get<L<EventItem>>(`/properties/${id}/history`), (d) => normPage(d, normEvent)),
     dealSearch: (q: { q?: string; pid?: number; deal_type?: string; lead_id?: number }) => http.get<{ items: DealPick[] }>('/properties/deal-search', q),
     /** the contract wizard's prefill from the object card («Оформить договор аренды», 11-15) */

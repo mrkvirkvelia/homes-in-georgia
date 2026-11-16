@@ -257,7 +257,7 @@ def test_owner_thinking_reminds_then_rented_self_closes(db, client, sent):
     worker.tick()
     assert sent.of("property_owner_followup")
 
-    r = client.post(f"/api/properties/{pid}/rented-self", json={"comment": "сдал своим"}, headers=auth(david)).json()
+    r = client.post(f"/api/properties/{pid}/rented-self", json={"comment": "сдал своим", "rent_from": "2026-11-01", "rent_to": "2027-11-01"}, headers=auth(david)).json()
     assert r["status"] == "archived" and r["next_call_at"] is None
     assert db.get(Listing, "lv16").status_reason == "сдал сам"
     assert "lv16" not in {i["id"] for i in client.get("/api/listings/new", headers=auth(david)).json()["items"]}

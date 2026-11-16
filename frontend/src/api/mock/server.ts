@@ -239,7 +239,8 @@ on('GET', '/properties', (_m, _b, q) => {
   ps = ps.filter((p) => any('source', p.source_type) && any('district', p.district) && (!q.get('metro') || metroOf(p) === q.get('metro'))
     && (!beds.length || beds.some((b) => (b === 4 ? (p.bedrooms ?? -1) >= 4 : p.bedrooms === b)))
     && (!q.get('price_min') || (p.price ?? 0) >= Number(q.get('price_min'))) && (!q.get('price_max') || (p.price ?? 0) <= Number(q.get('price_max')))
-    && (!q.get('archive_reason') || p.archive_reason === q.get('archive_reason')));
+    && (!q.get('archive_reason') || p.archive_reason === q.get('archive_reason'))
+    && (!q.get('freeing') || (p.status === 'archived' && p.archive_reason === 'rented_by_owner' && !!p.rent_to && p.rent_to <= new Date().toISOString().slice(0, 10))));
   return page(ps.map((p) => propOut(p, currentUser())));
 });
 on('GET', '/properties/facets', (_m, _b, q) => {
@@ -369,9 +370,26 @@ on('POST', '/properties/:id/publish', (m, b) => {
   propEvent(p.id, 'published', [site && 'на сайте', tg && 'в Telegram'].filter(Boolean).join(' и '), u);
   return propOut(p, u);
 });
-on('POST', '/properties/:id/archive', (m) => {
+on('POST', '/properties/:id/archive', (m, body) => {
+  const b = body as { reason?: string; rent_from?: string; rent_to?: string } | undefined;
   const u = currentUser(); const p = getProp(Number(m[1]));
+  if (b?.reason === 'rented_by_owner') { if (!b.rent_from || !b.rent_to) throw new ApiError(400, 'Укажите, с какого по какое число собственник сдал'); p.rent_from = b.rent_from; p.rent_to = b.rent_to; }
+  p.archive_reason = b?.reason ?? null;
   p.status = 'archived' as PropertyStatus; propEvent(p.id, 'archived', 'В архив', u);
+  return propOut(p, u);
+});
+on('POST', '/properties/:id/rented-self', (m, body) => {
+  const b = body as { rent_from?: string; rent_to?: string; price?: string } | undefined;
+  const u = currentUser(); const p = getProp(Number(m[1]));
+  if (!b?.rent_from || !b?.rent_to) throw new ApiError(400, 'Укажите, с какого по какое число собственник сдал');
+  Object.assign(p, { status: 'archived' as PropertyStatus, archive_reason: 'rented_by_owner', rent_from: b.rent_from, rent_to: b.rent_to, archive_comment: b.price ? 'сдано за $' + b.price : null });
+  propEvent(p.id, 'owner_rented_self', 'Собственник сдал', u);
+  return propOut(p, u);
+});
+on('POST', '/properties/:id/resume', (m) => {
+  const u = currentUser(); const p = getProp(Number(m[1]));
+  Object.assign(p, p.archive_reason === 'rented_by_owner' ? { status: 'taken' as PropertyStatus, rent_from: null, rent_to: null } : { status: 'published' as PropertyStatus });
+  p.archive_reason = null;
   return propOut(p, u);
 });
 

@@ -87,7 +87,7 @@ def _latin(word: str) -> str:
 
 
 def tag_owner(db: Session, tag: str, exclude_id: int | None = None) -> User | None:
-    q = select(User).where(func.lower(User.agent_tag) == tag.lstrip("#").lower())
+    q = select(User).where(func.lower(User.agent_tag) == tag.lstrip("#").lower(), User.deleted_at.is_(None))
     return db.scalar(q.where(User.id != exclude_id) if exclude_id else q)
 
 
@@ -113,7 +113,7 @@ def clean_agent_tag(db: Session, tag: str | None, uid: int | None = None) -> str
         raise DomainError("bad_tag", "Хэштег агента: латиница и цифры, с буквы, например #Zaza или #ArturB")
     other = tag_owner(db, tag, uid)
     if other is not None:
-        raise DomainError("conflict", f"Хэштег #{tag} уже у агента {other.name}")
+        raise DomainError("conflict", f"Хэштег #{tag} уже занят: {other.name} ({other.role}{', скрыт' if other.deleted_at else ''}, id {other.id})")
     return tag
 
 
@@ -293,8 +293,9 @@ def remove(db: Session, uid: int, actor: User) -> int:
         raise DomainError("forbidden", "Суперадмина удалить нельзя", 403)
     moved = db.execute(update(Property).where(Property.agent_id == uid).values(agent_id=None)).rowcount
     db.execute(update(Car).where(Car.agent_id == uid).values(agent_id=None))
+    old_tag, u.agent_tag = u.agent_tag, None  # a removed user must not hold a hashtag
     u.deleted_at = u.deleted_at or now()
-    log_event(db, "user", uid, "removed", actor, objects_to_platform=moved)
+    log_event(db, "user", uid, "removed", actor, objects_to_platform=moved, agent_tag=old_tag)
     db.commit()
     return moved
 

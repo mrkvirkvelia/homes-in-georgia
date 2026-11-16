@@ -67,3 +67,26 @@ def test_avatar_upload(db, client):
     assert client.post(f"/api/users/{other.id}/photo", files={"file": ("a.png", _png(), "image/png")}, headers=auth(admin)).status_code == 200
     assert client.post(f"/api/users/{other.id}/photo", files={"file": ("a.txt", b"hello", "text/plain")}, headers=auth(admin)).status_code == 400
     assert db.get(User, agent.id) is not None
+
+
+def test_removed_user_frees_agent_tag(client, db):
+    from app.models import Event
+    from app.services import users as users_svc
+    h = auth(make_user(db, "admin", name="Админ Один"))
+    gone = make_user(db, "agent", name="Giorgi Old", agent_tag="Giorgi", is_active=False)
+    assert client.delete(f"/api/users/{gone.id}", headers=h).status_code == 200
+    db.refresh(gone)
+    assert gone.agent_tag is None
+    ev = db.query(Event).filter_by(entity="user", entity_id=str(gone.id), action="removed").one()
+    assert ev.data["agent_tag"] == "Giorgi"
+    assert users_svc.tag_owner(db, "Giorgi") is None
+    new = make_user(db, "agent", name="Giorgi New")
+    assert users_svc.clean_agent_tag(db, "#Giorgi", new.id) == "Giorgi"
+    new.agent_tag = "Giorgi"
+    db.commit()
+    other = make_user(db, "agent", name="Other")
+    try:
+        users_svc.clean_agent_tag(db, "Giorgi", other.id)
+        raise AssertionError("expected conflict")
+    except users_svc.DomainError as e:
+        assert f"id {new.id}" in str(e) and "agent" in str(e)

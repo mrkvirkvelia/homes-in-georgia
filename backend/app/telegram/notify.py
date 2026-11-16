@@ -897,7 +897,7 @@ def agency_chat():
 
 
 def media_paths(pid, tmp, ids=None):
-    """[(kind, local path)] of the first 10 files that exist (MEDIA_STORAGE=s3: downloaded into the tmp dir).
+    """[(kind, local path, storage key)] of the first 10 files that exist (MEDIA_STORAGE=s3: downloaded into the tmp dir).
     ids: the operator's pick in album order (None = all, by position)."""
     rows = store.q("SELECT id, kind, path FROM property_media WHERE property_id = %s AND kind IN ('photo', 'video') ORDER BY position, id", (pid,))
     if ids is not None:
@@ -908,7 +908,7 @@ def media_paths(pid, tmp, ids=None):
         if len(out) == 10:
             break
         if p := storage.fetch(r["path"], tmp):
-            out.append((r["kind"] or "photo", p))
+            out.append((r["kind"] or "photo", p, r["path"]))
     return out
 
 
@@ -982,6 +982,32 @@ def _bot_media(media, tmp):
     return [x for x in out if x]
 
 
+TG_VIDEO_MAX = 36 * 2**20  # the prepared copy leaves ~12 MB of the upload for the album's photos
+
+
+def _tg_video_key(key):
+    return f"tgvideo/{key}.mp4"
+
+
+def _tg_video(key, tmp, src=None):
+    """The Telegram-ready copy of a stored video (upright 720p H.264 ≤ TG_VIDEO_MAX) -> a local path: from the storage
+    when made before (worker job tg_video at upload), else made now and stored, so a re-publish never encodes again;
+    the original when it already fits and is upright or ffmpeg fails. 2026-11-16: a 4K HEVC iPhone .mov took ~80 s of
+    ffmpeg (decoding, not the x264 preset) inside the publish request."""
+    ck = _tg_video_key(key)
+    if (not storage.is_s3() or storage.s3_has(ck)) and (p := storage.fetch(ck, tmp)):
+        return p
+    src = src or storage.fetch(key, tmp)
+    if not src or (os.path.getsize(src) <= TG_VIDEO_MAX and not _rotation(src)):
+        return src
+    out = _squeeze_video(src, tmp, TG_VIDEO_MAX)
+    if not out:
+        return src
+    with open(out, "rb") as fh:
+        storage.put(ck, fh.read())
+    return out
+
+
 def _squeeze_video(path, tmp, max_bytes):
     """ffmpeg re-encode to fit max_bytes (bitrate from the duration, 720p, AAC 64k) -> the new path or None."""
     import subprocess
@@ -994,7 +1020,8 @@ def _squeeze_video(path, tmp, max_bytes):
         out = os.path.join(tmp, "v_" + os.path.basename(path) + ".mp4")
         subprocess.run(["ffmpeg", "-y", "-v", "error", "-i", path, "-vf", "scale=-2:'min(720,ih)'", "-c:v", "libx264",
                         "-preset", "veryfast", "-b:v", f"{kbps}k", "-maxrate", f"{kbps}k", "-bufsize", f"{2 * kbps}k",
-                        "-c:a", "aac", "-b:a", "64k", "-movflags", "+faststart", out], check=True, timeout=900)
+                        "-c:a", "aac", "-b:a", "64k", "-movflags", "+faststart", out], check=True, timeout=900,
+                       preexec_fn=lambda: os.nice(10))  # the API shares the CPU
         if os.path.getsize(out) <= max_bytes:
             return out
         raise ValueError(f"{os.path.getsize(out) // 2**20} MB after re-encoding")
@@ -1089,13 +1116,14 @@ def publish_post(prop):
     caption = post_html(g(prop, "post_text") or g(prop, "description") or prop_title(prop),
                         g(prop, "id") if keys is None else None)
     with tempfile.TemporaryDirectory() as tmp:  # [(photo|video, storage key)]: sale objects and cars keep keys in the row
-        media = ([(k, p) for k, key in keys[:10] if (p := storage.fetch(key, tmp))] if keys is not None
+        media = ([(k, p, key) for k, key in keys[:10] if (p := storage.fetch(key, tmp))] if keys is not None
                  else media_paths(g(prop, "id"), tmp, g(prop, "post_media_ids")))
         sent = []
         if media and originals_topic:
-            sent += send_group(chat, originals_topic, [("document", p) for _, p in media]) or []
+            sent += send_group(chat, originals_topic, [("document", p) for _, p, _ in media]) or []
         m = None
-        ready = _bot_media(media, tmp)  # once: a squeezed video is reused by the album fallback
+        # once: a squeezed video is reused by the album fallback; videos as prepared at upload (tg_video)
+        ready = _bot_media([(k, _tg_video(key, tmp, p) if k == "video" else p) for k, p, key in media], tmp)
         # RICH_POSTS=1: the post as a rich message (Irakli 2026-11-09), unless the operator rewrote the caption by hand;
         # Telegram refusing it falls back to the album below
         if conf("RICH_POSTS").strip() in ("1", "true") and callable(getattr(prop, "post_rich", None)):

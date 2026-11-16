@@ -78,7 +78,9 @@ def read(key: str) -> bytes | None:
 
 
 def delete(key: str) -> None:
-    keys = [key] + ([preview_key(key)] if not key.startswith("previews/") else [])
+    keys = [key] + ([preview_key(key)] if not key.startswith(("previews/", "tgvideo/")) else [])
+    if not key.startswith(("previews/", "tgvideo/")) and not key.lower().endswith(PREVIEW_OF):
+        keys.append(f"tgvideo/{key}.mp4")  # a video's Telegram-ready copy (telegram/notify._tg_video)
     for k in keys:
         if is_s3():
             s3().delete_object(Bucket=env.S3_BUCKET, Key=k)

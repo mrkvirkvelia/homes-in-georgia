@@ -645,11 +645,16 @@ def _safe(root: Path, rel: str) -> Path:
 def media_file(path: str, preview: bool = Query(False, alias="p"), user: User = Depends(current_user),
                db: Session = Depends(get_db, scope="function")):
     """p=1: the ~640px preview (storage.preview_key), the original while there is none.
-    private/properties/<id>/…: the owner's passport / registry extract — staff and the object's agent only."""
-    private = path.startswith(P.PRIVATE_PREFIX)
+    private/properties/<id>/…: the owner's passport / registry extract — staff and the object's agent only; other
+    private/ files (contracts, NDAs, extracts, sign drafts) have their own endpoints, never this one."""
+    parts = path.split("/")
+    # the access decision reads the path as given: nothing that resolves elsewhere (x/../private/…, ./, //, \)
+    if path.startswith("/") or "\\" in path or any(s in ("", ".", "..") for s in parts):
+        raise DomainError("not_found", "file not found")
+    base = parts[1:] if parts[0] == "previews" else parts  # a preview is as private as its original (storage previews)
+    private = bool(base) and base[0] + "/" == P.PRIVATE_PREFIX
     if private:
-        parts = path.split("/")
-        prop = db.get(Property, int(parts[2])) if len(parts) > 3 and parts[2].isdigit() else None
+        prop = db.get(Property, int(base[2])) if len(base) > 3 and base[1] == "properties" and base[2].isdigit() else None
         if not prop or not P.can_see_owner(prop, user):
             raise DomainError("not_found", "file not found")
         preview = False
@@ -658,8 +663,6 @@ def media_file(path: str, preview: bool = Query(False, alias="p"), user: User = 
         if prop is None or not P.can_open(db, prop, user):
             raise DomainError("not_found", "file not found")
     if storage.is_s3():
-        if path.startswith("/") or ".." in path.split("/"):
-            raise DomainError("not_found", "file not found")
         if preview and (f := storage.cached(storage.preview_key(path))):  # from the server's disk, cached by the browser
             return FileResponse(f, media_type="image/webp", headers=PREVIEW_HEADERS)
         return RedirectResponse(storage.url(path, presign=True) if private else storage.url(path), status_code=307)

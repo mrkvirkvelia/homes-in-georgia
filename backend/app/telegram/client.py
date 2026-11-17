@@ -1,6 +1,9 @@
 """Sync Bot API client (httpx). BOT_TOKEN and TG_API_BASE come from the environment at call time (tests point
 TG_API_BASE at a fake Bot API); the same bot for clients and staff. Never raises: returns the Bot API `result`, or
-None on any failure (logged)."""
+None on any failure (logged). Exception: inside delivery() (the worker around a job) a failed send is recorded, and a
+transient one (network, 5xx, still 429) raises DeliveryError so the job is retried with backoff."""
+import contextlib
+import contextvars
 import html as _html
 import json
 import logging
@@ -55,18 +58,75 @@ def _pace():
         _last_call[0] = time.monotonic()
 
 
+class DeliveryError(Exception):
+    """A message did not go out inside delivery(); raised only for transient failures (the job is worth retrying)."""
+    def __init__(self, method, chat_id, reason, permanent=False):
+        super().__init__(f"telegram {method} to {chat_id}: {reason}")
+        self.method, self.chat_id, self.reason, self.permanent = method, chat_id, reason, permanent
+
+
+class Delivery:
+    """What one worker job sent: `sent` {key: result} (kept in the job's payload when it is retried, so the retry
+    replays those results instead of sending the same message twice) and `failed` [DeliveryError]."""
+    def __init__(self, replay=None):
+        self.replay, self.sent, self.failed, self._n = dict(replay or {}), {}, [], {}
+
+    def key(self, method, params):
+        """The n-th message of this method to this chat (and topic) in the job: the same on every attempt."""
+        k = f"{method}:{params.get('chat_id')}:{params.get('message_thread_id') or ''}"
+        self._n[k] = self._n.get(k, 0) + 1
+        return f"{k}:{self._n[k]}"
+
+
+_delivery = contextvars.ContextVar("tg_delivery", default=None)
+
+
+@contextlib.contextmanager
+def delivery(replay=None):
+    """The worker around a job handler: failed sends are counted (API requests and the bot keep «None on failure»)."""
+    d = Delivery(replay)
+    tok = _delivery.set(d)
+    try:
+        yield d
+    finally:
+        _delivery.reset(tok)
+
+
+def _delivers(method):
+    """Methods that put a message in front of someone; edits/deletes keep returning None (callers handle that)."""
+    return (method.startswith("send") and method != "sendChatAction") or method in ("copyMessage", "forwardMessage")
+
+
+def _failed(method, params, reason, permanent):
+    d = _delivery.get()
+    if d is None or not _delivers(method):
+        return None
+    err = DeliveryError(method, params.get("chat_id"), reason, permanent)
+    d.failed.append(err)
+    if not permanent:
+        raise err
+    return None
+
+
 def call(method, files=None, **params):
     """POST <api>/bot<token>/<method>, paced (MIN_GAP); a 429 «Too Many Requests» waits retry_after and tries once more.
     params: None values dropped, dict/list ones JSON-encoded (form fields, which the Bot API accepts for every method);
     files: {field: path or (name, bytes)} -> multipart."""
+    d = _delivery.get()
+    key = d.key(method, params) if d is not None and _delivers(method) else None
+    if key and key in d.replay:  # went out on an earlier attempt of this job
+        d.sent[key] = d.replay[key]
+        return d.replay[key]
     for attempt in (0, 1):
         res = _call(method, files, **params)
         if not (isinstance(res, tuple) and res[0] == 429):
+            if key and res is not None:
+                d.sent[key] = res
             return res
         if attempt == 0:
             time.sleep(min(res[1], 30))
     log.warning("telegram %s: still rate limited", method)
-    return None
+    return _failed(method, params, "still rate limited (429)", False)
 
 
 def _call(method, files=None, **params):
@@ -90,19 +150,31 @@ def _call(method, files=None, **params):
                     up[k] = f
         _pace()
         r = _client().post(f"{url}/{method}", data=data, files=up)
-        body = r.json()
-        if body.get("error_code") == 429:
-            return 429, int((body.get("parameters") or {}).get("retry_after") or 1)
-        if not body.get("ok"):
-            log.warning("telegram %s failed: %s", method, body.get("description"))
-            return None
-        return body.get("result")
-    except Exception as e:  # network, bad JSON, missing file: never propagate into business logic
+    except httpx.TransportError as e:  # network, timeout: worth a retry
         log.warning("telegram %s error: %r", method, e)
-        return None
+        return _failed(method, params, repr(e), False)
+    except Exception as e:  # missing file, bad params: never propagate into business logic
+        log.warning("telegram %s error: %r", method, e)
+        return _failed(method, params, repr(e), True)
     finally:
         for fh in opened:
             fh.close()
+    status = getattr(r, "status_code", 200)
+    try:
+        body = r.json()
+        if not isinstance(body, dict):
+            raise ValueError(type(body).__name__)
+    except Exception as e:  # a proxy's HTML error page
+        log.warning("telegram %s: HTTP %s, bad JSON: %r", method, status, e)
+        return _failed(method, params, f"HTTP {status}", not (status >= 500 or status == 429))
+    if body.get("error_code") == 429:
+        return 429, int((body.get("parameters") or {}).get("retry_after") or 1)
+    if not body.get("ok"):
+        log.warning("telegram %s failed: %s", method, body.get("description"))
+        code = int(body.get("error_code") or status or 0)
+        # 400 chat not found / 403 blocked by the user: the same again would fail the same way; 5xx: Telegram's side
+        return _failed(method, params, f"{code} {body.get('description') or ''}".strip(), code < 500)
+    return body.get("result")
 
 
 _TOKEN = re.compile(r"<[^>]*>|&(?:#\d+|#x[0-9a-fA-F]+|[a-zA-Z]+);|[\s\S]", re.S)

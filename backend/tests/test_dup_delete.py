@@ -14,7 +14,7 @@ def test_duplicate_is_deleted_and_its_lead_and_deal_move(db, client, monkeypatch
     monkeypatch.setattr(storage, "delete", gone.append)
     georgiy, nino, pid, media = _submitted(db, client)
     properties.publish(db, pid, nino)
-    orig = client.post("/api/properties", json={"listing_id": make_listing(db, "ss7001").id}, headers=auth(georgiy)).json()["id"]
+    orig = client.post("/api/properties", json={"listing_id": make_listing(db, "ss7001").id, "force": True}, headers=auth(georgiy)).json()["id"]
     c = make_client(db)
     lead = Lead(client_id=c.id, property_id=pid, created_at=now_text_(), updated_at=now_text_())
     db.add(lead)
@@ -46,7 +46,7 @@ def test_exclusive_duplicate_hands_its_contract_to_the_original(db, client, monk
     gone = []
     monkeypatch.setattr(storage, "delete", gone.append)
     georgiy, nino, pid, _ = _submitted(db, client)
-    orig = client.post("/api/properties", json={"listing_id": make_listing(db, "ss7002").id}, headers=auth(georgiy)).json()["id"]
+    orig = client.post("/api/properties", json={"listing_id": make_listing(db, "ss7002").id, "force": True}, headers=auth(georgiy)).json()["id"]
     db.get(Property, pid).is_exclusive = True
     _media(db, pid, properties.CONTRACT, "properties/x/contract.pdf")
     _media(db, pid, properties.OWNER_ID_DOC, "private/x/id.jpg")
@@ -63,7 +63,7 @@ def test_exclusive_duplicate_hands_its_contract_to_the_original(db, client, monk
 
 def test_duplicate_refused_when_both_have_a_contract(db, client):
     georgiy, nino, pid, _ = _submitted(db, client)
-    orig = client.post("/api/properties", json={"listing_id": make_listing(db, "ss7003").id}, headers=auth(georgiy)).json()["id"]
+    orig = client.post("/api/properties", json={"listing_id": make_listing(db, "ss7003").id, "force": True}, headers=auth(georgiy)).json()["id"]
     db.get(Property, pid).is_exclusive = True
     _media(db, pid, properties.CONTRACT, "properties/x/a.pdf")
     _media(db, orig, properties.CONTRACT, "properties/y/b.pdf")

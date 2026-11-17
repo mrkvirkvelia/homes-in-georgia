@@ -110,6 +110,19 @@ export interface ListingMatch { property_id: number; address?: string | null; sc
 export interface ExternalAd { listing_id: string; source?: string | null; url?: string | null }
 export interface Elsewhere extends ExternalAd { verdict: 'linked' | 'same' | 'similar'; reasons: string[] }
 
+/** «Похожие объекты» (backend services/similar.py): our object or a live outside ad that may be the same flat. */
+export interface SimilarItem {
+  key: string; kind: 'object' | 'ad'; property_id: number | null; listing_id: string | null;
+  /** «наша база», «ss.ge», «myhome.ge», «конкурент · <канал>» … */
+  where: string; competitor?: boolean; status?: string | null;
+  /** same: почти точно тот же (ссылка, кадастр, 2+ общих фото, телефон + дом/этаж, отмечен дублем); maybe: похож, посмотрите */
+  level: 'same' | 'maybe'; reasons: string[]; decided?: 'same' | 'different' | null;
+  address?: string | null; district?: string | null; bedrooms?: number | null; area?: number | null; floor?: number | null;
+  price_usd?: number | null; photos: string[]; url?: string | null; agent?: string | null; is_exclusive?: boolean;
+  /** the object's card opens for this user (others' objects: closed, the reasons and the ad photos still show) */
+  can_open?: boolean;
+}
+
 export interface SimilarFlat {
   id: number; url?: string | null; address?: string | null; photo?: string | null; photos?: string[]; price_usd?: number | null; status?: string; archive_reason?: string | null;
   bedrooms?: number | null; area?: number | null; floor?: number | null;

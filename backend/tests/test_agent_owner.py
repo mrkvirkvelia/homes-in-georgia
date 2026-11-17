@@ -34,7 +34,7 @@ def test_resolve_agent_by_profile_tag_then_setting(db):
 
 
 def _owner_confirmed(db, client, agent, lid, phone="+995 599 20 30 40"):
-    pid = client.post("/api/properties", json={"listing_id": make_listing(db, lid).id}, headers=auth(agent)).json()["id"]
+    pid = client.post("/api/properties", json={"listing_id": make_listing(db, lid).id, "force": True}, headers=auth(agent)).json()["id"]
     return client.post(f"/api/properties/{pid}/owner", json={"is_owner": True, "owner_name": "Нана", "owner_phone": phone},
                        headers=auth(agent))
 

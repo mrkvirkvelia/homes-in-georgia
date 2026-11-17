@@ -35,10 +35,9 @@ def test_foreign_cards_closed(db, client):
                 res = client.get(f"/api/properties/{p.id}{r}", headers=auth(who))
                 want = 403 if who is rec and r == "/contract" else 404  # recruits: no contracts at all (role, not object)
                 assert res.status_code == want, (who.role, p.address, r, res.status_code)
+            # the card is closed, its photos are not (11-17: «Похожие объекты» compare an ad with colleagues' objects)
             res = client.get(f"/api/media/properties/{p.id}/x.jpg?p=1", headers=auth(who))
-            assert res.status_code == 404
-            res = client.get(f"/api/media/previews/properties/{p.id}/x.jpg.webp", headers=auth(who))
-            assert res.status_code == 404
+            assert res.status_code == 200
     for p in (mine, by_lead, by_deal, by_contract):
         res = client.get(f"/api/properties/{p.id}", headers=auth(me))
         assert res.status_code == 200, p.address

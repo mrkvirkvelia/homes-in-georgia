@@ -37,6 +37,8 @@ def test_media_token_opens_the_file_by_get(db, client):
     # the object's access rules still apply: another agent's media token does not open it
     other = make_user(db, "agent")
     assert client.get(f"/api/media/{m.path}", params={"token": _media_token(client, other)}).status_code == 404
+    # its ~640 px preview does: «Похожие объекты» compare an ad with colleagues' objects by photo (11-17)
+    assert client.get(f"/api/media/{m.path}", params={"token": _media_token(client, other), "p": 1}).status_code == 200
 
 
 def test_media_token_is_refused_for_api_calls_and_non_get(db, client):

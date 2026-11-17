@@ -29,8 +29,6 @@ export const D: Record<string, [ka: string, en: string]> = {
   'Попросите собственника снять объявление': ['სთხოვეთ მესაკუთრეს განცხადების მოხსნა', 'Ask the owner to take the ad down'],
   'Эксклюзив висит на {where}': ['ექსკლუზივი განთავსებულია: {where}', 'Exclusive still listed on {where}'],
   'Без фото': ['ფოტოს გარეშე', 'No photos'],
-  'В нашей базе есть похожие квартиры: рядом, с близкими этажом и площадью. Сравните фото: это одна из них?': ['ჩვენს ბაზაში მსგავსი ბინებია: ახლოს, მსგავსი სართულით და ფართით. შეადარეთ ფოტოები: ეს რომელიმე მათგანია?', 'Our base has similar flats: nearby, with a close floor and area. Compare the photos: is it one of them?'],
-  'Сравнить по фото: {x}': ['ფოტოებით შედარება: {x}', 'Compare photos: {x}'],
   'Объявление': ['განცხადება', 'Ad'],
   'Открыть объект #{id}': ['ობიექტის გახსნა #{id}', 'Open property #{id}'],
   '{n} фото · листайте вбок': ['{n} ფოტო · გადაფურცლეთ', '{n} photos · swipe sideways'],

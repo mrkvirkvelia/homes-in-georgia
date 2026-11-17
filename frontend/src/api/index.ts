@@ -9,7 +9,7 @@ import type { IntegrationKey, KeyCheck, Spend,
   AgentStat, AppConfig, AuthOut, Cabinet, Client, Contract, ContractCloseReason, ContractDraftIn, ContractIn, CounterRow, Dashboard, Deal, DealCalcIn, DealCalcOut,
   EventItem, Evaluation, Lead, LeadContract, LeadStatus, DealPrefill, Listing, NewsItem, Owner, Page, Property, RecommendedAgent, Report, ReportKind,
   Offer, OfferKind, OfferStatus,
-  Settings, SiteReport, Source, SourceSchedule, TickerMessage, UserbotStatus, User, ListingsStats, Elsewhere, PostDraft, ChangeRequest, DealPick, Demand, GeoHit,
+  Settings, SiteReport, Source, SourceSchedule, TickerMessage, UserbotStatus, User, ListingsStats, Elsewhere, PostDraft, ChangeRequest, DealPick, Demand, GeoHit, SimilarItem,
 } from './types';
 
 type L<T> = Page<T> | T[];
@@ -71,6 +71,13 @@ export const api = {
     agent: (id: string, body: { owner_name?: string; owner_phone?: string }) => http.post<{ ok: boolean }>(`/listings/${id}/agent`, body),
     facets: (competitor?: boolean) => http.get<Record<'sources' | 'districts' | 'metros', { value: string; count: number; label?: string }[]>>('/listings/new/facets', competitor ? { competitor: 1 } : undefined),
     get: (id: string) => then(http.get<Listing>(`/listings/${id}`), normListing),
+    /** «Похожие объекты»: our objects (the archive too) and the live ads of every site */
+    similar: (id: string) => http.get<{ items: SimilarItem[] }>(`/listings/${id}/similar`),
+  },
+
+  similar: {
+    /** «Дубль» / «Не дубль» on a pair («l:<ad>» / «p:<object>»); an ad called the same as an object is linked to it */
+    decide: (a: string, b: string, same: boolean) => http.post<{ ok: boolean; verdict: string; linked_to: number | null }>('/similar/decide', { a, b, same }),
   },
 
   properties: {
@@ -80,7 +87,8 @@ export const api = {
     counts: (deal?: 'rent' | 'sale') => http.get<Record<string, number>>('/properties/counts', { deal }),
     board: (deal?: 'rent' | 'sale') => then(http.get<Record<string, Property[]>>('/properties/board', { deal }), (d) => normBoard(d, normProperty)),
     boardHide: (status: 'published' | 'rented') => http.post<{ hidden: number }>('/properties/board/hide', { status }),
-    take: (listing_id: string) => http.post<Property>('/properties', { listing_id }),
+    /** force: «Это другой объект — беру» after a possible_duplicate answer (its data.items: SimilarItem[]) */
+    take: (listing_id: string, force?: boolean) => http.post<Property>('/properties', force ? { listing_id, force } : { listing_id }),
     create: (b: Partial<Property> & { owner_name?: string }) => http.post<Property>('/properties', b),
     get: (id: number) => then(http.get<Property>(`/properties/${id}`), normProperty),
     update: (id: number, b: Partial<Property> & { owner_name?: string; owner_phone?: string; owner_separate?: boolean; reason?: string }) => http.patch<Property>(`/properties/${id}`, b),
@@ -126,6 +134,7 @@ export const api = {
     /** agent's «Запрос оператору»: move the owner to another agent (staff: moved right away, change_request null) */
     transferRequest: (id: number, agent_id: number, reason?: string) => http.post<{ change_request: ChangeRequest | null }>(`/properties/${id}/transfer-request`, { agent_id, reason }),
     elsewhere: (id: number) => http.get<{ items: Elsewhere[] }>(`/properties/${id}/elsewhere`),
+    similar: (id: number) => http.get<{ items: SimilarItem[] }>(`/properties/${id}/similar`),
     adRemoved: (id: number, listingId: string) => then(http.post<Property>(`/properties/${id}/listings/${listingId}/removed`), normProperty),
     refused: (id: number, comment?: string) => http.post<Property>(`/properties/${id}/refused`, { comment }),
     thinking: (id: number, until: string, comment?: string) => http.post<Property>(`/properties/${id}/thinking`, { until, comment }),

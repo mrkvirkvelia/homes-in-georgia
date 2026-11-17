@@ -365,6 +365,12 @@ def main():
                 avatars.run(out=log.info)
             except Exception:  # noqa: BLE001
                 log.exception("avatar sync failed")
+        try:  # dHash of the objects' photos uploaded before migration 0030, a batch per pass (services/matching.py)
+            from app.services import matching
+            with SessionLocal() as db:
+                matching.backfill_media_hashes(db, batch=200, max_batches=1, out=log.debug)
+        except Exception:  # noqa: BLE001
+            log.exception("photo hashes failed")
         try:  # the bot's catalog follows the objects (services/catalog.py)
             with SessionLocal() as db:
                 if n := catalog.sync_all(db):

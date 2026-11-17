@@ -659,9 +659,15 @@ def media_file(path: str, preview: bool = Query(False, alias="p"), user: User = 
             raise DomainError("not_found", "file not found")
         preview = False
     elif not at_least(user, "operator") and (m := re.match(r"(?:previews/)?properties/(\d+)/", path)):
-        prop = db.get(Property, int(m[1]))  # an object's photos / video: only for those who may open its card
-        if prop is None or not P.can_open(db, prop, user):
+        # an object's photos / video: for those who may open its card. A photo's ~640 px preview is for every agent
+        # (Stanislav 11-17: «Похожие объекты» compare a new ad with colleagues' objects by photo); the original, the
+        # video and the card itself stay closed (audit 11-17)
+        photo_preview = (preview or parts[0] == "previews") and base[-1].lower().endswith(storage.PREVIEW_OF)
+        prop = db.get(Property, int(m[1]))
+        if prop is None or not ((photo_preview and at_least(user, "recruit")) or P.can_open(db, prop, user)):
             raise DomainError("not_found", "file not found")
+        if storage.is_s3() and parts[0] != "previews" and not P.can_open(db, prop, user):
+            path, preview = storage.preview_key(path), False  # the bucket's preview, never the original
     if storage.is_s3():
         if preview and (f := storage.cached(storage.preview_key(path))):  # from the server's disk, cached by the browser
             return FileResponse(f, media_type="image/webp", headers=PREVIEW_HEADERS)

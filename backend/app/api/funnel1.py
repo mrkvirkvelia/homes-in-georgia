@@ -13,7 +13,7 @@ from app.db import get_db
 from app.models import PUBLICATION_CHANNELS, Lead, Listing, Owner, Property, User, at_least
 from app.services.errors import DomainError, forbidden
 from app.services import change_requests as CR
-from app.services import demand, geo, matching
+from app.services import demand, geo, matching, similar
 from app.services import properties as P
 from app.services.leads import ACTIVE
 from app.services.common import get_or_404, jload, log_event
@@ -84,6 +84,31 @@ class MatchDecisionIn(BaseModel):
     same: bool
 
 
+class SimilarDecisionIn(BaseModel):
+    a: str = Field(max_length=200)
+    b: str = Field(max_length=200)
+    same: bool
+
+
+@router.get("/listings/{listing_id}/similar")
+def listing_similar(listing_id: str, db: Session = Depends(get_db, scope="function"), user: User = Depends(current_user)):
+    """«Похожие объекты» of an ad: our objects (the archive too) and the live ads of every site (services/similar.py)."""
+    return {"items": similar.find(db, similar.key("l", listing_id), user)}
+
+
+@router.get("/properties/{pid}/similar")
+def property_similar(pid: int, db: Session = Depends(get_db, scope="function"), user: User = Depends(current_user)):
+    P.get_visible(db, pid, user)
+    return {"items": similar.find(db, similar.key("p", pid), user)}
+
+
+@router.post("/similar/decide")
+def similar_decide(body: SimilarDecisionIn, db: Session = Depends(get_db, scope="function"), user: User = Depends(current_user)):
+    """«Дубль» / «Не дубль» on a pair of «Похожие объекты» (an ad called the same as an object is linked to it). Any
+    staff member: the agent who found the twin decides, even when the other object is a colleague's."""
+    return similar.decide(db, body.a, body.b, body.same, user)
+
+
 @router.post("/listings/{listing_id}/matches/{pid}")
 def listing_match_decide(listing_id: str, pid: int, body: MatchDecisionIn, db: Session = Depends(get_db, scope="function"),
                          user: User = Depends(require_level("operator"))):
@@ -96,6 +121,7 @@ def listing_match_decide(listing_id: str, pid: int, body: MatchDecisionIn, db: S
 
 class PropertyIn(BaseModel):
     listing_id: str | None = None
+    force: bool | None = None  # «Беру в работу» after «Это другой объект» (possible_duplicate)
     address: str | None = None
     district: str | None = None
     lat: float | None = None  # the address field's point (OSM / Google Maps link / a dragged marker)
@@ -220,8 +246,18 @@ def check_duplicate(body: DupIn, db: Session = Depends(get_db, scope="function")
 def properties_create(body: PropertyIn, db: Session = Depends(get_db, scope="function"), user: User = Depends(current_user)):
     data = body.model_dump(exclude_none=True)
     listing_id = data.pop("listing_id", None)
+    force = data.pop("force", False)
     walk_in = not listing_id and data.get("owner_phone")  # «Объект вручную»: the owner came himself, no call step
+    # «Беру в работу» on an ad that may already be our object (Stanislav 11-17: never work one flat twice): the agent
+    # sees the objects first; «Это другой объект — беру» (force) records them as not this one and takes it
+    warn = similar.objects_to_warn(db, listing_id, user) if listing_id else []
+    if warn and not force:
+        raise DomainError("possible_duplicate", "Похоже, эта квартира уже есть в нашей базе — проверьте перед тем, как брать",
+                          409, data={"items": warn})
     p = P.take(db, listing_id, user, data, commit=not walk_in)
+    if warn:
+        similar.mark_different(db, similar.key("l", listing_id), [x["key"] for x in warn], user)
+        db.commit()
     if walk_in:  # one transaction: a bad phone leaves no half-made object behind
         p = P.owner_or_agent(db, p.id, user, True, data.get("owner_name"), data["owner_phone"])
     return P.out(db, p, user, full=True)

@@ -119,7 +119,7 @@ def _objects(db: Session, pids: list[int] | None = None) -> dict[int, dict]:
         objs[pid]["urls"] |= {url, *(jload(urls, []) or [])} - {None}
         objs[pid]["hashes"] += jload(hashes, []) or []
     media = select(PropertyMedia.property_id, PropertyMedia.dhash).where(PropertyMedia.kind == "photo",
-                                                                         PropertyMedia.dhash.isnot(None))
+                                                                         PropertyMedia.dhash.isnot(None), PropertyMedia.dhash != 0)
     for pid, h in db.execute(media if pids is None else media.where(PropertyMedia.property_id.in_(pids))):
         if pid in objs:
             objs[pid]["hashes"].append(h & U64)
@@ -325,23 +325,25 @@ def backfill_hashes(db: Session) -> int:
     return n
 
 
-def backfill_media_hashes(db: Session, batch: int = 500, out=print) -> int:
+def backfill_media_hashes(db: Session, batch: int = 500, max_batches: int | None = None, out=print) -> int:
     """property_media.dhash of object photos that have none, from the ~640 px preview (or the original) in storage.
-    Unreadable files stay NULL (tried again on the next run)."""
+    The worker runs one batch per pass (max_batches=1): the newest objects first. An unreadable file gets 0 (all bits
+    off), which matches no real photo (a flat grey picture), so it is not fetched again on every pass."""
     from concurrent.futures import ThreadPoolExecutor
 
     def hash_of(key):
         data = storage.read(storage.preview_key(key)) or storage.read(key)
         return photo_hash(data) if data else None
-    last, n = 0, 0
+    n, done = 0, 0
     with ThreadPoolExecutor(16) as pool:
-        while rows := list(db.scalars(select(PropertyMedia).where(PropertyMedia.kind == "photo", PropertyMedia.dhash.is_(None),
-                                                                  PropertyMedia.id > last).order_by(PropertyMedia.id).limit(batch))):
+        while (max_batches is None or done < max_batches) and (rows := list(db.scalars(
+                select(PropertyMedia).where(PropertyMedia.kind == "photo", PropertyMedia.dhash.is_(None))
+                .order_by(PropertyMedia.id.desc()).limit(batch)))):
             for m, h in zip(rows, pool.map(hash_of, [m.path for m in rows])):
-                m.dhash, n = h, n + (h is not None)
-            last = rows[-1].id
+                m.dhash, n = (0 if h is None else h), n + (h is not None)
+            done += 1
             db.commit()
-            out(f"media hashes: {n} (up to media #{last})")
+            out(f"media hashes: {n} (down to media #{rows[-1].id})")
     return n
 
 

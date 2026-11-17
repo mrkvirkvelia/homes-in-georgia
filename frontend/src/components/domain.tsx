@@ -9,6 +9,7 @@ import type { AiFlags, EventItem, Lead, LeadStatus, Listing, Property, PropertyS
 import { thumbUrl } from '../api/client';
 import { Badge, Button, ErrorBox, KV, Lightbox, Loading, Modal, useNow } from './ui';
 import { useToast } from './toast';
+import { SimilarList } from './Similar';
 import { lx, t, tmap } from '../lib/i18n';
 import { ARCHIVE_REASON, CR_KIND, LEAD_STATUS, OUTCOME_LABEL, PROPERTY_STATUS, REFUSAL_LABEL, bedroomsLabel, districtLabel, fmtDateTime, formatPhone, money, pluralForm, SOURCE_LABEL } from '../lib/format';
 
@@ -100,18 +101,6 @@ function ObjectLink({ to, text }: { to: string; text: string }) {
     : <a href={to} target="_blank" rel="noreferrer" className="row gap-sm" style={{ fontSize: 13 }}><ExternalLink size={14} />{text}</a>;
 }
 
-/** In the ad's window: a button to the side-by-side comparison with the objects of our base at its address. */
-export function SimilarInChannel({ listing, similar }: { listing: Listing & { floor?: number | null }; similar: SimilarFlat[] }) {
-  const [cmp, setCmp] = useState(false);
-  return (
-    <div className="col gap-sm">
-      <div className="alert alert-warn">{t('В нашей базе есть похожие квартиры: рядом, с близкими этажом и площадью. Сравните фото: это одна из них?')}</div>
-      <Button variant="secondary" onClick={() => setCmp(true)}>{t('Сравнить по фото: {x}', { x: baseAtAddress(similar).toLowerCase() })}</Button>
-      {cmp && <ChannelCompare listing={{ ...listing, similar }} onClose={() => setCmp(false)} />}
-    </div>
-  );
-}
-
 /** actions: the feed card's buttons (Беру в работу / Агент / Неактуально, «Уже в базе» / «Похож на»), so the ad is
  * decided right from its window (11-13); they stay at the bottom while the window scrolls. */
 export function ListingModal({ id, onClose, actions }: { id: string; onClose: () => void; actions?: ReactNode }) {
@@ -163,7 +152,10 @@ export function ListingModal({ id, onClose, actions }: { id: string; onClose: ()
           {l.ai_flags?.duplicate && (
             <div className="alert alert-warn">{t('Дубль: эта квартира уже опубликована в канале агентства. Ссылка на пост — в списке ниже.')}</div>
           )}
-          {!l.ai_flags?.duplicate && !!l.similar?.length && <SimilarInChannel listing={l} similar={l.similar} />}
+          <div className="col gap-sm">
+            <span className="label">{t('Похожие объекты')}</span>
+            <SimilarList subject={`l:${l.id}`} emptyText={t('Похожих объектов не найдено: ни в базе, ни на сайтах, ни у конкурентов.')} />
+          </div>
           {!!l.urls?.length && (
             <div className="col gap-sm">
               <span className="label">{l.urls.length > 1 ? t('Где опубликовано · {n}', { n: l.urls.length }) : t('Источник')}</span>

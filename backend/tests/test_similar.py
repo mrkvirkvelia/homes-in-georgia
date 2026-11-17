@@ -1,0 +1,115 @@
+"""Stanislav 11-17: «Похожие объекты» everywhere — one flat is never worked twice. The same photos with a slightly
+different area / floor, the owner's phone, the house: the agent sees every candidate and says «Дубль» / «Не дубль»."""
+import json
+
+from app.models import Property, PropertyListing, SimilarDecision
+from app.services import similar
+from tests.conftest import auth, make_listing, make_user
+
+H = [0x0F0F0F0F0F0F0F0F, 0x123456789ABCDEF0, 0x0FEDCBA987654321, 0x5555AAAA5555AAAA]
+
+
+def _object(db, client, agent, lid="ss5001", **kw):
+    make_listing(db, lid, photo_hashes=json.dumps(H[:3]), **kw)
+    r = client.post("/api/properties", json={"listing_id": lid}, headers=auth(agent))
+    assert r.status_code == 200, r.text
+    return r.json()["id"]
+
+
+def test_same_photos_other_area_and_floor_is_shown_and_warned_on_take(db, client):
+    vika, ana = make_user(db, "agent", "Вика"), make_user(db, "agent", "Аня")
+    pid = _object(db, client, vika)
+    # the same flat on myhome: photos re-uploaded (1 bit off), the area and the floor typed differently
+    make_listing(db, "mh7001", source="myhome", urls=json.dumps(["https://myhome.ge/7001"]), area=74.0, floor=5,
+                 photo_hashes=json.dumps([H[0] ^ 1, H[1], H[2] ^ 2]), address="Tsatskhvebi 4", text="Сдаю, +995 599 00 00 00")
+    items = similar.find(db, "l:mh7001", ana)
+    assert items[0]["property_id"] == pid and items[0]["level"] == "same" and "общих фото: 3" in items[0]["reasons"]
+
+    r = client.post("/api/properties", json={"listing_id": "mh7001"}, headers=auth(ana))
+    assert r.status_code == 409 and r.json()["code"] == "possible_duplicate"
+    assert [x["property_id"] for x in r.json()["data"]["items"]] == [pid]
+    assert db.query(Property).count() == 1  # nothing made yet
+
+    # «Это другой объект — беру»: taken, and that object is not offered for this ad again
+    r = client.post("/api/properties", json={"listing_id": "mh7001", "force": True}, headers=auth(ana))
+    assert r.status_code == 200 and r.json()["agent_id"] == ana.id
+    assert db.query(SimilarDecision).filter_by(verdict="different").count() == 1
+    assert all(x["property_id"] != pid for x in similar.find(db, "l:mh7001", ana))
+
+
+def test_dubl_links_the_ad_to_the_object(db, client):
+    vika, ana = make_user(db, "agent", "Вика"), make_user(db, "agent", "Аня")
+    pid = _object(db, client, vika)
+    make_listing(db, "mh7002", source="myhome", urls=json.dumps(["https://myhome.ge/7002"]), photo_hashes=json.dumps(H[:2]))
+    r = client.post("/api/similar/decide", json={"a": "l:mh7002", "b": f"p:{pid}", "same": True}, headers=auth(ana))
+    assert r.json() == {"ok": True, "verdict": "same", "linked_to": pid}
+    assert db.query(PropertyListing).filter_by(listing_id="mh7002").one().property_id == pid
+    # the object's card lists it no more as a stray ad: it is the object's own now
+    assert all(x.get("listing_id") != "mh7002" for x in client.get(f"/api/properties/{pid}/similar", headers=auth(vika)).json()["items"])
+
+
+def test_object_card_shows_ads_of_every_site_and_competitors_by_phone_and_house(db, client):
+    vika = make_user(db, "agent", "Вика")
+    pid = _object(db, client, vika, address="ул. Палиашвили 10")
+    # no shared photos: the same house, bedrooms, floor ±1, area ±10% → «похож», for the agent to look at
+    make_listing(db, "ss5002", urls=json.dumps(["https://ss.ge/5002"]), text="квартира", address="Paliashvili st 10", floor=5, area=74.0)
+    # the same house, 3 floors up and 90 m²: another flat of the house (eval 11-17), not shown
+    make_listing(db, "ss5004", urls=json.dumps(["https://ss.ge/5004"]), text="квартира", address="Paliashvili st 10", floor=7, area=90.0)
+    # another district and house, other params: not shown
+    make_listing(db, "ss5003", urls=json.dumps(["https://ss.ge/5003"]), text="квартира", address="Kazbegi 30", district="Сабуртало",
+                 bedrooms=4, area=150.0, floor=12, price_usd=3000)
+    got = {x["listing_id"]: x for x in client.get(f"/api/properties/{pid}/similar", headers=auth(vika)).json()["items"] if x["kind"] == "ad"}
+    assert got["ss5002"]["level"] == "maybe" and "тот же дом" in got["ss5002"]["reasons"]
+    assert "ss5003" not in got and "ss5004" not in got
+
+
+def test_not_dubl_hides_the_pair(db, client):
+    vika, ana = make_user(db, "agent", "Вика"), make_user(db, "agent", "Аня")
+    pid = _object(db, client, vika)
+    p = db.get(Property, pid)
+    make_listing(db, "mh7003", source="myhome", urls=json.dumps(["https://myhome.ge/7003"]), photo_hashes=json.dumps(H[:2]))
+    item = next(x for x in similar.find(db, "l:mh7003", ana) if x["kind"] == "object")
+    assert item["can_open"] is False  # the card stays closed; its photos show (api media_file)
+    assert item["agent"] == "Вика"
+    client.post("/api/similar/decide", json={"a": f"p:{p.id}", "b": "l:mh7003", "same": False}, headers=auth(ana))
+    assert not any(x["kind"] == "object" for x in similar.find(db, "l:mh7003", ana))
+
+
+def test_compare_twin_and_nothing():
+    base = {"urls": set(), "phones": [], "names": frozenset(), "author": None, "cads": set(), "hashes": [],
+            "house": (frozenset(), None, ""), "at": (41.7, 44.77), "district": "Ваке", "floor": 4, "area": 70.0,
+            "bedrooms": 2, "price_usd": 850.0}
+    twin = {**base, "at": (41.705, 44.775), "area": 72.0, "price_usd": 900.0}
+    assert similar.compare(base, twin)[0] == "maybe"
+    other = {**twin, "bedrooms": 3}
+    assert similar.compare(base, other)[0] is None
+    phone = {**other, "phones": ["+995 555 12 34 56"], "floor": 4}
+    assert similar.compare({**base, "phones": ["555123456"]}, phone)[0] == "same"  # the owner's phone and the floor
+
+
+def test_object_photos_are_hashed_and_found(db, client, monkeypatch):
+    """An object shot by our agent (no ad photos): its own photos are hashed by the worker and an ad with them is found."""
+    import io
+    from PIL import Image
+    from app import storage
+    from app.models import PropertyMedia
+    files = {}
+    monkeypatch.setattr(storage, "read", lambda k: files.get(k))
+    im = Image.new("L", (90, 80))
+    im.putdata([(x * 7 + y * 3) % 256 for y in range(80) for x in range(90)])
+    buf = io.BytesIO()
+    im.save(buf, "PNG")
+    files["properties/9/a.png"] = buf.getvalue()
+    vika = make_user(db, "agent", "Вика")
+    p = Property(status="published", address="Kazbegi 30", agent_id=vika.id)
+    db.add(p)
+    db.flush()
+    db.add(PropertyMedia(property_id=p.id, kind="photo", path="properties/9/a.png"))
+    db.commit()
+    from app.services import matching
+    assert matching.backfill_media_hashes(db, max_batches=1, out=lambda *_: None) == 1
+    h = [db.query(PropertyMedia.dhash).scalar() & matching.U64]
+    make_listing(db, "ss8001", photo_hashes=json.dumps([h[0] ^ 1, 77]), address="other 1", district="Сабуртало")
+    make_listing(db, "ss8002", photo_hashes=json.dumps([h[0], 99]), address="other 2", district="Сабуртало")
+    ana = make_user(db, "agent", "Аня")
+    assert [x["property_id"] for x in similar.find(db, "l:ss8001", ana) if x["kind"] == "object"] == [p.id]  # one photo: «похож»

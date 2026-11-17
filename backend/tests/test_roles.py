@@ -37,9 +37,9 @@ def test_superadmin_working_as_agent(db, client):
     assert db.get(Lead, lead.id).agent_id == david.id
 
     # he takes an object as his own; it shows in «Мои объекты»; he still sees Zaza's objects (superadmin)
-    mine = client.post("/api/properties", json={"listing_id": make_listing(db, "ss1").id}, headers=h).json()
+    mine = client.post("/api/properties", json={"listing_id": make_listing(db, "ss1").id, "force": True}, headers=h).json()
     assert mine["agent"]["id"] == david.id
-    theirs = client.post("/api/properties", json={"listing_id": make_listing(db, "ss2").id}, headers=auth(zaza)).json()
+    theirs = client.post("/api/properties", json={"listing_id": make_listing(db, "ss2").id, "force": True}, headers=auth(zaza)).json()
     ids = lambda r: [p["id"] for p in r.json()["items"]]  # noqa: E731
     assert ids(client.get("/api/properties", params={"mine": 1}, headers=h)) == [mine["id"]]
     assert {mine["id"], theirs["id"]} <= set(ids(client.get("/api/properties", headers=h)))
@@ -107,10 +107,10 @@ def test_matrix_objects_contracts_deals(db, client, role):
     me = make_user(db, role, "Я")
     other = make_user(db, "agent", "Чужой")
     h, lvl = auth(me), role_level(role)
-    mine = client.post("/api/properties", json={"listing_id": make_listing(db, "ss1").id}, headers=h)
+    mine = client.post("/api/properties", json={"listing_id": make_listing(db, "ss1").id, "force": True}, headers=h)
     assert mine.status_code == 200, mine.text  # every role creates objects
     mine = mine.json()["id"]
-    theirs = client.post("/api/properties", json={"listing_id": make_listing(db, "ss2").id}, headers=auth(other)).json()["id"]
+    theirs = client.post("/api/properties", json={"listing_id": make_listing(db, "ss2").id, "force": True}, headers=auth(other)).json()["id"]
     assert client.patch(f"/api/properties/{mine}", json={"price": 900}, headers=h).status_code == 200
     listed = [p["id"] for p in client.get("/api/properties", headers=h).json()["items"]]
     assert (theirs in listed) == (lvl >= 3)

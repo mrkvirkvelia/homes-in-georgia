@@ -63,6 +63,8 @@ def handle(update: dict) -> str | None:
     arg = text.split(maxsplit=1)[1] if " " in text else ""
     if arg.startswith("nda_"):
         return nda_confirm(chat["id"], arg[4:], frm)
+    if arg.startswith("sd_"):
+        return nda_confirm(chat["id"], arg[3:], frm, doc=True)
     if not arg.startswith("inv_"):
         out = "Это бот входа в CRM Homes in Georgia. Нажмите «Войти в CRM»."
     else:
@@ -77,14 +79,18 @@ def handle(update: dict) -> str | None:
     return out
 
 
-def nda_confirm(chat_id, tok: str, frm: dict) -> str:
-    """The platform agreement's Telegram confirmation (services/nda.confirm_by_bot) → back to the signing page."""
-    from app.services import nda
-    url = conf("PUBLIC_URL", "").rstrip("/") + nda.path(tok)
+def nda_confirm(chat_id, tok: str, frm: dict, doc: bool = False) -> str:
+    """The signer's Telegram confirmation (services/nda.confirm_by_bot; doc: a «Документ на подпись»,
+    services/sign_docs.confirm_by_bot) → back to the signing page."""
+    from app.services import nda, sign_docs
+    svc = sign_docs if doc else nda
+    url = conf("PUBLIC_URL", "").rstrip("/") + svc.path(tok)
     try:
         with SessionLocal() as db:
-            nda.confirm_by_bot(db, tok, frm)
-        out = ("✅ დადასტურებულია. დაბრუნდით შეთანხმების გვერდზე და მოაწერეთ ხელი.\n"
+            svc.confirm_by_bot(db, tok, frm)
+        out = ("✅ დადასტურებულია. დაბრუნდით დოკუმენტის გვერდზე და მოაწერეთ ხელი.\n"
+               "✅ Подтверждено. Вернитесь на страницу документа и подпишите." if doc else
+               "✅ დადასტურებულია. დაბრუნდით შეთანხმების გვერდზე და მოაწერეთ ხელი.\n"
                "✅ Подтверждено. Вернитесь на страницу соглашения и подпишите.")
     except DomainError as e:
         out = "⚠️ " + e.message

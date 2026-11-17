@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ChevronDown, ChevronUp, Copy, Plus, Send, ShieldCheck, Trash2, UserPlus } from 'lucide-react';
+import { ChevronDown, ChevronUp, Copy, FilePen, Plus, Send, ShieldCheck, Trash2, UserPlus } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { api } from '../api';
 import { itemsOf } from '../api/client';
@@ -217,6 +217,7 @@ function Users() {
           <Button onClick={() => setInviting(true)}><UserPlus size={16} />{t('Пригласить')}</Button>
           <Button variant="secondary" onClick={() => setOpen('new')}><Plus size={16} />{t('Пользователь')}</Button>
           <Link className="btn btn-secondary" to="/ndas"><ShieldCheck size={16} />{t('Соглашение (NDA)')}</Link>
+          <Link className="btn btn-secondary" to="/sign-docs"><FilePen size={16} />{t('Документы на подпись')}</Link>
         </div>
       </div>
       {isLoading ? <Loading /> : error ? <ErrorBox error={error} /> : (

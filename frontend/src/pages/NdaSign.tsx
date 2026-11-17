@@ -1,6 +1,8 @@
 // /nda/<token>: a new agent signs his NDA (backend services/nda.py, docs/NDA.md) — no CRM login, the link is the access.
 // 1) read the agreement; 2) confirm yourself with Telegram (Telegram Login: the app asks to confirm; the server checks
 // it, and only the NDA's @username passes); 3) sign with a finger + consent. The signed PDF comes by Telegram and here.
+// /doc/<token> (kind="doc"): the same page for a «Документ на подпись» (services/sign_docs.py): no IBAN step, Telegram
+// only for team members and a named @username; with several signers it waits for the others after signing.
 import { useEffect, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -14,11 +16,14 @@ import { ContractFrame } from '../components/ContractFrame';
 import { fmtDateTime } from '../lib/format';
 
 interface NdaView {
-  lang: 'KA' | 'KA-RU' | 'KA-EN'; status: 'sent' | 'signed'; full_name: string; personal_id: string; phone: string | null;
+  lang: 'KA' | 'KA-RU' | 'KA-EN' | 'RU'; status: 'sent' | 'signed'; full_name: string; personal_id: string; phone: string | null;
   telegram: string | null; role: string | null; doc_sha256: string; confirmed: boolean; tg_username: string | null;
   tg_name: string | null; signed_at: string | null; has_pdf: boolean; test_mode: boolean; html: string | null;
-  details: { iban_gel: string; iban_usd: string; ie: string };
+  details?: { iban_gel: string; iban_usd: string; ie: string };
+  // a «Документ на подпись»
+  need_tg?: boolean; title?: Partial<Record<L, string>>; number?: string; signed?: boolean; signers?: { full_name: string; signed: boolean }[];
 }
+type Kind = 'nda' | 'doc';
 type L = 'ka' | 'ru' | 'en';
 const KEYS = ['iban_gel', 'iban_usd', 'ie'] as const;
 const norm = (x: string) => x.replace(/[\s-]/g, '').toUpperCase();
@@ -49,6 +54,17 @@ const UI: Record<L, Record<string, string>> = {
     you: 'Participant', test: 'Confirm (test mode)', noTg: 'Could not load Telegram. Refresh the page.' },
 };
 
+// the document's wording where it differs from the agreement's (kind="doc")
+const DOC: Record<L, Record<string, string>> = {
+  ka: { title: 'დოკუმენტი ხელმოწერისთვის', read: 'გთხოვთ, ყურადღებით წაიკითხოთ დოკუმენტი', agree: 'წავიკითხე დოკუმენტი და ვეთანხმები მის პირობებს',
+    done: 'დოკუმენტი ხელმოწერილია ყველა მხარის მიერ. გმადლობთ!', waiting: 'თქვენ ხელი მოაწერეთ. ველოდებით სხვა ხელმომწერებს — ხელმოწერილ PDF-ს ამავე ბმულზე ნახავთ.', you: 'ხელმომწერი' },
+  ru: { title: 'Документ на подпись', read: 'Пожалуйста, внимательно прочитайте документ', agree: 'Я прочитал(а) документ и согласен(на) с его условиями',
+    done: 'Документ подписан всеми сторонами. Спасибо!', waiting: 'Вы подписали. Ждём остальных подписантов — подписанный PDF будет по этой ссылке.', you: 'Подписант' },
+  en: { title: 'Document for signing', read: 'Please read the document carefully', agree: 'I have read the document and agree to its terms',
+    done: 'The document is signed by all parties. Thank you!', waiting: 'You have signed. Waiting for the other signers — the signed PDF will be at this link.', you: 'Signer' },
+};
+const renum = (s: string, i: number) => s.replace(/^\d+\. /, `${i}. `);
+
 type TgUser = Record<string, string | number>;
 type TgLogin = { auth: (o: { bot_id: string; request_access?: string }, cb: (u: TgUser | false) => void) => void };
 function loadTelegram(): Promise<TgLogin> {
@@ -64,12 +80,15 @@ function loadTelegram(): Promise<TgLogin> {
   });
 }
 
-export function NdaSignPage() {
+export function NdaSignPage({ kind = 'nda' }: { kind?: Kind }) {
   const { token = '' } = useParams();
+  const doc = kind === 'doc';
+  const base = doc ? `/public/doc/${token}` : `/public/nda/${token}`;
   // until Telegram is confirmed (in the bot, another app) the page checks every few seconds and when it's back in front
-  const q = useQuery({ queryKey: ['nda', token], queryFn: () => http.get<NdaView>(`/public/nda/${token}`), retry: false,
-    refetchOnWindowFocus: (qq) => !(qq.state.data as NdaView | undefined)?.confirmed,
-    refetchInterval: (qq) => { const d = qq.state.data as NdaView | undefined; return d && d.status === 'sent' && !d.confirmed ? 3000 : false; } });
+  const waitTg = (d?: NdaView) => !!d && d.status === 'sent' && !d.confirmed && (!doc || !!d.need_tg);
+  const q = useQuery({ queryKey: [kind, token], queryFn: () => http.get<NdaView>(base), retry: false,
+    refetchOnWindowFocus: (qq) => waitTg(qq.state.data as NdaView | undefined),
+    refetchInterval: (qq) => (waitTg(qq.state.data as NdaView | undefined) ? 3000 : false) });
   useEffect(() => { loadTelegram().catch(() => undefined); }, []);  // preloaded: the widget's popup opens right from the tap
   const cfg = useQuery({ queryKey: ['app-config'], queryFn: api.config, staleTime: Infinity, retry: false });
   const [lang, setLang] = useState<L | null>(null);
@@ -83,25 +102,27 @@ export function NdaSignPage() {
   const [savedOk, setSavedOk] = useState(false);
   useEffect(() => { if (v?.details) setD(v.details); }, [v?.details?.iban_gel, v?.details?.iban_usd, v?.details?.ie]);  // eslint-disable-line react-hooks/exhaustive-deps
   const details = useMutation({
-    mutationFn: () => http.post<NdaView>(`/public/nda/${token}/details`, d),
-    onSuccess: (r) => { setErr(''); setSavedOk(true); qc.setQueryData(['nda', token], r); },
+    mutationFn: () => http.post<NdaView>(`${base}/details`, d),
+    onSuccess: (r) => { setErr(''); setSavedOk(true); qc.setQueryData([kind, token], r); },
     onError: (e) => setErr(errText(e)),
   });
   // autosave (Stanislav 11-16): a second after the last keystroke, when every filled field is valid and an IBAN is given
   const bad = { iban_gel: !!norm(d.iban_gel) && !IBAN_RE.test(norm(d.iban_gel)), iban_usd: !!norm(d.iban_usd) && !IBAN_RE.test(norm(d.iban_usd)),
     ie: !!norm(d.ie) && !IE_RE.test(norm(d.ie)) };
-  const dirty = !!v && KEYS.some((k) => norm(d[k]) !== norm(v.details?.[k] || ''));
+  const dirty = !doc && !!v && KEYS.some((k) => norm(d[k]) !== norm(v.details?.[k] || ''));
   const valid = !bad.iban_gel && !bad.iban_usd && !bad.ie && !!(norm(d.iban_gel) || norm(d.iban_usd));
   useEffect(() => {
     if (!v || v.status !== 'sent' || !dirty || !valid || details.isPending) return;
     const id = setTimeout(() => details.mutate(), 1000);
     return () => clearTimeout(id);
   }, [d.iban_gel, d.iban_usd, d.ie, dirty, valid, details.isPending]);  // eslint-disable-line react-hooks/exhaustive-deps
-  const l: L = lang || (v?.lang === 'KA-EN' ? 'en' : v?.lang === 'KA-RU' ? 'ru' : 'ka');
-  const t = UI[l];
+  const l: L = lang || (v?.lang === 'KA-EN' ? 'en' : v?.lang === 'KA-RU' || v?.lang === 'RU' ? 'ru' : 'ka');
+  const tg = doc && !v?.need_tg ? 0 : 1;  // a document: the Telegram step only when it is required
+  const t = doc ? { ...UI[l], ...DOC[l], title: v?.title?.[l] || v?.title?.ka || v?.title?.ru || DOC[l].title,
+    step1: renum(UI[l].step1, 1), step2: renum(UI[l].step2, 1 + tg), needTg: UI[l].needTg.replace('2', '1') } : UI[l];
 
   const confirm = useMutation({
-    mutationFn: (body: object) => http.post<NdaView>(`/public/nda/${token}/telegram`, body),
+    mutationFn: (body: object) => http.post<NdaView>(`${base}/telegram`, body),
     onSuccess: () => { setErr(''); q.refetch(); },
     onError: (e) => setErr(errText(e)),
   });
@@ -112,7 +133,7 @@ export function NdaSignPage() {
       () => setErr(t.noTg));
   };
   const sign = useMutation({
-    mutationFn: () => http.post<NdaView>(`/public/nda/${token}`, { signature: signaturePng(pad.current!), consent: true, doc_sha256: v!.doc_sha256 }),
+    mutationFn: () => http.post<NdaView>(base, { signature: signaturePng(pad.current!), consent: true, doc_sha256: v!.doc_sha256 }),
     onSuccess: () => { setErr(''); q.refetch(); },
     onError: (e) => setErr(errText(e)),
   });
@@ -120,9 +141,9 @@ export function NdaSignPage() {
   const wrap = (body: React.ReactNode) => <div style={{ maxWidth: 860, margin: '0 auto', padding: '24px 16px' }}><div className="card card-pad col gap-lg">{body}</div></div>;
   if (q.isLoading) return wrap(<Loading />);
   if (q.error || !v) return wrap(<ErrorBox error={q.error} />);
-  const hasIban = !!(v.details?.iban_gel || v.details?.iban_usd);
-  const ready = v.confirmed && hasIban && !dirty;
-  const langs: L[] = v.lang === 'KA' ? ['ka', 'ru', 'en'] : v.lang === 'KA-RU' ? ['ka', 'ru'] : ['ka', 'en'];
+  const hasIban = doc || !!(v.details?.iban_gel || v.details?.iban_usd);
+  const ready = (v.confirmed || !tg) && hasIban && !dirty;
+  const langs: L[] = v.lang === 'KA' || v.lang === 'RU' ? ['ka', 'ru', 'en'] : v.lang === 'KA-RU' ? ['ka', 'ru'] : ['ka', 'en'];
   const head = (
     <>
       <div className="row row-between row-wrap gap-sm">
@@ -130,15 +151,22 @@ export function NdaSignPage() {
         <Seg value={l} onChange={setLang} options={langs.map((x) => ({ value: x, label: LABEL[x] }))} />
       </div>
       <h2 style={{ fontSize: 20 }}><ShieldCheck size={20} style={{ verticalAlign: -3, marginRight: 6 }} />{t.title}</h2>
-      <div className="muted">{t.you}: <b>{v.full_name}</b>{v.telegram ? ` · @${v.telegram}` : ''}</div>
+      <div className="muted">{doc && v.number ? `№ ${v.number} · ` : ''}{t.you}: <b>{v.full_name}</b>{v.telegram ? ` · @${v.telegram}` : ''}</div>
     </>
   );
+  if (doc && v.signed && v.status !== 'signed') {
+    return wrap(<>
+      {head}
+      <div className="alert alert-ok"><CheckCircle2 size={16} style={{ verticalAlign: -3 }} /> {t.waiting} · {fmtDateTime(v.signed_at)}</div>
+      {v.signers?.map((x) => <div key={x.full_name} className="muted">{x.signed ? '✅' : '⏳'} {x.full_name}</div>)}
+    </>);
+  }
   if (v.status === 'signed') {
     return wrap(<>
       {head}
       <div className="alert alert-ok"><CheckCircle2 size={16} style={{ verticalAlign: -3 }} /> {t.done} · {fmtDateTime(v.signed_at)}</div>
       {v.has_pdf
-        ? <><a className="btn btn-ok btn-lg" href={`/api/public/nda/${token}/pdf?download=1`}><Download size={18} />{t.pdf}</a><span className="muted" style={{ fontSize: 13 }}>{t.sent}</span></>
+        ? <><a className="btn btn-ok btn-lg" href={`/api${base}/pdf?download=1`}><Download size={18} />{t.pdf}</a><span className="muted" style={{ fontSize: 13 }}>{t.sent}</span></>
         : <span className="muted">{t.pdfWait}</span>}
     </>);
   }
@@ -151,7 +179,7 @@ export function NdaSignPage() {
       </div>
       {v.html && <ContractFrame html={v.html} col={l === 'ka' ? 1 : 2} />}
     </div>
-    <div className="col gap-sm" id="nda-form">
+    {!doc && <div className="col gap-sm" id="nda-form">
       <span className="label">{t.step0}</span>
       <span className="muted" style={{ fontSize: 13 }}>{t.iban}</span>
       <div className="form-grid">
@@ -162,26 +190,26 @@ export function NdaSignPage() {
       {dirty && valid
         ? <span className="muted" style={{ fontSize: 13 }}>{t.saving}</span>
         : !dirty && hasIban && savedOk && <div className="alert alert-ok"><CheckCircle2 size={16} style={{ verticalAlign: -3 }} /> {t.savedD}</div>}
-    </div>
-    <div className="col gap-sm">
+    </div>}
+    {!!tg && <div className="col gap-sm" id={doc ? 'nda-form' : undefined}>
       <span className="label">{t.step1}</span>
       {v.confirmed
         ? <div className="alert alert-ok"><CheckCircle2 size={16} style={{ verticalAlign: -3 }} /> {t.tgOk}: {v.tg_username ? `@${v.tg_username}` : v.tg_name}</div>
         : <>
             <span className="muted" style={{ fontSize: 13 }}>{cfg.data?.bot_username ? t.tgBotHint : t.tgHint}{v.telegram ? ` ${t.tgOnly} @${v.telegram}.` : ''}</span>
             <div className="row row-wrap gap-sm">
-              {cfg.data?.bot_username && <a className="btn" href={`https://t.me/${cfg.data.bot_username}?start=nda_${token}`} target="_blank" rel="noreferrer">{t.tgBot}</a>}
+              {cfg.data?.bot_username && <a className="btn" href={`https://t.me/${cfg.data.bot_username}?start=${doc ? 'sd' : 'nda'}_${token}`} target="_blank" rel="noreferrer">{t.tgBot}</a>}
               <Button variant={cfg.data?.bot_username ? 'secondary' : undefined} loading={confirm.isPending} onClick={telegram}>{t.tgBtn}</Button>
               {v.test_mode && <Button variant="ghost" loading={confirm.isPending} onClick={() => confirm.mutate({ test: true })}>{t.test}</Button>}
             </div>
           </>}
-    </div>
-    <div className="col gap-sm">
+    </div>}
+    <div className="col gap-sm" id={doc && !tg ? 'nda-form' : undefined}>
       <span className="label">{t.step2}</span>
       <SignaturePad padRef={pad} onInk={setInk} clearLabel={t.clear} />
       <Checkbox checked={agree} onChange={setAgree}>{t.agree}</Checkbox>
     </div>
-    {!ready && <div className="alert alert-warn">{[!hasIban || dirty ? (dirty && valid ? t.saving : !valid && (bad.iban_gel || bad.iban_usd || bad.ie) ? t.saveFirst : t.needIban) : '', !v.confirmed ? t.needTg : ''].filter(Boolean).join(' · ')}</div>}
+    {!ready && <div className="alert alert-warn">{[!hasIban || dirty ? (dirty && valid ? t.saving : !valid && (bad.iban_gel || bad.iban_usd || bad.ie) ? t.saveFirst : t.needIban) : '', !v.confirmed && tg ? t.needTg : ''].filter(Boolean).join(' · ')}</div>}
     {err && <div className="alert alert-warn">{err}</div>}
     <Button size="lg" variant="ok" disabled={!(ready && ink && agree)} loading={sign.isPending} onClick={() => sign.mutate()}>{sign.isPending ? t.signing : t.send}</Button>
     {sign.isPending && <span className="muted" style={{ fontSize: 13, textAlign: 'center' }}>{t.signingHint}</span>}

@@ -13,7 +13,6 @@ staff member who made the NDA and to the agent (Telegram), and to Google Drive w
 import base64
 import difflib
 import hashlib
-import hmac
 import html as H
 import json
 import logging
@@ -21,7 +20,6 @@ import re
 import secrets
 import struct
 import threading
-from datetime import datetime, timedelta, timezone
 
 import httpx
 from sqlalchemy import func, or_, select
@@ -30,7 +28,7 @@ from sqlalchemy.orm import Session
 from app import storage
 from app.config import settings as env
 from app.models import ADMINS, FIELD_SQL, STAFF, SUPER, AgentNda, Setting, User
-from app.services import contracts as C, jobs
+from app.services import contracts as C, jobs, signing as S
 from app.services.common import TZ, log_event, now
 from app.services.errors import DomainError, forbidden
 from app.services.nda_text import (APPENDIX, BLOCKS, COMPANY, EDITION, LEVELS, REQUISITES, ROLES, SHORT, SIGNATURES,
@@ -40,7 +38,6 @@ log = logging.getLogger(__name__)
 LANGS = ("KA", "KA-RU", "KA-EN")
 SECOND = {"KA": None, "KA-RU": "ru", "KA-EN": "en"}
 COMPANY_SIG_KEY = "private/nda/company-signature.json"
-CONFIRM_TTL = timedelta(hours=1)  # the Telegram confirmation is good for this long before signing
 PNG_PREFIX = "data:image/png;base64,"
 MAX_SIGNATURE = 400_000
 STATUS_LABEL = {"sent": "Отправлено", "signed": "Подписано", "cancelled": "Отменено"}
@@ -572,13 +569,7 @@ def _by_token(db: Session, token: str, lock: bool = False) -> AgentNda:
     return n
 
 
-def _test_mode() -> bool:
-    """A test stand (settings.TEST_MODE, when it has one): Telegram is off there, the page offers a marked stand-in."""
-    return bool(getattr(env, "TEST_MODE", False))
-
-
-def _confirmed(n: AgentNda) -> bool:
-    return bool(n.tg_id and n.tg_auth_date and now() - n.tg_auth_date < CONFIRM_TTL)
+_test_mode, _confirmed = S.test_mode, S.confirmed
 
 
 def view(db: Session, token: str) -> dict:
@@ -623,22 +614,8 @@ def confirm_telegram(db: Session, token: str, data: dict) -> dict:
     n = _by_token(db, token, lock=True)
     if n.status != "sent":
         raise DomainError("bad_status", "NDA уже подписано", 409)
-    if _test_mode() and data.get("test") is True:  # the test server has no Telegram: a marked stand-in
-        fields = {"id": "0", "username": n.telegram or "test", "first_name": "TEST", "auth_date": str(int(now().timestamp())),
-                  "hash": "test-mode-" + secrets.token_hex(8)}
-    else:
-        from app.api.auth import verify_login_widget
-        payload = {k: (str(v) if v is not None else None) for k, v in data.items() if k in
-                   ("id", "first_name", "last_name", "username", "photo_url", "auth_date", "hash")}
-        fields = verify_login_widget(payload, env.LOGIN_BOT_TOKEN or env.BOT_TOKEN, max_age=int(CONFIRM_TTL.total_seconds()))
-        fields["hash"] = payload["hash"]
-    got = (fields.get("username") or "").lower()
-    if n.telegram and got != n.telegram.lower():
-        raise DomainError("wrong_telegram", f"Это NDA для Telegram @{n.telegram}. Войдите в Telegram этим аккаунтом", 403)
-    n.tg_id, n.tg_username = str(fields.get("id")), fields.get("username") or None
-    n.tg_name = " ".join(x for x in (fields.get("first_name"), fields.get("last_name")) if x) or None
-    n.tg_auth_date = datetime.fromtimestamp(int(fields.get("auth_date") or 0), timezone.utc)
-    n.tg_hash = fields.get("hash")
+    S.apply(n, S.widget(data, n.telegram, _test_mode()), telegram=n.telegram,
+            wrong=f"Это NDA для Telegram @{n.telegram}. Войдите в Telegram этим аккаунтом")
     log_event(db, "nda", n.id, "telegram_confirmed", None, label=n.full_name, tg_id=n.tg_id, tg_username=n.tg_username)
     db.commit()
     return view(db, token)
@@ -647,19 +624,12 @@ def confirm_telegram(db: Session, token: str, data: dict) -> dict:
 def confirm_by_bot(db: Session, token: str, frm: dict) -> AgentNda:
     """/start nda_<token> in the CRM sign-in bot (the page's «Подтвердить в Telegram-боте»: a plain t.me link, which works
     on phones where the Login Widget's popup doesn't): the private message's sender is the Telegram account; only the
-    NDA's @username (when given) passes. The confirmation code: an HMAC (bot token) of the token, the account and time."""
+    NDA's @username (when given) passes (services/signing.py)."""
     n = _by_token(db, token, lock=True)
     if n.status != "sent":
         raise DomainError("bad_status", "Соглашение уже подписано", 409)
-    got = (frm.get("username") or "").lower()
-    if n.telegram and got != n.telegram.lower():
-        raise DomainError("wrong_telegram", f"Это соглашение для Telegram @{n.telegram}. Откройте ссылку из этого аккаунта", 403)
-    at = now()
-    n.tg_id, n.tg_username = str(frm["id"]), frm.get("username") or None
-    n.tg_name = " ".join(x for x in (frm.get("first_name"), frm.get("last_name")) if x) or None
-    n.tg_auth_date = at
-    key = hashlib.sha256((env.LOGIN_BOT_TOKEN or env.BOT_TOKEN or "").encode()).digest()
-    n.tg_hash = "bot-" + hmac.new(key, f"{n.token}:{n.tg_id}:{int(at.timestamp())}".encode(), hashlib.sha256).hexdigest()
+    S.apply(n, S.from_bot(n.token, frm), telegram=n.telegram,
+            wrong=f"Это соглашение для Telegram @{n.telegram}. Откройте ссылку из этого аккаунта")
     log_event(db, "nda", n.id, "telegram_confirmed", None, label=n.full_name, tg_id=n.tg_id, tg_username=n.tg_username, via="bot")
     db.commit()
     return n

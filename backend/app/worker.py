@@ -200,6 +200,20 @@ def nda_drive(db: Session, job: Job):
     return nda.drive_upload(db, _ref_id(job))
 
 
+@handler("sign_doc_pdf")
+def sign_doc_pdf(db: Session, job: Job):
+    """Every signer signed a «Документ на подпись» but printing the PDF failed in the request (services/sign_docs.finalize)."""
+    from app.services import sign_docs
+    return sign_docs.finalize(db, _ref_id(job))
+
+
+@handler("sign_doc_drive")
+def sign_doc_drive(db: Session, job: Job):
+    """A signed «Документ на подпись» → the Drive folder of contracts (services/sign_docs.drive_upload)."""
+    from app.services import sign_docs
+    return sign_docs.drive_upload(db, _ref_id(job))
+
+
 @handler("tg_unpost")
 def tg_unpost(db: Session, job: Job):
     """Rented («Сдано» / «Сдал сам»): our Telegram posts of the object are deleted (properties.unpost)."""

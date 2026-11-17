@@ -5,11 +5,11 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { cadastralError, cadastralHint, cadastralInput } from '../lib/cadastral';
 import { useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Building2, Copy, Download, ExternalLink, FileText, Home, KeyRound, Plus, Printer, RotateCcw, Save, Search, Send, UserCheck } from 'lucide-react';
+import { Building2, Copy, Download, ExternalLink, FilePen, FileText, Home, KeyRound, Plus, Printer, RotateCcw, Save, Search, Send, UserCheck } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { api } from '../api';
 import { itemsOf } from '../api/client';
-import type { Contract, Deal, LeadContract } from '../api/types';
+import { atLeast, type Contract, type Deal, type LeadContract } from '../api/types';
 import { ContractActions, ContractList, ContractStatusBadge, ContractView } from '../features/contracts/ContractCard';
 import { insideTelegram, tgWebApp, useAuth } from '../auth/AuthContext';
 import { errText, useToast } from '../components/toast';
@@ -163,6 +163,12 @@ function useDrafts() {
 type EditSession = { id: number; key: string };
 // randomUUID needs a secure context: the mock on a LAN http address gets a random string instead
 const newSession = (id: number): EditSession => ({ id, key: globalThis.crypto?.randomUUID?.() ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}` });
+
+/** «Документы на подпись» (pages/SignDocs.tsx): any pasted document signed electronically — staff only. */
+function SignDocsLink() {
+  const { user } = useAuth();
+  return atLeast(user, 'operator') ? <Link className="btn btn-secondary" to="/sign-docs"><FilePen size={16} />{t('Документы на подпись')}</Link> : null;
+}
 
 export function ContractWizard({ compact }: { compact?: boolean }) {
   const toast = useToast();
@@ -528,7 +534,9 @@ export function ContractWizard({ compact }: { compact?: boolean }) {
     <div className="col gap-lg contract-wizard">
       <div className="no-print">
         {!compact && (
-          <PageHead label={t('Генератор договоров')} title={t('Договоры')} actions={<Button variant="secondary" onClick={reset}><RotateCcw size={16} />{t('Новый договор')}</Button>} />
+          <PageHead label={t('Генератор договоров')} title={t('Договоры')} actions={<div className="row row-wrap gap-sm">
+            <SignDocsLink />
+            <Button variant="secondary" onClick={reset}><RotateCcw size={16} />{t('Новый договор')}</Button></div>} />
         )}
         {(contract || autoState.err) && (
           <div className="row row-wrap gap-sm" style={{ fontSize: 12, marginBottom: 6 }} aria-live="polite">
@@ -779,7 +787,7 @@ function Contracts({ compact }: { compact?: boolean }) {
   if (params.has('new') || params.has('lead_id') || params.has('deal_id') || params.has('property_id') || params.has('edit')) return <ContractWizard compact={compact} />;
   return (
     <div className="col gap-lg">
-      {!compact && <PageHead label={t('Генератор договоров')} title={t('Договоры')} />}
+      {!compact && <PageHead label={t('Генератор договоров')} title={t('Договоры')} actions={<SignDocsLink />} />}
       <Link className="btn btn-lg" to={`${base}?new=1`}><Plus size={18} />{t('Новый договор')}</Link>
       <ContractList base={base} />
     </div>

@@ -470,6 +470,11 @@ def test_qr_login_with_2fa_then_logout(db):
             Fake.logged_out = True
 
     loop = asyncio.new_event_loop()
+    # widen the windows a busy box opens at random (11-17, flaky on prod): the /password handler is slow right after
+    # handing the password over, the login coroutine is slow to make the next password future
+    soon, future = loop.call_soon_threadsafe, loop.create_future
+    loop.call_soon_threadsafe = lambda *a: (soon(*a), time.sleep(0.05))[0]
+    loop.create_future = lambda: (time.sleep(0.05), future())[1]
     threading.Thread(target=loop.run_forever, daemon=True).start()
     srv = userbot.serve_http(None, loop, 0)
     url, hdr = f"http://127.0.0.1:{srv.server_port}", {"X-Userbot-Token": userbot.conf("SECRET_KEY")}

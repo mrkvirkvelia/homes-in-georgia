@@ -93,7 +93,7 @@ def status():
     me = STATE["me"]
     return {"enabled": enabled(), "authorized": bool(me),
             "me": me and {"id": me.id, "username": me.username, "name": " ".join(filter(None, [me.first_name, me.last_name]))},
-            "login": {k: v for k, v in STATE["login"].items() if k in ("status", "url", "error", "expires")}}
+            "login": {k: v for k, v in dict(STATE["login"]).items() if k in ("status", "url", "error", "expires")}}
 
 
 async def login(client):
@@ -116,9 +116,10 @@ async def login(client):
                         return False
                     await qr.recreate()
         except SessionPasswordNeededError:
+            # the future goes up before the status that invites a password: the HTTP thread may POST it at once
+            STATE["password"] = asyncio.get_running_loop().create_future()
             L.update(status="password", url=None, error=None)
             while True:
-                STATE["password"] = asyncio.get_running_loop().create_future()
                 try:
                     pw = await asyncio.wait_for(STATE["password"], max(1, deadline - time.time()))
                 except asyncio.TimeoutError:
@@ -128,6 +129,7 @@ async def login(client):
                     await client.sign_in(password=pw)
                     break
                 except PasswordHashInvalidError:
+                    STATE["password"] = asyncio.get_running_loop().create_future()
                     L.update(error="wrong_password")
     except Exception as e:  # noqa: BLE001 — shown in the CRM, the admin presses again
         log.warning("userbot login failed: %r", e)
@@ -496,8 +498,8 @@ def serve_http(client, loop, port):
             if self.path == "/password":
                 fut = STATE["password"]
                 if fut and not fut.done() and p.get("password"):
+                    STATE["login"].update(error=None)  # before the hand-over: a fast «wrong_password» must not be wiped
                     loop.call_soon_threadsafe(fut.set_result, str(p["password"]))
-                    STATE["login"].update(error=None)
                 return reply(200, status())
             if self.path == "/logout":
                 if STATE["me"] and STATE["client"]:

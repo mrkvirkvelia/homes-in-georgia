@@ -306,7 +306,8 @@ export const sources: Source[] = [
   { id: 2, name: 'myhome.ge', kind: 'myhome', url: 'https://myhome.ge', enabled: true, count: 388, last_run_at: iso(-40 * min) },
   { id: 3, name: 'Facebook группы', kind: 'facebook', enabled: false, count: 57, last_run_at: iso(-3 * day) },
   { id: 4, name: 'Telegram-каналы', kind: 'telegram', enabled: true, count: 140, last_run_at: iso(-2 * hour) },
-  { id: 5, name: 'Rival Flats', kind: 'tg_competitor', key: 'rival_flats', url: 'https://t.me/rival_flats', enabled: true, options: { competitor: true, backfilled_at: iso(-1 * day) } },
+  { id: 5, name: 'Rival Flats', kind: 'tg_competitor', key: 'rival_flats', url: 'https://t.me/rival_flats', enabled: true, options: { competitor: true, backfilled_at: iso(-1 * day), last_run: iso(-25 * min), last_error: null, last_note: 'история загружена, постов: 214' } },
+  { id: 7, name: 'Closed Rentals', kind: 'tg_competitor', key: 'closed_rentals', url: 'https://t.me/closed_rentals', enabled: true, options: { competitor: true, last_run: iso(-25 * min), last_error: 'ничего не найдено: канал закрыт или веб-превью t.me/s выключено' } },
   { id: 6, name: 'Tbilisi Rent Group', kind: 'fb_group', key: '1234567890', url: 'https://facebook.com/groups/1234567890', enabled: true, options: { competitor: true } },
 ];
 /** ads of the «Конкурент» sources (Объекты → База → Конкуренты); L1002 is the same flat as R1 (its «У конкурента» chip) */

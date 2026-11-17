@@ -286,6 +286,8 @@ export const D: Record<string, [ka: string, en: string]> = {
   'история загружена {d}': ['ისტორია ჩატვირთულია {d}', 'history loaded {d}'],
   'история загрузится при следующем запуске': ['ისტორია ჩაიტვირთება შემდეგ გაშვებაზე', 'history loads on the next run'],
   'история загрузится': ['ისტორია ჩაიტვირთება', 'history pending'],
+  'Ошибка {d}': ['შეცდომა {d}', 'Error {d}'],
+  'обновлён {d}': ['განახლდა {d}', 'updated {d}'],
   // NDA: this agreement's own text
   'Абзац': ['აბზაცი', 'Paragraph'],
   'Английский': ['ინგლისური', 'English'],

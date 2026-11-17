@@ -289,8 +289,8 @@ def sources_config(c):
     def bf(r, kind):
         o = json.loads(r["options"] or "{}")
         return {"backfill": BACKFILL[kind]} if o.get("competitor") and not o.get("backfilled_at") else {}
-    tg = [{"username": r["key"], "kind": r["kind"][3:], **json.loads(r["options"]), **bf(r, "telegram")}
-          for r in rows if r["kind"].startswith("tg_")]
+    tg = [{"username": r["key"], "kind": r["kind"][3:], **{k: v for k, v in json.loads(r["options"]).items() if k not in STATUS},
+           **bf(r, "telegram")} for r in rows if r["kind"].startswith("tg_")]
     fb = [{"key": r["key"], **json.loads(r["options"]), "url": r["url"], "lang": r["lang"], "name": r["name"], **bf(r, "facebook")}
           for r in rows if r["kind"] == "fb_group"]
     ig = [{"key": r["key"], "name": r["name"]} for r in rows if r["kind"] == "ig_account"]
@@ -298,6 +298,19 @@ def sources_config(c):
             "facebook_defaults": json.loads(get_setting("facebook_defaults", c) or "{}"), "facebook_groups": fb,
             "instagram_defaults": json.loads(get_setting("instagram_defaults", c) or "{}"), "instagram_accounts": ig,
             "threads_defaults": json.loads(get_setting("threads_defaults", c) or "null") or THREADS_DEFAULTS}
+
+
+STATUS = ("last_run", "last_error", "last_posts", "last_note")  # source_status keys: not fetcher config, kept out of sources.json
+
+
+def source_status(key, **st):
+    """A fetcher's last run of one Telegram source -> its options: last_run (ISO), last_error (None = ok), last_posts,
+    last_note (backfill progress). Shown on the source's card in Управление → Источники."""
+    with tx() as c:
+        for r in c.execute("SELECT id, kind, options FROM sources WHERE key = ?", (key,)).fetchall():
+            if r["kind"].startswith("tg_"):
+                o = {**json.loads(r["options"] or "{}"), "last_run": now(), **st}
+                c.execute("UPDATE sources SET options = ? WHERE id = ?", (json.dumps(o, ensure_ascii=False), r["id"]))
 
 
 # how often refresh.sh runs each fetcher, minutes (admin: Управление → Источники → Расписание, setting source_every_min)

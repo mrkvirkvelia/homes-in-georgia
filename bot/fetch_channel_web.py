@@ -25,6 +25,10 @@ ROOT = os.path.dirname(os.path.abspath(__file__))
 OUT = "raw"  # relative paths: the same base works in a checkout on the Mac and in the container (/app)
 UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0 Safari/537.36"
 PAUSE = float(os.environ.get("FETCH_PAUSE", "1"))  # seconds between page requests, be polite to t.me
+# A competitor's one-time history walk (up to 10 000 messages, ~1 s a page + photos) takes ~10-20 min a channel: it runs
+# at most this many seconds a channel per tick and resumes from raw/backfill_<user>.cursor next tick (a deploy restart
+# loses one slice at most, not the whole walk).
+BACKFILL_SEC = float(os.environ.get("FETCH_BACKFILL_SEC", "120"))
 
 
 def get(c, url, tries=4):
@@ -97,10 +101,14 @@ def video_of(c, user, kind, p, old):
     return None
 
 
-def fetch(c, user, kind, want, photos, scan, marker=None, old=None):
-    """Newest-first walk over the web preview until `want` posts with text and photos or `scan` messages."""
-    items, before, newest = [], None, None
+def fetch(c, user, kind, want, photos, scan, marker=None, old=None, start=None, deadline=None):
+    """Newest-first walk over the web preview until `want` posts with text and photos or `scan` messages.
+    start: a cursor {before, newest} to resume from; deadline: time.time() to stop at. -> (items, cursor to resume from
+    or None when the walk is complete)."""
+    items, before, newest = [], (start or {}).get("before"), (start or {}).get("newest")
     while len(items) < want:
+        if deadline and before and time.time() > deadline:
+            return items, {"before": before, "newest": newest}
         page = get(c, f"https://t.me/s/{user}" + (f"?before={before}" if before else "")).text
         posts = parse(page)
         if not posts:
@@ -129,7 +137,7 @@ def fetch(c, user, kind, want, photos, scan, marker=None, old=None):
             break
         before = oldest
         time.sleep(PAUSE)
-    return items
+    return items, None
 
 
 def keep_history(ch, items, old):
@@ -138,6 +146,19 @@ def keep_history(ch, items, old):
         return items
     ids = {i["id"] for i in items}
     return sorted(items + [i for k, i in old.items() if k not in ids], key=lambda i: i["id"], reverse=True)
+
+
+def cursor_path(key):
+    return f"{OUT}/backfill_{re.sub(r'[^A-Za-z0-9_.-]', '_', key)}.cursor"
+
+
+def report(user, **st):
+    """The channel's last run -> sources.options (Управление → Источники). Never fails the fetch (no DB on a laptop run)."""
+    try:
+        import db
+        db.source_status(user, **st)
+    except Exception as e:  # noqa: BLE001
+        print(f"{user}: status not saved: {e}")
 
 
 def mark_backfilled(key):
@@ -164,18 +185,36 @@ def main():
             photos = int(os.environ.get("FETCH_PHOTOS") or o["photos"])
             path = f"{OUT}/channel_{user}.json"
             old = {i["id"]: i for i in json.load(open(path))} if os.path.exists(path) else {}
+            cur = json.load(open(cursor_path(user))) if ch.get("backfill") and os.path.exists(cursor_path(user)) else None
             try:
-                items = fetch(c, user, ch["kind"], want, photos, int(o["scan"]), o.get("caption_marker"), old)
+                items, nxt = fetch(c, user, ch["kind"], want - (cur or {}).get("found", 0), photos, int(o["scan"]),
+                                   o.get("caption_marker"), old, start=cur,
+                                   deadline=time.time() + BACKFILL_SEC if ch.get("backfill") else None)
             except Exception as e:  # one broken channel keeps its previous file, the others still update
                 print(f"{user}: failed, keeping old file: {e}")
+                report(user, last_error=str(e)[:300])
                 failed += 1
                 continue
-            if ch.get("backfill"):  # walked without an error (even if empty: a private channel is not retried each tick)
-                mark_backfilled(user)
+            note = None
+            if ch.get("backfill"):
+                found = (cur or {}).get("found", 0) + len(items)
+                if nxt:  # out of this tick's time: the next tick goes on from here
+                    with open(cursor_path(user), "w") as f:
+                        json.dump({**nxt, "found": found}, f)
+                    note = f"история загружается, постов: {found}"
+                else:  # walked to the end without an error (even if empty: a private channel is not retried each tick)
+                    mark_backfilled(user)
+                    if os.path.exists(cursor_path(user)):
+                        os.remove(cursor_path(user))
+                    note = f"история загружена, постов: {found}"
+                print(f"{user}: {note}")
             items = keep_history(ch, items, old)
             if not items:
                 print(f"{user}: nothing found (private channel or web preview off?), keeping old file")
+                report(user, last_error=None if nxt else "ничего не найдено: канал закрыт или веб-превью t.me/s выключено",
+                       last_note=note)
                 continue
+            report(user, last_error=None, last_posts=len(items), last_note=note)
             json.dump(items, open(f"{OUT}/channel_{user}.json", "w"), ensure_ascii=False)
             ds = sorted(i["date"] for i in items if i["date"])
             print(f"{user} ({ch['kind']}): saved {len(items)} posts, {ds[0][:10] if ds else '?'} .. {ds[-1][:10] if ds else '?'}, "

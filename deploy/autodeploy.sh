@@ -30,4 +30,4 @@ tail -15 /opt/homes-ci/tests.log
 if [ $ok -ne 0 ]; then
   echo "tests FAILED, not deploying (full output: /opt/homes-ci/tests.log)"; echo "$new" > /var/lib/homes-autodeploy.failed; exit 1
 fi
-git show "$new":deploy/deploy.sh | sh || { echo "$new" > /var/lib/homes-autodeploy.failed; exit 1; }
+git show "$new":deploy/deploy.sh > /opt/homes-ci/deploy.sh && sh /opt/homes-ci/deploy.sh < /dev/null || { echo "$new" > /var/lib/homes-autodeploy.failed; exit 1; }

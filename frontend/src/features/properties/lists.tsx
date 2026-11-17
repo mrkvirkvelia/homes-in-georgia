@@ -26,6 +26,8 @@ const sourceName = (s: string, label?: string) => {
   if (!PREFIX_LABEL[k] || !rest.length) return SOURCE_LABEL[s] || s;
   return `${PREFIX_LABEL[k]} · ${label || (/^\d{8,}$/.test(key) ? t('группа …{id}', { id: key.slice(-4) }) : key)}`;
 };
+// «Тип» of the feed (Irakli 11-17): the parsers' details.property (backend new_listings prop_type)
+const PROP_TYPES = [{ value: 'apartment', label: t('Квартира') }, { value: 'house', label: t('Частный дом') }, { value: 'commercial', label: t('Коммерция') }];
 const BEDS = [{ value: '0', label: t('Студия') }, { value: '1', label: '1' }, { value: '2', label: '2' }, { value: '3', label: '3' }, { value: '4', label: '4+' }];
 
 type Facet = { value: string; count: number; label?: string }[];
@@ -210,6 +212,8 @@ function RentListings({ base = '', competitor = false }: { base?: string; compet
           { value: '', label: t('Все') }, { value: 'owner', label: t('Собственник') }, { value: 'agent_suspect', label: t('Агент?') },
           // the card's red label «В базе / В архиве по этому адресу» (11-13; the old «Дубль» = agency channel matched nothing)
           { value: 'in_base', label: t('В базе') }, { value: 'in_archive', label: t('В архиве') }] }}
+        boxes={<div className="fbox"><span className="flabel">{t('Тип')}</span>
+          <Select aria-label={t('Тип')} value={f.prop_type || ''} onChange={(e) => set('prop_type')(e.target.value)} placeholder={t('Любой')} options={PROP_TYPES} /></div>}
         found={data ? t('Найдено: {n}', { n: data.total ?? itemsOf(data).length }) : ''} filtered={filtered} onReset={() => setF({ q: f.q, flag: '', known: f.known })}
         actions={!competitor && (!!data?.known_total || f.known) && (
           <Button size="sm" variant={f.known ? 'primary' : 'secondary'} aria-pressed={!!f.known} onClick={() => set('known')(f.known ? '' : '1')} title={KNOWN_HINT}>

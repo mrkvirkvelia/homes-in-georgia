@@ -138,8 +138,10 @@ def test_archive_cancels_retry(db, sent):
 def test_new_listing_filters(db, client):
     georgiy = make_user(db, "agent", "Георгий")
     make_listing(db, "ss1", source="ss.ge", price_usd=700, bedrooms=1, details='{"metro_ru": "Руставели"}')
-    make_listing(db, "fb2", source="fb:Tbilisi rent", district="Сабуртало", price_usd=1200, bedrooms=3)
-    make_listing(db, "fb3", source="fb:Other group", district="Сабуртало", price_usd=900, bedrooms=5)
+    make_listing(db, "fb2", source="fb:Tbilisi rent", district="Сабуртало", price_usd=1200, bedrooms=3,
+                 details='{"property": "house"}')
+    make_listing(db, "fb3", source="fb:Other group", district="Сабуртало", price_usd=900, bedrooms=5,
+                 details='{"property": "commercial"}')
     ids = lambda qs: sorted(i["id"] for i in client.get(f"/api/listings/new?{qs}", headers=auth(georgiy)).json()["items"])
     assert ids("source=facebook") == ["fb2", "fb3"]
     assert ids("source=fb:Tbilisi rent") == ["fb2"]
@@ -147,6 +149,8 @@ def test_new_listing_filters(db, client):
     assert ids("metro=Руставели") == ["ss1"]
     assert ids("bedrooms=1,4") == ["fb3", "ss1"]
     assert ids("price_min=800&bedrooms=3") == ["fb2"]
+    # «Тип» (Irakli 11-17): the parsers' details.property; an ad without one is an apartment
+    assert ids("prop_type=house") == ["fb2"] and ids("prop_type=commercial") == ["fb3"] and ids("prop_type=apartment") == ["ss1"]
     f = client.get("/api/listings/new/facets", headers=auth(georgiy)).json()
     assert {"value": "Сабуртало", "count": 2} in f["districts"] and f["metros"] == [{"value": "Руставели", "count": 1}]
     assert len(f["sources"]) == 3

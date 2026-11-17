@@ -299,4 +299,4 @@ export const api = {
 };
 
 export type PropertyScope = { status?: string; agent_id?: number; mine?: number; base?: number; deal?: 'rent' | 'sale' };
-export type ListingFilter = { q?: string; source?: string[]; flag?: string; district?: string[]; metro?: string; bedrooms?: string; price_min?: string; price_max?: string; known?: string; competitor?: string };
+export type ListingFilter = { q?: string; source?: string[]; flag?: string; district?: string[]; metro?: string; bedrooms?: string; price_min?: string; price_max?: string; known?: string; competitor?: string; prop_type?: string };

@@ -11,11 +11,12 @@ def _obj_listing(db, rows):
 
 
 def test_base_twin_ranks_over_nearer_flat_and_whole_house_is_shown(db):
+    PH = '["https://x/1.jpg"]'  # a channel post has photos: hints are compared by eye
     ad = make_listing(db, "lv1", address=None, source="livo.ge", bedrooms=2, area=120, floor=11, lat=41.70614, lng=44.77521)
-    make_client_listing(db, "tg1", address=None, bedrooms=2, area=110, floor=5, lat=41.70639, lng=44.77573)      # 51 m, 5th floor
-    make_client_listing(db, "tg2", address=None, bedrooms=2, area=120, floor=11, lat=41.70929, lng=44.76366)     # 1 km, mis-geocoded
-    make_client_listing(db, "tg3", address=None, bedrooms=2, area=120, floor=11, lat=41.75, lng=44.80)           # 5 km: too far
-    make_client_listing(db, "tg4", address=None, bedrooms=5, area=300, floor=2, lat=41.70614, lng=44.77521)      # same house, other flat
+    make_client_listing(db, "tg1", address=None, photos=PH, bedrooms=2, area=110, floor=5, lat=41.70639, lng=44.77573)      # 51 m, 5th floor
+    make_client_listing(db, "tg2", address=None, photos=PH, bedrooms=2, area=120, floor=11, lat=41.70929, lng=44.76366)     # 1 km, mis-geocoded
+    make_client_listing(db, "tg3", address=None, photos=PH, bedrooms=2, area=120, floor=11, lat=41.75, lng=44.80)           # 5 km: too far
+    make_client_listing(db, "tg4", address=None, photos=PH, bedrooms=5, area=300, floor=2, lat=41.70614, lng=44.77521)      # same house, other flat
     # 11-13: only a flat that can be this one — another floor (tg1) or another flat of the house (tg4) is not shown
     assert _obj_listing(db, properties.similar_in_base(db, [ad])["lv1"]) == ["tg2"]
     db.get(Property, properties.similar_in_base(db, [ad])["lv1"][0]["property_id"]).status = "archived"

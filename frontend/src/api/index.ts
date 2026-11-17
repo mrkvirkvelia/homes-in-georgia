@@ -68,7 +68,7 @@ export const api = {
     /** «Тот же объект» (same) / «Другой» on a «Похож на объект #N» card */
     decideMatch: (id: string, pid: number, same: boolean) => http.post<{ ok: boolean; status: string }>(`/listings/${id}/matches/${pid}`, { same }),
     dismiss: (id: string) => http.post<{ ok: boolean }>(`/listings/${id}/dismiss`),
-    agent: (id: string, body: { owner_name?: string; owner_phone?: string }) => http.post<Property>(`/listings/${id}/agent`, body),
+    agent: (id: string, body: { owner_name?: string; owner_phone?: string }) => http.post<{ ok: boolean }>(`/listings/${id}/agent`, body),
     facets: (competitor?: boolean) => http.get<Record<'sources' | 'districts' | 'metros', { value: string; count: number; label?: string }[]>>('/listings/new/facets', competitor ? { competitor: 1 } : undefined),
     get: (id: string) => then(http.get<Listing>(`/listings/${id}`), normListing),
   },

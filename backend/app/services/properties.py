@@ -254,7 +254,8 @@ def new_listings(db: Session, q: str | None = None, source: str | list[str] | No
     from app.services import demand
     want = demand.listing_counts(db, rows)  # stage 10: «Под этот объект подходят N активных клиентов»
     comp = set(db.scalars(competitor_sources()))  # ingest dedupe adds a competitor's copy of the flat to dup_sources
-    return {"items": [{**listing_out(r), "similar": sim.get(r.id, []), "refused": refused.get(r.id), "demand": want.get(r.id, 0),
+    # the source link before «Беру в работу» (David 11-17): the ad is nobody's yet; phones and text stay hidden
+    return {"items": [{**listing_out(r), "url": (jload(r.urls, []) or [None])[0], "similar": sim.get(r.id, []), "refused": refused.get(r.id), "demand": want.get(r.id, 0),
                        "at_competitor": [x for x in dict.fromkeys(jload(r.dup_sources, []) or []) if x in comp],
                        **objs.get(r.id, {"known_object": None, "matches": []})} for r in rows],
             "total": total, "known_total": known_total}
@@ -269,12 +270,9 @@ def known_objects(db: Session, listing_ids: list[str]) -> dict[str, dict]:
                                      .join(Property, Property.id == PropertyListing.property_id)
                                      .where(PropertyListing.listing_id.in_(listing_ids))):
         out[lid]["known_object"] = {"id": pid, "address": addr}
-    ads = {x.id: x for x in db.scalars(select(Listing).where(Listing.id.in_(listing_ids)))}
     for m, p in db.execute(select(ListingMatch, Property).join(Property, Property.id == ListingMatch.property_id)
                            .where(ListingMatch.listing_id.in_(listing_ids), ListingMatch.status == "pending")
                            .order_by(ListingMatch.score.desc(), ListingMatch.id)):
-        if m.listing_id in ads and not same_flat_possible(ads[m.listing_id], p):
-            continue  # a card made before the rule (11-13)
         out[m.listing_id]["matches"].append({"property_id": m.property_id, "address": p.address, "score": m.score,
                                              "reasons": m.reasons})
     return out
@@ -294,71 +292,93 @@ def same_flat_possible(l, p) -> bool:
     return bool(rel) and (rel == "тот же дом" or rel.startswith("соседний"))
 
 
-BASE_HINT = "address"  # listing_matches.status of a «В архиве / в базе по этому адресу» row: a hint, nobody decides it
+BASE_HINT = "address"
+MAX_HINTS = 3  # «похожие у нас» per ad: a big complex has dozens of flats with these params (eval 11-17)  # listing_matches.status of a «В архиве / в базе по этому адресу» row: a hint, nobody decides it
 
 
 def could_be_same(l, p) -> bool:
-    """The ad can be this object of our base: what both know agrees — floor, bedrooms, area to 1 m² (it comes from the
-    cadastre, so it is exact; 1 m² for rounding) (11-13: «тут
-    52 м², этаж 2 — зачем ты показываешь 60 м² и 13-й этаж?»). Unknown on either side doesn't rule it out."""
+    """The ad can be this object of our base: what both know roughly agrees — bedrooms, floor ±1, area within 10%
+    (11-13: «тут 52 м², этаж 2 — зачем ты показываешь 60 м² и 13-й этаж?»; 11-17: the same flat was 100 m² / 6th floor
+    in the CRM and 110 m² / 5th in the ad — «покажи похожие, чтобы определить, та или не та»). Unknown on either side
+    doesn't rule it out."""
     def known(a, b):
         return a is not None and b is not None
-    if known(l.floor, p.floor) and int(l.floor) != int(p.floor):
+    if known(l.floor, p.floor) and abs(int(l.floor) - int(p.floor)) > 1:
         return False
     if known(l.bedrooms, p.bedrooms) and int(l.bedrooms) != int(p.bedrooms):
         return False
-    if l.area and p.area and abs(float(l.area) - float(p.area)) > 1:
+    if l.area and p.area and abs(float(l.area) - float(p.area)) > max(1.0, 0.10 * max(float(l.area), float(p.area))):
         return False
     return True
 
 
 def similar_in_base(db: Session, rows: list[Listing], radius: float = 60,
                     twin_radius: float = 1500) -> dict[str, list[dict]]:
-    """Objects of our base (archived legacy ones too) at the ad's address, for the agent to compare by eye (David
-    2026-11-09 / 11-12: «по Bakradze 20 в архиве уже 3 объекта — сравните»). An object counts when
-    - its address is the same building, a neighbour corpus (20 / 20A) or a house ≤ NEAR_HOUSES apart on the same street,
-      across Latin / Cyrillic / Georgian spellings (dedup.relation);
-    - or its pin is within `radius` of the ad's, or within `twin_radius` for a «twin» (same bedrooms and floor, area
-      ±10%: pins can be off by a kilometre). The pin is the object's own (agent-confirmed) or its source ad's.
-    -> listing id → [{property_id, reasons, rank}] best first. Run when ads are parsed (store_similar), not per render.
+    """Objects of our base (archived legacy ones too) near the ad, for the agent to compare by eye (David 2026-11-09 /
+    11-12: «по Bakradze 20 в архиве уже 3 объекта — сравните»; 11-17: «покажи похожие — та или не та»). An object whose
+    bedrooms, floor ±1 and area ±10% fit (could_be_same) counts when
+    - it is the same building or a neighbour corpus (20 / 20A), across Latin / Cyrillic / Georgian spellings
+      (dedup.relation), or its pin is within `radius` of the ad's (the object's own pin or its source ad's);
+    - it is a house ≤ NEAR_HOUSES apart on the same street, or on the street of an ad that names no house («Vake mckheta
+      st. -»), only with the same floor and area (exact()): there the loose fit was another flat 30 times of 33.
+    - its pin is within `twin_radius` (pins can be off by a kilometre, 11-13) and floor, area and price (±15%) are the
+      same: last, as a looser twin was another flat 80 times of 80 (eval 11-17, «1430 м — не та квартира»: a sale).
+    -> listing id → [{property_id, reasons, rank}], the MAX_HINTS best: same house first, the closest params first.
+    Run when ads are parsed (store_similar), not per render.
     ponytail: the whole base in memory, a scan per ad (~10k objects × a sync batch); bucket by street / bbox if slow."""
-    from app.services.dedup import relation, street_house
+    from app.services.dedup import _same_street, relation, street_house, street_words
     if not rows:
         return {}
+    with_photos = set(db.scalars(select(PropertyMedia.property_id).where(PropertyMedia.kind == "photo").distinct()))
     objs = [(p, street_house(p.address or (a.address if a else None)),
              (p.lat, p.lng) if p.lat is not None and p.lng is not None else
              (a.lat, a.lng) if a is not None and a.lat is not None and a.lng is not None else None)
-            for p, a in db.execute(select(Property, Listing).outerjoin(Listing, Listing.id == Property.listing_id)).all()]
+            for p, a in db.execute(select(Property, Listing).outerjoin(Listing, Listing.id == Property.listing_id)).all()
+            if p.id in with_photos or (a is not None and (a.photos or "[]") != "[]")]
+    # ↑ only objects with photos (own or their ad's): the card compares by eye, similar_for hides the rest
     linked = set(db.execute(select(PropertyListing.listing_id, PropertyListing.property_id)
                             .where(PropertyListing.listing_id.in_([r.id for r in rows]))).all())  # already «known_object»
 
-    def twin(l: Listing, p: Property) -> bool:
-        return (l.bedrooms is not None and l.bedrooms == p.bedrooms and l.floor is not None and l.floor == p.floor
-                and bool(l.area and p.area) and abs(float(l.area) - float(p.area)) <= 0.10 * max(float(l.area), float(p.area)))
+    def exact(l: Listing, p: Property) -> bool:
+        return ((l.floor is None or p.floor is None or l.floor == p.floor)
+                and (not l.area or not p.area or abs(float(l.area) - float(p.area)) <= max(1.0, 0.03 * max(float(l.area), float(p.area)))))
+
+    def gap(l: Listing, p: Property) -> float:
+        """How far the params are apart (0 = all equal): the closest flats first."""
+        def rel(a, b, w):
+            return 0.5 if not a or not b else w * abs(float(a) - float(b)) / max(float(a), float(b))
+        return ((abs(l.floor - p.floor) if l.floor is not None and p.floor is not None else 0.5)
+                + rel(l.area, p.area, 10) + rel(l.price_usd, p.price, 3))
 
     out = {}
     for l in rows:
         mine, pin = street_house(l.address), (l.lat, l.lng) if l.lat is not None and l.lng is not None else None
+        bare = street_words(l.address) if mine[1] is None else frozenset()
         found = []
         for p, addr, at in objs:
             if p.listing_id == l.id or (l.id, p.id) in linked or not could_be_same(l, p):
                 continue
             rel = relation(mine, addr)
+            if not rel and bare and addr[1] is not None and _same_street(bare, addr[0]):
+                rel = "та же улица"
+            if rel and not (rel == "тот же дом" or rel.startswith("соседний")) and not exact(l, p):
+                rel = None
             d = 111_000 * math.hypot(pin[0] - at[0], (pin[1] - at[1]) * 0.75) if pin and at else None  # metres, equirectangular (0.75 = cos 41.7°)
-            is_twin = twin(l, p)
-            near = d is not None and d <= (twin_radius if is_twin else radius)
-            if not rel and not near:
+            near = d is not None and d <= radius
+            far_twin = (not near and d is not None and d <= twin_radius and l.bedrooms is not None and exact(l, p)
+                        and bool(l.price_usd and p.price) and abs(float(l.price_usd) - float(p.price)) <= 0.15 * float(p.price))
+            if not rel and not near and not far_twin:
                 continue
-            why = [rel] if rel else []
-            if near:
-                why.append(f"в {round(d)} м" + (" · те же спальни, этаж, площадь" if is_twin else ""))
-            # same house < neighbour corpus < pin next door < same street
-            rank = (0 if rel == "тот же дом" else 1 if rel and rel.startswith("соседний") else 2 if near else 3,
-                    not is_twin, d if d is not None else 1e9, p.id)
+            why = ([rel] if rel else []) + ([f"в {round(d)} м"] if near else []) + (
+                [f"в {round(d)} м · те же спальни, этаж, площадь"] if far_twin and not rel else [])
+            if rel in ("та же улица",) or (rel or "").startswith("рядом"):
+                why.append("тот же этаж и площадь")
+            rank = (0 if rel == "тот же дом" else 1 if rel and rel.startswith("соседний") else 2 if near else 3 if rel else 4,
+                    round(gap(l, p), 2), d if d is not None else 1e9, p.id)
             found.append((rank, p.id, why))
         if found:
             out[l.id] = [{"property_id": pid, "reasons": why, "rank": i}
-                         for i, (_, pid, why) in enumerate(sorted(found)[:20])]
+                         for i, (_, pid, why) in enumerate(sorted(found)[:MAX_HINTS])]
     return out
 
 
@@ -408,12 +428,31 @@ def dismiss_listing(db: Session, listing_id: str, actor: User) -> None:
     db.commit()
 
 
-def mark_listing_agent(db: Session, listing_id: str, actor: User, name: str | None, phone: str | None) -> Property:
-    """"Агент" straight from the feed: take the listing and record the agent contact in one go (C1 → agent_marked)."""
-    if not (name or "").strip() and not (phone or "").strip():
-        raise DomainError("owner_required", "owner name or phone is required")
-    p = take(db, listing_id, actor)
-    return owner_or_agent(db, p.id, actor, False, name, phone)
+def _real_owner(db: Session, phone: str | None, other_than: int | None = None) -> bool:
+    """The number belongs to an owner of our real objects (not only agent-marked ones): one call or one ad doesn't brand
+    him an agent."""
+    known = find_owner(db, phone)
+    return known is not None and db.scalar(select(Property.id).where(
+        Property.owner_id == known.id, Property.status != "agent_marked",
+        *([Property.id != other_than] if other_than else [])).limit(1)) is not None
+
+
+def mark_listing_agent(db: Session, listing_id: str, actor: User, name: str | None, phone: str | None) -> Listing:
+    """«Это агент» straight from the feed, without taking the ad into work (David 11-17: «посмотреть ссылку, и если
+    агент — нажать, что это агент, и не брать работу»): the ad leaves the feed, and the number (typed, else the ad's own)
+    joins the agent base, so the author's next ads are flagged on ingest (bot/db.py agent_phones)."""
+    x = get_or_404(db, Listing, listing_id, "listing", lock=True)
+    if db.scalar(select(Property.id).where(Property.listing_id == listing_id, Property.status != "archived")):
+        raise DomainError("taken_by_other", "the ad is already in work")
+    phone = (phone or "").strip() or next(iter(extract_phones(x.text or "")), None)
+    if phone and not _real_owner(db, phone):
+        upsert_owner(db, (name or "").strip() or None, phone, x.address, next(iter(jload(x.urls, []) or []), None),
+                     is_agent=True, actor=actor)
+    x.decision, x.status, x.status_reason = "rejected", "rejected", "агент"
+    x.decided_by, x.decided_at, x.updated_at = actor.id, now_text(), now_text()
+    log_event(db, "listing", x.id, "marked_agent", actor, phone=phone)
+    db.commit()
+    return x
 
 
 def new_listing_facets(db: Session, competitor: bool = False) -> dict:
@@ -999,11 +1038,8 @@ def owner_or_agent(db: Session, pid: int, agent: User, is_owner: bool, owner_nam
     if not owner_phone and not owner_name:
         raise DomainError("owner_required", "owner name or phone is required")
     mark_agent = not is_owner
-    if mark_agent:  # don't brand a known owner (with other real objects) as an agent because of one call
-        known = find_owner(db, owner_phone)
-        if known is not None and db.scalar(select(Property.id).where(
-                Property.owner_id == known.id, Property.id != p.id, Property.status != "agent_marked").limit(1)):
-            mark_agent = False
+    if mark_agent and _real_owner(db, owner_phone, p.id):  # a known owner with other real objects stays an owner
+        mark_agent = False
     owner, created = upsert_owner(db, owner_name, owner_phone, p.address, p.source_url, is_agent=mark_agent, actor=agent)
     _bind_owner(db, p, owner, agent)
     p.owner_id = owner.id
@@ -1125,6 +1161,7 @@ def upload_media(db: Session, pid: int, files: list[tuple[str, bytes]], room: st
         if have[kind] > MAX_MEDIA[kind]:
             raise DomainError("media_limit", f"У объекта максимум {MAX_MEDIA['photo']} фото и {MAX_MEDIA['video']} видео. "
                               "Удалите лишнее, чтобы добавить новое", 422)
+    from app.services.matching import photo_hash  # the matcher compares new ads with these photos
     out = []
     for name, content in files:
         ext = os.path.splitext(name or "")[1].lower() or ".jpg"
@@ -1134,7 +1171,7 @@ def upload_media(db: Session, pid: int, files: list[tuple[str, bytes]], room: st
         pos += 1
         kind = "video" if ext in VIDEO_EXT else "photo"
         m = PropertyMedia(property_id=p.id, kind=kind, path=key, room=room if kind == "photo" else None,  # rooms: photos only
-                          position=pos, uploaded_by=actor.id)
+                          position=pos, uploaded_by=actor.id, dhash=photo_hash(content) if kind == "photo" else None)
         db.add(m)
         out.append(m)
         if kind == "video":  # the worker prepares the Telegram copy now, not the publish request (notify._tg_video)

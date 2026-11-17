@@ -45,7 +45,7 @@ def test_new_ad_lists_archive_objects_at_its_address(db, client):
     ids = {a: p.id for a, p in legacy.items()}
     assert got == [(ids["20 Dimitri Bakradze St"], ["тот же дом"], "archived", f"/properties/{ids['20 Dimitri Bakradze St']}"),
                    (ids["20A Dimitri Bakradze St"], ["соседний корпус 20A"], "archived", f"/properties/{ids['20A Dimitri Bakradze St']}"),
-                   (ids["16 Dimitri Bakradze St"], ["рядом по улице, дом 16"], "archived", f"/properties/{ids['16 Dimitri Bakradze St']}")]
+                   (ids["16 Dimitri Bakradze St"], ["рядом по улице, дом 16", "тот же этаж и площадь"], "archived", f"/properties/{ids['16 Dimitri Bakradze St']}")]
     assert [s["id"] for s in client.get("/api/listings/ss900", headers=auth(agent)).json()["similar"]] == [x[0] for x in got]
 
 
@@ -56,8 +56,11 @@ def test_could_be_same_floor_area_bedrooms():
     assert not could_be_same(ad, N(floor=13, bedrooms=1, area=52))      # another floor
     assert not could_be_same(ad, N(floor=2, bedrooms=1, area=60))       # 60 vs 52 m²
     assert not could_be_same(ad, N(floor=None, bedrooms=2, area=52))    # another bedroom count
-    assert not could_be_same(ad, N(floor=3, bedrooms=1, area=60)) and not could_be_same(N(floor=3, bedrooms=1, area=62), N(floor=3, bedrooms=1, area=60))
+    assert not could_be_same(ad, N(floor=3, bedrooms=1, area=60))       # 60 vs 52 m² (13%)
+    assert not could_be_same(ad, N(floor=4, bedrooms=1, area=52))       # two floors off
     assert could_be_same(ad, N(floor=2, bedrooms=1, area=52.6))         # the cadastre's area, rounded
+    # David 11-17: the same flat, 100 m² / 6th floor in the CRM, 110 m² / 5th in the ad → shown to compare
+    assert could_be_same(N(floor=6, bedrooms=2, area=100), N(floor=5, bedrooms=2, area=110))
     assert could_be_same(ad, N(floor=None, bedrooms=None, area=None))   # nothing known: the address decides
 
 

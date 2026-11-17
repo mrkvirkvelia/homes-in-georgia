@@ -43,14 +43,75 @@ def test_verdicts(db):
     hashes = jdump([0x0F0F0F0F0F0F0F0E, 0x123456789ABCDEF0])
     v, _, why = _verdict(db, p, id="mh9003", address="другой", text="звоните 599 00 00 00", photo_hashes=hashes)
     assert v == "same" and why == ["общих фото: 2"]
-    # same district / bedrooms / floor, the cadastre's area (to 1 m²), other phone → similar, an operator decides
-    v, _, why = _verdict(db, p, id="mh9004", address="Палиашвили 10", text="599 00 00 00", area=70.5)
-    assert v == "similar" and why == ["район, спальни, этаж и площадь совпадают"]
-    # another area (66 vs 70 m²) → nothing (11-13)
-    assert _verdict(db, p, id="mh9005", address="Палиашвили 10", text="599 00 00 00", area=66.0)[0] == "none"
-    # one shared photo alone is not enough (a common building shot)
+    # the params alone (district, bedrooms, floor, area) name no flat (eval 11-17: 0 of 5): the address hint shows it
+    assert _verdict(db, p, id="mh9004", address="Палиашвили 10", text="599 00 00 00", area=70.5)[0] == "none"
+    # another area (60 vs 70 m², 11-13: 52 vs 60) → nothing; within 10% a person compares (11-17: 100 vs 110)
+    assert _verdict(db, p, id="mh9005", address="Палиашвили 10", text="599 00 00 00", area=60.0)[0] == "none"
+    # one shared photo is not enough to link (a common building shot), but a person compares, whatever the floor
     one = jdump([0x0F0F0F0F0F0F0F0F])
-    assert _verdict(db, p, id="mh9006", address="x", text="-", floor=9, photo_hashes=one)[0] == "none"
+    assert _verdict(db, p, id="mh9006", address="x", text="-", floor=5, photo_hashes=one)[:3:2] == ("similar", ["одно общее фото"])
+    assert _verdict(db, p, id="mh9016", address="x", text="-", floor=9, photo_hashes=one)[0] == "none"  # 5 floors off
+    # the owner's phone alone (another address): his other flat or this one, a «похож» card, not a link
+    assert _verdict(db, p, id="mh9007", address="x")[:3:2] == ("similar", ["тот же телефон", "район, спальни, этаж и площадь совпадают"])
+    # the phone and one shared photo: the same flat
+    assert _verdict(db, p, id="mh9008", address="x", floor=9, photo_hashes=one)[:3:2] == ("same", ["тот же телефон и общее фото"])
+    # an agent's number in our base names no flat
+    db.execute(text("UPDATE owners SET is_agent = true"))
+    db.commit()
+    assert _verdict(db, p, id="mh9009", address="x", floor=9)[0] == "none"
+
+
+def test_object_photos_beat_floor_and_area(db, client):
+    """David 11-17: our channel object #15032 (1 Shroshi St, 110 m², 5th floor) and the ss.ge ad «Vake shrosha st. 1»
+    (100 m², 6th floor) show the same rooms. The object's own photos (property_media.dhash) link the ad."""
+    nino = make_user(db, "operator", "Нино")
+    p = Property(address="1 Shroshi St", district="Ваке", bedrooms=2, area=110, floor=5, price=1000, status="published")
+    db.add(p)
+    db.flush()
+    signed = [h - (1 << 64) if h >> 63 else h for h in (0xF0F0F0F0F0F0F0F0, 0x0123456789ABCDEF, 0xFFFF0000FFFF0000)]
+    db.add_all(PropertyMedia(property_id=p.id, path=f"properties/{p.id}/{n}.jpg", kind="photo", dhash=h)
+               for n, h in enumerate(signed))
+    db.commit()
+    # the site's watermark flips a couple of bits
+    make_listing(db, "ss35073525", address="Vake shrosha st. 1", area=100, floor=6, price_usd=1000, text="-",
+                 photo_hashes=jdump([0xF0F0F0F0F0F0F0F1, 0xFFFF0000FFFF0003, 0x1111111111111111]))
+    make_listing(db, "ss35073526", address="Vake shrosha st. 1", area=100, floor=6, text="-",
+                 photo_hashes=jdump([0x0123456789ABCDEF]))  # one shared photo: a person compares
+    assert matching.process(db, ["ss35073525", "ss35073526"]) == {"same": 1, "similar": 1, "none": 0}
+    assert db.scalar(select(PropertyListing.property_id).where(PropertyListing.listing_id == "ss35073525")) == p.id
+    item = next(i for i in client.get("/api/listings/new", headers=auth(nino)).json()["items"] if i["id"] == "ss35073526")
+    assert item["matches"][0]["property_id"] == p.id and item["matches"][0]["reasons"] == ["одно общее фото"]
+    assert item["url"] == "https://ss.ge/ss35073526"  # the source link before «Беру в работу»
+
+
+def test_photo_hash_is_the_ingest_dhash(tmp_path):
+    from PIL import Image
+    f = tmp_path / "a.jpg"
+    Image.effect_mandelbrot((64, 48), (-2, -1.5, 1, 1.5), 50).convert("RGB").save(f)
+    h = matching.photo_hash(f.read_bytes())
+    assert h & matching.U64 == matching._ingest().dhash(str(f)) and -(1 << 63) <= h < (1 << 63)
+    assert matching.photo_hash(b"not an image") is None
+
+
+def test_media_backfill_and_rematch(db, monkeypatch):
+    from PIL import Image
+    import io
+    buf = io.BytesIO()
+    Image.effect_mandelbrot((64, 48), (-2, -1.5, 1, 1.5), 50).convert("RGB").save(buf, "JPEG")
+    from app import storage
+    monkeypatch.setattr(storage, "read", lambda key: None if key.startswith("previews/") else buf.getvalue())
+    p = Property(address="x", status="archived")
+    db.add(p)
+    db.flush()
+    db.add(PropertyMedia(property_id=p.id, path="legacy/1.jpg", kind="photo"))
+    db.commit()
+    assert matching.backfill_media_hashes(db, out=lambda *_: None) == 1
+    h = db.scalar(select(PropertyMedia.dhash)) & matching.U64
+    make_listing(db, "ss7001", address="y", text="-", photo_hashes=jdump([h, h ^ 1]))
+    db.add(ListingMatch(listing_id="ss7001", property_id=p.id, status="pending", reasons=["старое"]))
+    db.commit()
+    assert matching.rematch(db) == {"same": 1, "similar": 0, "none": 0}
+    assert db.scalar(select(PropertyListing.property_id).where(PropertyListing.listing_id == "ss7001")) == p.id
 
 
 def test_embedding_similarity_when_vectors_exist(db, monkeypatch):
@@ -79,7 +140,7 @@ def test_new_listings_are_linked_or_queued_and_feed_shows_them(db, client, sent)
     nino = make_user(db, "operator", "Нино")
     p = _object(db, georgiy)
     make_listing(db, "mh9201", source="myhome", urls='["https://myhome.ge/9201"]', address="Палиашвили 10")  # same phone
-    make_listing(db, "mh9202", source="myhome", urls='["https://myhome.ge/9202"]', address="—", text="599 00 00 00")
+    make_listing(db, "mh9202", source="myhome", urls='["https://myhome.ge/9202"]', address="—")  # the owner's phone
     make_listing(db, "mh9203", source="myhome", urls="[]", district="Сабуртало", text="-")
     assert matching.process(db, ["mh9201", "mh9202", "mh9203"]) == {"same": 1, "similar": 1, "none": 1}
     assert db.scalar(select(PropertyListing.property_id).where(PropertyListing.listing_id == "mh9201")) == p.id

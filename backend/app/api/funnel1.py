@@ -16,7 +16,7 @@ from app.services import change_requests as CR
 from app.services import demand, geo, matching
 from app.services import properties as P
 from app.services.leads import ACTIVE
-from app.services.common import get_or_404, log_event
+from app.services.common import get_or_404, jload, log_event
 from app.services.dedup import norm_address, norm_phone
 
 router = APIRouter(tags=["objects"])
@@ -50,6 +50,8 @@ def listing_get(listing_id: str, db: Session = Depends(get_db, scope="function")
     full = at_least(user, "operator") or assigned is not None or (prop is not None and prop.agent_id == user.id and prop.status != "archived")
     d = P.listing_out(listing, full=full)
     d["contacts_visible"] = full
+    if not full and (prop is None or prop.status == "archived"):  # nobody's ad yet: its link, to check it before taking
+        d["urls"] = jload(listing.urls, []) or []
     if full and prop and prop.owner_id:
         owner = db.get(Owner, prop.owner_id)
         if owner:
@@ -74,7 +76,8 @@ def listing_dismiss(listing_id: str, db: Session = Depends(get_db, scope="functi
 @router.post("/listings/{listing_id}/agent")
 def listing_agent(listing_id: str, body: ListingAgentIn, db: Session = Depends(get_db, scope="function"),
                   user: User = Depends(current_user)):
-    return P.out(db, P.mark_listing_agent(db, listing_id, user, body.owner_name, body.owner_phone), user, full=True)
+    P.mark_listing_agent(db, listing_id, user, body.owner_name, body.owner_phone)
+    return {"ok": True}
 
 
 class MatchDecisionIn(BaseModel):

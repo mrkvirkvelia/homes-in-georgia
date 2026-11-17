@@ -1,29 +1,37 @@
 """Stage 4: recognise a new ad as an object already in the base.
 
 Verdict per (ad, object):
-- same: the same link, the same cadastral code, 2+ shared photos (dHash), or the owner's phone AND address match →
-  the ad is linked to the object by itself (process(), bot/db.py sync calls it for every new listing);
-- similar: district, bedrooms, floor and area (±10%) match, or the descriptions are close by embeddings → a
-  listing_matches row; an operator presses «Тот же объект» / «Другой» in «Новые объявления» (decide());
+- same: the same link, the same cadastral code, 2+ shared photos (dHash), or the owner's phone AND (address or a shared
+  photo) → the ad is linked to the object by itself (process(), bot/db.py sync calls it for every new listing), whatever
+  floor and area the two say (David 11-17: 100 m² / 6th floor in the CRM, 110 m² / 5th in the ad, the same photos);
+- similar: one shared photo or the owner's phone with a floor / area that roughly agree, or close descriptions (embeddings)
+  → a listing_matches row («Похож на #N»): an operator compares the photos and presses «Тот же объект» / «Другой» in
+  «Новые объявления» (decide()). Objects at the ad's address are address hints (properties.similar_in_base);
 - none: nothing; an object is created as before when an agent takes the ad.
+Photos: the ad's dHashes against the object's own photos (property_media.dhash, hashed on upload) and the ads linked
+to it.
 A newly linked outside ad of an exclusive object is an exclusive conflict: event + a task to the object's agent.
 
 CLI (once after deploy; the bot's sync keeps both up to date afterwards):
     python -m app.services.matching hashes   # listings.photo_hashes for ads ingested before migration 0008
     python -m app.services.matching run      # match every live ad not linked yet (the ones that came before stage 4)
+    python -m app.services.matching media    # property_media.dhash for object photos uploaded before migration 0030
+    python -m app.services.matching rematch  # re-run the matcher on every live unlinked ad (after `media`)
 """
+import io
 import logging
 import re
 import sys
 from types import SimpleNamespace
 
-from sqlalchemy import select, text
+from sqlalchemy import delete, func, literal_column, or_, select, text
 from sqlalchemy import update as update_
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from app.config import REPO_ROOT
-from app.models import Listing, ListingMatch, Owner, Property, PropertyListing, User, at_least
+from app import storage
+from app.models import Listing, ListingMatch, Owner, Property, PropertyListing, PropertyMedia, User, at_least
 from app.services import properties as P
 from app.services.common import get_or_404, jdump, jload, log_event, now
 from app.services.dedup import address_match, extract_phones, phone_match
@@ -36,6 +44,7 @@ SAME, SIMILAR, NONE = "same", "similar", "none"
 # hundred «похож» cards (listing_matches.status is the label)
 SAME_PHOTOS = 2      # shared photos that make it the same flat (one shared photo can be a common building shot)
 PHOTO_BITS = 4       # dHash distance of "the same photo" (bot/ingest.py same_photo: same 0-2 bits, different 8+)
+U64 = (1 << 64) - 1
 AREA_TOL = 0.10      # area difference for "similar", share of the larger one
 TEXT_SIM = 0.92      # cosine similarity of the description embeddings for "similar"
 MAX_CANDIDATES = 3   # similar objects stored per ad
@@ -52,6 +61,29 @@ def _ingest():
         sys.path.append(str(REPO_ROOT / "bot"))
     import ingest
     return ingest
+
+
+def photo_hash(data: bytes) -> int | None:
+    """property_media.dhash of an image: bot/ingest.py dhash (the ads' photo_hashes) of the upright picture, as a signed
+    64-bit int. None when Pillow can't read it (a video, a broken file)."""
+    from PIL import Image, ImageOps
+    try:
+        import pillow_heif  # iPhone originals
+        pillow_heif.register_heif_opener()
+    except ImportError:
+        pass
+    try:
+        with Image.open(io.BytesIO(data)) as im:
+            px = list(ImageOps.exif_transpose(im).convert("L").resize((9, 8)).getdata())
+    except Exception:  # noqa: BLE001
+        return None
+    h = sum(1 << n for n in range(64) if px[n // 8 * 9 + n % 8] > px[n // 8 * 9 + n % 8 + 1])
+    return h - (1 << 64) if h >> 63 else h
+
+
+def shared_photos(a: list[int], b: list[int]) -> int:
+    """Photos of `a` that have a twin among `b` (dHash ≤ PHOTO_BITS apart)."""
+    return sum(1 for x in a if any(((x ^ y) & U64).bit_count() <= PHOTO_BITS for y in b))
 
 
 def _digits(s) -> str:
@@ -71,13 +103,26 @@ def _objects(db: Session, pids: list[int] | None = None) -> dict[int, dict]:
     q = select(Property) if pids is None else select(Property).where(Property.id.in_(pids))
     props = list(db.scalars(q))
     owners = {p.owner_id for p in props if p.owner_id}
-    phones = dict(db.execute(select(Owner.id, Owner.phone).where(Owner.id.in_(owners))).all()) if owners else {}
-    objs = {p.id: {"p": p, "phone": phones.get(p.owner_id), "urls": {p.source_url} - {None}, "hashes": []} for p in props}
+    owners_ = {o.id: o for o in db.scalars(select(Owner).where(Owner.id.in_(owners)))} if owners else {}
+    # a number behind 3+ objects is an agent's (or a landlord's with many flats): it names no flat by itself
+    # (eval 11-17: one number matched 6 different objects). Counted over the whole base, also for a pids snapshot
+    last9 = func.right(Owner.phone_norm, literal_column("9"))
+    many = set(db.scalars(select(last9).join(Property, Property.owner_id == Owner.id).where(Owner.phone_norm.isnot(None))
+                          .group_by(last9).having(func.count(Property.id) >= 3)))
+    objs = {p.id: {"p": p, "phone": getattr(owners_.get(p.owner_id), "phone", None),
+                   "agent": getattr(owners_.get(p.owner_id), "is_agent", False)
+                   or (getattr(owners_.get(p.owner_id), "phone_norm", None) or "")[-9:] in many,
+                   "urls": {p.source_url} - {None}, "hashes": []} for p in props}
     for pid, url, urls, hashes in db.execute(
             select(PropertyListing.property_id, PropertyListing.url, Listing.urls, Listing.photo_hashes)
             .join(Listing, Listing.id == PropertyListing.listing_id).where(PropertyListing.property_id.in_(objs))):
         objs[pid]["urls"] |= {url, *(jload(urls, []) or [])} - {None}
         objs[pid]["hashes"] += jload(hashes, []) or []
+    media = select(PropertyMedia.property_id, PropertyMedia.dhash).where(PropertyMedia.kind == "photo",
+                                                                         PropertyMedia.dhash.isnot(None))
+    for pid, h in db.execute(media if pids is None else media.where(PropertyMedia.property_id.in_(pids))):
+        if pid in objs:
+            objs[pid]["hashes"].append(h & U64)
     return objs
 
 
@@ -96,26 +141,30 @@ def verdict(f: dict, o: dict, sim: float | None = None) -> tuple[str, float, lis
         why.append("та же ссылка")
     if p.cadastral_code and _digits(p.cadastral_code) in f["cads"]:
         why.append("тот же кадастровый код")
-    shared = (_ingest().shared_photos({"hashes": f["hashes"]}, {"hashes": o["hashes"]}, PHOTO_BITS)
-              if f["hashes"] and o["hashes"] else 0)
+    shared = shared_photos(f["hashes"], o["hashes"]) if f["hashes"] and o["hashes"] else 0
     if shared >= SAME_PHOTOS:
         why.append(f"общих фото: {shared}")
-    phone = bool(o["phone"]) and any(phone_match(x, o["phone"]) for x in f["phones"])
+    # an agent's number (is_agent, or behind 3+ objects) names no flat
+    phone = bool(o["phone"]) and not o.get("agent") and any(phone_match(x, o["phone"]) for x in f["phones"])
     if phone and address_match(l.address or "", p.address or ""):
         why.append("тот же телефон и адрес")
-    if why:
+    elif phone and shared:
+        why.append("тот же телефон и общее фото")
+    if why:  # photos and the phone beat a floor or area typed differently (David 11-17)
         return SAME, 1.0, why
+    # weaker evidence, a person compares: one shared photo (it can be the building or the view) or the owner's number
+    # (his other flat), each only with a floor / area that roughly agree (eval 11-17: alone they were another flat 7
+    # times of 9). The params alone (district, bedrooms, floor, area) were another flat 5 times of 5: only a reason more;
+    # the same house with these params is an address hint (properties.similar_in_base)
+    fits = P.could_be_same(l, p)
+    strong = (["одно общее фото"] if shared and fits else []) + (["тот же телефон"] if phone and fits else [])
+    if sim is not None and sim >= TEXT_SIM and P.same_flat_possible(l, p):  # a similar text: another floor / area / house
+        strong.append(f"похожее описание ({sim:.2f})")
+    if not strong:
+        return NONE, 0.0, []
     if _params_equal(l, p):
         why.append("район, спальни, этаж и площадь совпадают")
-    if sim is not None and sim >= TEXT_SIM:
-        why.append(f"похожее описание ({sim:.2f})")
-    if not why or not P.same_flat_possible(l, p):  # a similar text alone is no reason: another floor / area / house
-        return NONE, 0.0, []
-    if phone:
-        why.append("тот же телефон")
-    if shared:
-        why.append("одно общее фото")
-    return SIMILAR, round(0.5 + 0.1 * len(why) + (sim or 0) / 10, 3), why
+    return SIMILAR, round(0.5 + 0.2 * len(strong) + 0.1 * len(why) + (sim or 0) / 10, 3), strong + why
 
 
 def _text_sims(db: Session, l: Listing) -> dict[int, float]:
@@ -166,7 +215,10 @@ def attach(db: Session, p: Property, l: Listing, actor: User | None, reasons: li
     """Link the ad to the object + history event. -> exclusive alerts to send after the commit. No commit."""
     link = P.link_listing(db, p, l)
     if link.property_id != p.id:
-        raise DomainError("conflict", f"listing {l.id} is already linked to object #{link.property_id}")
+        old = db.get(Property, link.property_id)
+        if old is None or old.listing_id != l.id or old.status != "archived":
+            raise DomainError("conflict", f"listing {l.id} is already linked to object #{link.property_id}")
+        link.property_id = p.id  # the ad of an archived object came back to the feed, and it is this object of ours
     log_event(db, "property", p.id, "listing_linked", actor, listing_id=l.id, source=link.source, url=link.url,
               reasons=reasons, via=via)
     if p.is_exclusive and l.source not in ("agency", "object") and l.status != "gone":
@@ -187,12 +239,17 @@ def process(db: Session, ids: list[str]) -> dict:
         counts[NONE] = len(ids or [])
         return counts
     objs = _objects(db)
-    linked = set(db.scalars(select(PropertyListing.listing_id).where(PropertyListing.listing_id.in_(ids))))
+    links = dict(db.execute(select(PropertyListing.listing_id, PropertyListing.property_id)
+                            .where(PropertyListing.listing_id.in_(ids))).all())
+    # an ad taken into work and archived is back in the feed: its old object is no answer, another object can be
+    # (David 11-17: «Vake shrosha st. 1» was our archived #15461 and is our channel's #15032)
+    released = dict(db.execute(select(Property.listing_id, Property.id).where(Property.listing_id.in_(ids),
+                                                                              Property.status == "archived")).all())
     alerts, fresh = [], []
     for l in db.scalars(select(Listing).where(Listing.id.in_(ids)).order_by(Listing.id)):
-        if l.id in linked:
+        if l.id in links and links[l.id] != released.get(l.id):
             continue
-        found = match(db, l, objs)
+        found = [m for m in match(db, l, objs) if m["property_id"] != released.get(l.id)]
         if found and found[0]["verdict"] == SAME:
             m = found[0]
             o = objs[m["property_id"]]
@@ -268,16 +325,55 @@ def backfill_hashes(db: Session) -> int:
     return n
 
 
+def backfill_media_hashes(db: Session, batch: int = 500, out=print) -> int:
+    """property_media.dhash of object photos that have none, from the ~640 px preview (or the original) in storage.
+    Unreadable files stay NULL (tried again on the next run)."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    def hash_of(key):
+        data = storage.read(storage.preview_key(key)) or storage.read(key)
+        return photo_hash(data) if data else None
+    last, n = 0, 0
+    with ThreadPoolExecutor(16) as pool:
+        while rows := list(db.scalars(select(PropertyMedia).where(PropertyMedia.kind == "photo", PropertyMedia.dhash.is_(None),
+                                                                  PropertyMedia.id > last).order_by(PropertyMedia.id).limit(batch))):
+            for m, h in zip(rows, pool.map(hash_of, [m.path for m in rows])):
+                m.dhash, n = h, n + (h is not None)
+            last = rows[-1].id
+            db.commit()
+            out(f"media hashes: {n} (up to media #{last})")
+    return n
+
+
+def live_unlinked(db: Session) -> list[str]:
+    """Live outside ads not linked to an object (or only to their own archived one): what «Новые объявления» and the
+    competitor list show."""
+    known = (select(PropertyListing.listing_id).join(Property, Property.id == PropertyListing.property_id)
+             .where(or_(Property.listing_id.is_distinct_from(PropertyListing.listing_id), Property.status != "archived")))
+    return list(db.scalars(select(Listing.id).where(Listing.status.in_(("published", "pending_review")),
+                                                    Listing.source.not_in(("object", "agency")), Listing.id.not_in(known))))
+
+
+def rematch(db: Session) -> dict:
+    """Forget the undecided «Похож на» cards and address hints of the live ads and match them again (after the rules or
+    the object photos changed). Operators' decisions (confirmed / rejected) stay."""
+    ids = live_unlinked(db)
+    db.execute(delete(ListingMatch).where(ListingMatch.listing_id.in_(ids), ListingMatch.status.in_(("pending", P.BASE_HINT))))
+    db.commit()
+    return process(db, ids)
+
+
 if __name__ == "__main__":
     from app.db import SessionLocal
     cmd = sys.argv[1:2]
-    if cmd not in (["hashes"], ["run"]):
+    if cmd not in (["hashes"], ["run"], ["media"], ["rematch"]):
         sys.exit(__doc__)
     with SessionLocal() as s:
         if cmd == ["hashes"]:
             print(f"photo hashes: {backfill_hashes(s)} listings")
+        elif cmd == ["media"]:
+            print(f"object photo hashes: {backfill_media_hashes(s)}")
+        elif cmd == ["rematch"]:
+            print("rematched:", rematch(s))
         else:
-            ids = list(s.scalars(select(Listing.id).where(Listing.status.in_(("published", "pending_review")),
-                                                          Listing.source != "object",
-                                                          Listing.id.not_in(select(PropertyListing.listing_id)))))
-            print("matched:", process(s, ids))
+            print("matched:", process(s, live_unlinked(s)))

@@ -146,7 +146,7 @@ function RentListings({ base = '', competitor = false }: { base?: string; compet
       qc.invalidateQueries({ queryKey: ['listings'] });
       qc.invalidateQueries({ queryKey: ['properties'] });
       setAgentFor(null); setAgentC({ owner_name: '', owner_phone: '' });
-      toast(t('Отмечено как агент, контакт сохранён в базе'));
+      toast(t('Отмечено как агент: объявление убрано из ленты, в работу не взято'));
     },
     onError: (e) => toast(errText(e), true),
   });
@@ -199,11 +199,12 @@ function RentListings({ base = '', competitor = false }: { base?: string; compet
       {peek && <PropertyModal id={peek.id} listing={peek.listing} reasons={peek.reasons} base={base} onClose={() => setPeek(null)} />}
       <Modal open={!!agentFor} onClose={() => setAgentFor(null)} title={t('Это агент')}>
         <form className="col gap-lg" onSubmit={(e) => { e.preventDefault(); markAgent.mutate(); }}>
+          <div className="alert alert-info" style={{ fontSize: 13 }}>{t('Объявление уйдёт из ленты, в работу вы его не берёте. Номер из объявления попадёт в базу агентов.')}</div>
           <Field label={t('Имя')}><input className="input" value={agentC.owner_name} onChange={(e) => setAgentC((c) => ({ ...c, owner_name: e.target.value }))} autoFocus /></Field>
-          <Field label={t('Телефон')} hint={t('Номер попадёт в базу агентов: его объявления дальше будут помечаться автоматически')}>
+          <Field label={t('Телефон')} hint={t('Необязательно, если номер есть в объявлении. Его объявления дальше будут помечаться автоматически')}>
             <input className="input" type="tel" inputMode="tel" onFocus={phoneFocus} onBlur={phoneBlur} value={agentC.owner_phone} onChange={(e) => { const v = phoneInput(e); setAgentC((c) => ({ ...c, owner_phone: v })); }} />
           </Field>
-          <Button type="submit" block loading={markAgent.isPending} disabled={!agentC.owner_name.trim() && !agentC.owner_phone.trim()}>{t('Сохранить')}</Button>
+          <Button type="submit" block loading={markAgent.isPending}>{t('Это агент, не беру')}</Button>
         </form>
       </Modal>
       <FeedFilters f={f} patch={(p) => setF((o) => ({ ...o, ...p }))} view={view} onView={setView} facets={facets} sourceLabel={sourceName}
@@ -290,6 +291,7 @@ export function PropertyModal({ id, listing, reasons, base = '', onClose }: { id
               <Button variant="secondary" block loading={decide.isPending && !decide.variables} onClick={() => decide.mutate(false)}>{t('Другой')}</Button>
             </div>
           )}
+          {p.post_url && <a className="btn btn-secondary" href={p.post_url} target="_blank" rel="noreferrer"><ExternalLink size={16} />{t('Пост в нашем канале')}</a>}
           <Link to={propLink(base, id)} className="btn btn-secondary">{t('Открыть объект полностью')}</Link>
         </div>
       )}

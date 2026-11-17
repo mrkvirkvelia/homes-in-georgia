@@ -120,6 +120,13 @@ def street_house(addr: str | None) -> tuple[frozenset, int | None, str]:
     return frozenset(), None, ""
 
 
+def street_words(addr: str | None) -> frozenset:
+    """The street of an address that names no house («Vake mckheta st. -»): every word but districts, cities and
+    street-type words, in street_house()'s spelling."""
+    return frozenset(w for w in map(_skeleton, norm_address(addr).split(" ")) if len(w) > 2 and w not in _STOP
+                     and not w[:1].isdigit())
+
+
 def _same_street(a: frozenset, b: frozenset) -> bool:
     """Every word of the shorter name is in the longer one: «Bakradze» ⊂ «Dimitri Bakradze»,
     but «Dimitri Uznadze» ⊄ «Dimitri Bakradze». A one-letter slip in a long word still counts (Bakradze / Bakradse)."""

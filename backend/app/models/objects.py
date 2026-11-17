@@ -1,4 +1,4 @@
-from sqlalchemy import (Boolean, Column, Date, DateTime, Float, ForeignKey, Index, Integer, Numeric, Text, UniqueConstraint, func,
+from sqlalchemy import (BigInteger, Boolean, Column, Date, DateTime, Float, ForeignKey, Index, Integer, Numeric, Text, UniqueConstraint, func,
                         text)
 from sqlalchemy.dialects.postgresql import JSONB
 
@@ -102,6 +102,7 @@ class PropertyMedia(Base):
     path = Column(Text, nullable=False)
     room = Column(Text)
     position = Column(Integer, nullable=False, server_default=text("0"))
+    dhash = Column(BigInteger)  # photo's difference hash, signed (app/services/matching.py photo_hash), migration 0030
     uploaded_by = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"))
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
 

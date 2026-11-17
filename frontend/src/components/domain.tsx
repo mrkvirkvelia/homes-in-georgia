@@ -105,7 +105,7 @@ export function SimilarInChannel({ listing, similar }: { listing: Listing & { fl
   const [cmp, setCmp] = useState(false);
   return (
     <div className="col gap-sm">
-      <div className="alert alert-warn">{t('По этому адресу в нашей базе есть похожие квартиры: тот же этаж и площадь. Сравните фото: это одна из них?')}</div>
+      <div className="alert alert-warn">{t('В нашей базе есть похожие квартиры: рядом, с близкими этажом и площадью. Сравните фото: это одна из них?')}</div>
       <Button variant="secondary" onClick={() => setCmp(true)}>{t('Сравнить по фото: {x}', { x: baseAtAddress(similar).toLowerCase() })}</Button>
       {cmp && <ChannelCompare listing={{ ...listing, similar }} onClose={() => setCmp(false)} />}
     </div>
@@ -232,7 +232,7 @@ function ChannelCompare({ listing, onClose }: { listing: Listing & { floor?: num
   return (
     <Modal open wide onClose={onClose} title={baseAtAddress(similar)}>
       <div className="col gap-lg">
-        <div className="alert alert-warn" style={{ fontSize: 13 }}>{t('В базе по этому адресу есть квартиры с тем же этажом, площадью и спальнями. Сравните фото (нажмите, чтобы открыть крупно): это одна из них? Бот мог ошибиться — решите сами.')}</div>
+        <div className="alert alert-warn" style={{ fontSize: 13 }}>{t('В базе рядом есть квартиры с теми же спальнями и близкими этажом и площадью (±1 этаж, ±10%). Сравните фото (нажмите, чтобы открыть крупно): это одна из них? Бот мог ошибиться — решите сами.')}</div>
         <div className="cmp">
           <ListingSide l={listing} />
           <div className="col gap-sm" style={{ minWidth: 0 }}>

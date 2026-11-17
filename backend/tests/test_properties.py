@@ -190,13 +190,16 @@ def test_feed_similar_dismiss_and_agent(db, client):
     assert client.get("/api/listings/ss33213266", headers=auth(georgiy)).json()["similar"][0]["id"] == obj
 
     assert client.post("/api/listings/ss3/dismiss", headers=auth(georgiy)).status_code == 200
-    r = client.post("/api/listings/ss2/agent", json={}, headers=auth(georgiy))
-    assert r.status_code == 400 or r.status_code == 422
-    r = client.post("/api/listings/ss2/agent", json={"owner_name": "Нино", "owner_phone": "+995 555 00 11 22"}, headers=auth(georgiy))
-    assert r.status_code == 200 and r.json()["status"] == "agent_marked"
+    # «Это агент» without taking (David 11-17): the ad leaves the feed, its own number joins the agent base, no object
+    assert client.post("/api/listings/ss2/agent", json={}, headers=auth(georgiy)).json() == {"ok": True}
+    assert db.scalar(select(Property.id).where(Property.listing_id == "ss2")) is None
+    assert db.scalar(select(Owner.is_agent).where(Owner.phone_norm == "555123456"))
     left = {i["id"] for i in client.get("/api/listings/new", headers=auth(georgiy)).json()["items"]}
     assert left == {"ss33213266"}
-    assert db.get(Listing, "ss3").status_reason == "неактуально"
+    assert db.get(Listing, "ss3").status_reason == "неактуально" and db.get(Listing, "ss2").status_reason == "агент"
+    # a taken ad is someone's work: not marked from the feed
+    properties.take(db, "ss33213266", georgiy)
+    assert client.post("/api/listings/ss33213266/agent", json={}, headers=auth(make_user(db, "agent"))).status_code == 409
 
 
 def test_fix_owner_name_and_phone_from_card(db, client):

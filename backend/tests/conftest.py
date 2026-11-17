@@ -1,7 +1,9 @@
 """Tests run against TEST_DATABASE_URL (schema built by `alembic upgrade head`, tables truncated between tests)."""
 import os
+import re
 import sys
 from pathlib import Path
+from urllib.parse import parse_qs, unquote, urlsplit
 
 BACKEND = Path(__file__).resolve().parents[1]
 REPO = BACKEND.parent
@@ -17,9 +19,27 @@ def _env_file_value(key):
     return None
 
 
+def _db_key(url):
+    """(host, port, database) of a Postgres URL, driver and credentials aside (a socket dir in ?host= counts as host)."""
+    p = urlsplit(re.sub(r"^postgres(?:ql)?(\+\w+)?://", "postgresql://", url.strip()))
+    return (p.hostname or parse_qs(p.query).get("host", [""])[0], p.port or 5432, unquote(p.path.lstrip("/")))
+
+
+def check_test_db(test_url, main_url):
+    """The session fixture drops the whole public schema: never on a database that is not clearly a test one, never on
+    the app's own DATABASE_URL (a .env copied from prod, a typo in TEST_DATABASE_URL)."""
+    name = _db_key(test_url)[2]
+    if "test" not in name.lower():
+        raise RuntimeError(f"TEST_DATABASE_URL points at database {name!r}: the tests DROP its schema, so its name must "
+                           "contain 'test' (e.g. homes_test)")
+    if main_url and _db_key(main_url) == _db_key(test_url):
+        raise RuntimeError("TEST_DATABASE_URL is the same database as DATABASE_URL: the tests would wipe it")
+
+
 TEST_URL = os.environ.get("TEST_DATABASE_URL") or _env_file_value("TEST_DATABASE_URL")
 if not TEST_URL:
     raise RuntimeError("TEST_DATABASE_URL is not set")
+check_test_db(TEST_URL, os.environ.get("DATABASE_URL") or _env_file_value("DATABASE_URL"))
 os.environ["DATABASE_URL"] = TEST_URL
 os.environ["BOT_TOKEN"] = "123456:TEST-TOKEN"
 os.environ["SECRET_KEY"] = "test-secret-key-that-is-long-enough-for-hs256-ok"

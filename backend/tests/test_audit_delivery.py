@@ -229,3 +229,21 @@ def test_client_log_masks_token_urls(client, caplog):
     assert TOK not in dump and "tgWebAppData" not in dump and "frag" not in dump
     assert rec.fields["url"] == "https://admin.hge.ge/esign/***" and rec.fields["api_path"] == "GET /public/esign/***/pdf"
     assert "index-abc.js:1:2" in rec.fields["stack"]
+
+
+# --- the test suite never wipes a database that is not a test one ------------------------------------------------------
+
+@pytest.mark.parametrize("test_url,main_url,ok", [
+    ("postgresql+psycopg://homes:homes@homes-ci-db:5432/homes_test", None, True),  # deploy/autodeploy.sh
+    ("postgresql+psycopg://postgres@127.0.0.1:5544/homes_test_b", "postgresql+psycopg://homes:x@127.0.0.1:5544/homes", True),
+    ("postgresql://postgres@/homes_test?host=/tmp/pg", "postgresql://postgres@/homes?host=/tmp/pg", True),
+    ("postgresql+psycopg://homes:homes@db:5432/homes", None, False),  # the prod database name
+    ("postgresql+psycopg://homes:homes@db/homes_test", "postgresql://other:pw@db:5432/homes_test", False),  # = DATABASE_URL
+])
+def test_conftest_refuses_a_non_test_database(test_url, main_url, ok):
+    from tests.conftest import check_test_db
+    if ok:
+        check_test_db(test_url, main_url)
+    else:
+        with pytest.raises(RuntimeError, match="TEST_DATABASE_URL"):
+            check_test_db(test_url, main_url)

@@ -193,9 +193,13 @@ class JourneyE2E(unittest.TestCase):
         self.fake.press_inline(user, card, text)
         ans = self.fake.wait(lambda calls: next((c for c in calls if c["method"] == "answerCallbackQuery"), None), since=mark,
                              what=f"answer to {text!r}")
-        time.sleep(0.3)
-        ed = next((c for c in self.fake.calls(since=mark) if c["method"] == "editMessageText"
-                   and c.get("inline_message_id") == card["inline_message_id"]), None)
+        def edit(calls):
+            return next((c for c in calls if c["method"] == "editMessageText"
+                         and c.get("inline_message_id") == card["inline_message_id"]), None)
+        try:  # the edit may come a bit after the answer on a busy box; a press that edits nothing returns None
+            ed = self.fake.wait(edit, timeout=3, since=mark, what=f"edit after {text!r}")
+        except AssertionError:
+            ed = None
         return ans, ed
 
     def say(self, user, text):
@@ -272,13 +276,22 @@ class JourneyE2E(unittest.TestCase):
         self.assertNotIn(self.obj["tg4"], cat)  # $3000: over the questionnaire budget (districts may be relaxed when < 5 fit, budget never)
         self.assertIn("💡 подходит по анкете", card["text"])
         self.assertNotIn("t.me", card["text"])  # no sources on client cards
-        with db.tx() as c:  # stage 8: the shown cards and the saved questionnaire outlive the next request
-            views = c.execute("SELECT v.listing_id, v.search_id, s.results FROM client_views v JOIN searches s ON s.id = v.search_id "
-                              "WHERE v.client_id = ? AND v.source = 'search'", (cl["id"],)).fetchall()
+        deadline = time.time() + 10  # the first card is here; the rest are still being sent, each logged after its send
+        while True:
+            with db.tx() as c:  # stage 8: the shown cards and the saved questionnaire outlive the next request
+                views = c.execute("SELECT v.listing_id, v.search_id, s.results FROM client_views v JOIN searches s ON s.id = v.search_id "
+                                  "WHERE v.client_id = ? AND v.source = 'search'", (cl["id"],)).fetchall()
+            if (views and len(views) == views[0][2]) or time.time() > deadline:
+                break
+            time.sleep(0.2)
+        with db.tx() as c:
             saved = c.execute("SELECT data->'profile'->>'budget_max' FROM events WHERE entity = 'client' AND entity_id = ? "
                               "AND action = 'profile_saved'", (str(cl["id"]),)).fetchall()
         self.assertTrue(views and len(views) == views[0][2], views)
         self.assertEqual([r[0] for r in saved], ["900"])
+        # all cards are in now: like the last one, whatever the timing (the journey rents it out below, and the later
+        # tests ❤️ tg1 / tg2 themselves, so it must not be the top card that came first on a busy box)
+        card = self.with_button(cid, "❤️ Нравится", m)
 
         # A3: ❤️ is the bot's callback — the lead at once; the operator's account writes first (operator_intro)
         like = next(b for row in f.markup(card) for b in row if b["text"] == "❤️ Нравится")

@@ -32,3 +32,34 @@ def test_catalog_row_writes_pets_column(db):
     p.post_fields = {"prop_type": "Apartment"}  # not stated: unknown, the filter lets it pass
     db.commit()
     assert catalog.sync_all(db) == 1 and db.get(Listing, row.id).pets is None
+
+
+def test_post_button_resolves_the_catalog_row(db):
+    manual = _object(db)  # created in the CRM by hand: no source ad
+    ad = make_listing(db, "ss7001")
+    taken = _object(db, listing_id=ad.id)
+    catalog.sync_all(db)
+    assert leads.object_listing_id(db, manual.id) == catalog.catalog_id(manual.id)
+    assert leads.object_listing_id(db, taken.id) == catalog.catalog_id(taken.id)
+    db.delete(db.get(Listing, catalog.catalog_id(taken.id)))  # not synced yet: the ad it was taken from
+    db.commit()
+    assert leads.object_listing_id(db, taken.id) == ad.id
+    manual.status = "archived"
+    db.commit()
+    assert leads.object_listing_id(db, manual.id) is None and leads.object_listing_id(db, 999999) is None
+
+
+def test_one_lead_per_client_and_object(db):
+    customer = make_client(db)
+    ad = make_listing(db, "ss7002")
+    p = _object(db, listing_id=ad.id)
+    catalog.sync_all(db)
+    old = leads.create_from_like(db, customer.id, ad.id)  # an older lead under the ad's id (the post button)
+    lead = leads.create_from_like(db, customer.id, catalog.catalog_id(p.id))  # ❤️ in the search
+    assert lead.id == old.id and db.query(Lead).count() == 1
+    lead.status = "refused"
+    db.commit()
+    again = leads.create_from_like(db, customer.id, catalog.catalog_id(p.id))
+    assert again.id == old.id and again.status == "new" and db.query(Lead).count() == 1
+    other = make_client(db, external_id=5550002)
+    assert leads.create_from_like(db, other.id, catalog.catalog_id(p.id)).id != old.id  # other clients: their own

@@ -581,9 +581,10 @@ async def on_post_start(update: Update, ctx, cl, pid: int):
     """/start p<object id>: «❤️ I like it» / «💬 Contact» under a channel rich post (Irakli 2026-11-09) -> the same lead
     as ❤️ on a card in the bot (B1 card for operators, the operator's intro), then «передал агенту».
     -> False when the object is no longer available (archived / rented): the caller shows similar ones."""
-    from app.models import Property
     from app.services import leads
-    lid = await th(_run, lambda s: (s.get(Property, pid) or Property()).listing_id, (), {})
+    # the same listing id as a ❤️ on the object's card in the search (its catalog row): one lead per client and flat;
+    # a manual object has no source ad at all
+    lid = await th(_run, leads.object_listing_id, (pid,), {})
     if not lid:
         return False
     async with lock_for(("like", cl["id"], lid)):

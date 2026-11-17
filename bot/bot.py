@@ -352,6 +352,7 @@ async def search(chat_id, user, ctx, delay=2.5):
     await asyncio.sleep(delay)  # debounce: an album / several quick messages = one search
     t0 = asyncio.get_running_loop().time()
     cl = await asyncio.to_thread(client_of, user)
+    await asyncio.to_thread(core.begin_search, cl)  # an older search still running in its thread keeps out of the state
     lang = cl["lang"]
     await ctx.bot.send_message(chat_id, core.t(lang, "searching"))
     typing = asyncio.create_task(keep_typing(ctx.bot, chat_id))
@@ -386,7 +387,8 @@ async def search(chat_id, user, ctx, delay=2.5):
     finally:
         typing.cancel()
         if not nxt.done():
-            nxt.cancel()  # a newer message cancelled this search: the thread finishes on its own, its cards aren't sent
+            nxt.cancel()  # a newer message cancelled this search: the thread finishes on its own (its generation moved
+            # on: core._finish writes nothing into the state), its cards aren't sent
     if wait_msg:
         try:
             await wait_msg.delete()

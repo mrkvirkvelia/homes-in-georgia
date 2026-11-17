@@ -3,6 +3,7 @@
 Usage: python ingest.py            # full run (index cache in raw/index_cache.json, resumable)
        python ingest.py --test     # dedupe self-check only
 """
+import hashlib
 import json
 import os
 import re
@@ -501,6 +502,13 @@ def _line(it, text=1200):
                       ensure_ascii=False)
 
 
+def content_fp(it):
+    """What a cached profile was built from (index_batch: the line + the first 2 photos; their source URLs, as a
+    re-downloaded photo keeps its local name): a changed ad is re-indexed (index_all)."""
+    refs = (it.get("photo_urls") or it.get("photos") or [])[:2]
+    return hashlib.sha1(json.dumps([_line(it), refs], ensure_ascii=False).encode()).hexdigest()[:16]
+
+
 def index_batch(batch):
     images, lines = [], []
     for it in batch:
@@ -510,7 +518,8 @@ def index_batch(batch):
     schema = obj(listings={"type": "array", "items": PROFILE})
     res = ask(INDEX_PROMPT.format(items="\n".join(lines)), schema, images=images,
               purpose="index_competitor" if any(it.get("competitor") for it in batch) else "index")
-    return {p["id"]: {**p, "v": INDEX_V} for p in res["listings"]}
+    fps = {it["id"]: content_fp(it) for it in batch}
+    return {p["id"]: {**p, "v": INDEX_V, "fp": fps.get(p["id"])} for p in res["listings"]}
 
 
 def facts_batch(batch, cache):
@@ -524,11 +533,19 @@ def facts_batch(batch, cache):
 
 def index_all(items, workers=4, size=5, facts_size=8):
     cache = json.load(open(CACHE)) if os.path.exists(CACHE) else {}
-    todo = [i for i in items if i["id"] not in cache and i["photos"]]
-    old = [i for i in items if i["id"] in cache and cache[i["id"]].get("v") != INDEX_V]
+    fp = {i["id"]: content_fp(i) for i in items}
+    backfill = [i["id"] for i in items if i["id"] in cache and "fp" not in cache[i["id"]]]
+    for x in backfill:  # entries from before the fingerprint: taken as current, not re-indexed all at once (LLM cost)
+        cache[x]["fp"] = fp[x]
+    changed = {i["id"] for i in items if i["id"] in cache and cache[i["id"]]["fp"] != fp[i["id"]] and i["photos"]}
+    todo = [i for i in items if (i["id"] not in cache or i["id"] in changed) and i["photos"]]
+    old = [i for i in items if i["id"] in cache and i["id"] not in changed and cache[i["id"]].get("v") != INDEX_V]
     jobs = [(index_batch, todo[n:n + size]) for n in range(0, len(todo), size)]
     jobs += [(lambda b: facts_batch(b, cache), old[n:n + facts_size]) for n in range(0, len(old), facts_size)]
-    print(f"indexing {len(todo)} new listings + facts for {len(old)} cached ones in {len(jobs)} codex calls")
+    print(f"indexing {len(todo) - len(changed)} new + {len(changed)} changed listings + facts for {len(old)} cached ones "
+          f"in {len(jobs)} codex calls")
+    if backfill and not jobs:
+        json.dump(cache, open(CACHE, "w"), ensure_ascii=False)
 
     def run(job):
         try:

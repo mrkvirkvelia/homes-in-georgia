@@ -206,8 +206,9 @@ def create(db: Session, data: dict, actor: User | None, commit: bool = True, not
     if actor is not None and not at_least(actor, "agent"):
         raise forbidden("recruits do not create deals")
     data = dict(data or {})
+    from app.services import properties
     if oid := data.pop("owner_id", None):  # picked from the owners list (autocomplete): the base's contact, not a retype
-        o = get_or_404(db, Owner, int(oid), "owner")
+        o = get_or_404(db, Owner, int(oid), "owner") if actor is None else properties.pick_owner(db, oid, actor)
         data["owner_name"], data["owner_phone"] = o.name or data.get("owner_name"), o.phone or data.get("owner_phone")
     agent = None
     if data.get("agent_id"):
@@ -239,7 +240,6 @@ def create(db: Session, data: dict, actor: User | None, commit: bool = True, not
             data.setdefault("client_name", client.name)
             data.setdefault("client_phone", client.phone)
             data.setdefault("client_tg", f"@{client.username}" if client.username else None)
-    from app.services import properties
     if actor is not None and (cad := (data.get("cadastral") or "").strip()):  # the form's code; the object's own one stays
         known = db.get(Property, int(data["property_id"])) if data.get("property_id") else None
         if cad != ((known.cadastral_code if known else None) or "").strip():

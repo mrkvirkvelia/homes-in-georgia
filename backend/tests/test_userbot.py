@@ -478,7 +478,7 @@ def test_qr_login_with_2fa_then_logout(db):
         done = asyncio.run_coroutine_threadsafe(userbot.login(Fake()), loop)
 
         def wait_for(status, error=None):
-            for _ in range(100):
+            for _ in range(500):  # up to 10 s: the prod box runs these tests next to the live services
                 st = httpx.get(f"{url}/status", headers=hdr).json()["login"]
                 if st["status"] == status and st.get("error") == error:
                     return st

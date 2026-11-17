@@ -18,7 +18,7 @@ def test_agent_tag_suggestion_and_uniqueness(db, client):
 
     assert client.patch(f"/api/users/{zaza.id}", json={"agent_tag": "#Zaza"}, headers=auth(admin)).json()["agent_tag"] == "Zaza"
     r = client.patch(f"/api/users/{artur.id}", json={"agent_tag": "zaza"}, headers=auth(admin))  # case-insensitive
-    assert r.status_code == 409 and "уже у агента Zaza" in r.json()["detail"]
+    assert r.status_code == 409 and "уже занят: Zaza" in r.json()["detail"]
     assert client.patch(f"/api/users/{artur.id}", json={"agent_tag": "Ар тур"}, headers=auth(admin)).json()["code"] == "bad_tag"
     assert users.suggest_agent_tag(db, "Zaza Kapanadze") == "ZazaK"  # #Zaza is taken
     assert client.patch(f"/api/users/{zaza.id}", json={"agent_tag": ""}, headers=auth(admin)).json()["agent_tag"] is None

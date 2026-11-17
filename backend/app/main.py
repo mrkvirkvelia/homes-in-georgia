@@ -188,7 +188,7 @@ def health():
     try:
         with SessionLocal() as db:
             db.execute(text("SELECT 1"))
-        return {"ok": True, "db": True}
+        return {"ok": True, "db": True, "version": logs.VERSION}  # version = deployed commit (deploy/autodeploy.sh)
     except Exception:  # noqa: BLE001
         return JSONResponse({"ok": False, "db": False}, status_code=503)
 

@@ -11,7 +11,7 @@ C="docker compose -f deploy/docker-compose.yml -f deploy/server.yml --env-file .
 mkdir -p /opt/homes-backups/predeploy
 $C exec -T db pg_dump -U homes -Fc homes > /opt/homes-backups/predeploy/db-$(date +%F-%H%M).dump
 ls -t /opt/homes-backups/predeploy/db-*.dump | tail -n +11 | xargs -r rm -f   # keep the last 10 (~60 MB each)
-git merge -q --ff-only origin/main
+git merge -q --ff-only "${1:-origin/main}"   # autodeploy passes the tested commit
 GIT_COMMIT=$(git rev-parse --short HEAD) $C up -d --build
 for i in $(seq 1 30); do
   curl -fsS -o /dev/null http://127.0.0.1:8000/health && { echo "deployed $(git log --oneline -1)"; exit 0; }

@@ -2,7 +2,7 @@
 property_publications, and the full card payload respects the owner-contact rule."""
 from sqlalchemy import select, text
 
-from app.models import ChannelPost, Deal, Property, PropertyListing, PropertyPublication
+from app.models import ChannelPost, Deal, Property, PropertyListing, PropertyMedia, PropertyPublication
 from app.services.properties import record_publication
 from tests.conftest import auth, make_listing, make_user
 
@@ -15,6 +15,7 @@ def test_take_links_listing_and_publish_writes_publication(db, client):
     listing = make_listing(db, "ss7002")
     pid = client.post("/api/properties", json={"listing_id": listing.id}, headers=auth(georgiy)).json()["id"]
     assert db.scalar(select(PropertyListing.property_id).where(PropertyListing.listing_id == "ss7002")) == pid
+    db.add(PropertyMedia(property_id=pid, path="x/7002.jpg", kind="photo"))  # publishing needs a photo
 
     db.execute(text("UPDATE properties SET status = 'review' WHERE id = :i"), {"i": pid})
     db.commit()

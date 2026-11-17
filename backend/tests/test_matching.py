@@ -3,7 +3,7 @@ publishing until the outside ad is checked as removed."""
 import pytest
 from sqlalchemy import func, select, text
 
-from app.models import Event, ListingMatch, Owner, Property, PropertyListing
+from app.models import Event, ListingMatch, Owner, Property, PropertyListing, PropertyMedia
 from app.services import matching
 from app.services import properties as P
 from app.services.common import jdump
@@ -132,6 +132,7 @@ def test_exclusive_conflict_flags_notifies_and_blocks_publishing(db, client, sen
     p = _object(db, georgiy, lid="tg8100", is_exclusive=True)  # taken from our own channel post: no conflict yet
     db.execute(text("UPDATE listings SET source = 'agency' WHERE id = 'tg8100'"))
     db.execute(text("UPDATE properties SET status = 'review' WHERE id = :i"), {"i": p.id})
+    db.add(PropertyMedia(property_id=p.id, path="x/8100.jpg", kind="photo"))  # publishing needs a photo
     db.commit()
     assert client.get(f"/api/properties/{p.id}", headers=auth(nino)).json()["exclusive_conflict"] == []
 
@@ -143,8 +144,8 @@ def test_exclusive_conflict_flags_notifies_and_blocks_publishing(db, client, sen
     assert [(a["source"], a["url"]) for a in card["exclusive_conflict"]] == [("ss", "https://ss.ge/8101")]
     row = client.get("/api/properties?status=review", headers=auth(nino)).json()["items"][0]  # lists show it too
     assert row["exclusive_conflict"][0]["source"] == "ss"
-    other = make_user(db, "agent", "Леван")  # other agents see the flag, not the link
-    assert client.get(f"/api/properties/{p.id}", headers=auth(other)).json()["exclusive_conflict"][0]["url"] is None
+    other = make_user(db, "agent", "Леван")  # another agent can't open someone else's object under review at all
+    assert client.get(f"/api/properties/{p.id}", headers=auth(other)).status_code == 404
 
     r = client.post(f"/api/properties/{p.id}/publish", headers=auth(nino))
     assert r.status_code == 409 and r.json()["code"] == "exclusive_conflict"

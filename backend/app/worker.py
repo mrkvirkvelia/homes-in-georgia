@@ -11,6 +11,7 @@ from app.db import SessionLocal
 from app.models import Deal, Job, Lead, Property
 from app.services import birthdays, catalog, jobs, leads, settings
 from app.services.common import TZ, aware, log_event, now
+from app.telegram import client as tg
 from app.telegram import notify
 
 log = logging.getLogger("app.worker")
@@ -29,6 +30,20 @@ def _ref_id(job: Job) -> int:
     return int(str(job.ref).split(":")[0])
 
 
+def _planned(job: Job) -> datetime:
+    """When the job was planned for: a retry moves due_at (backoff), the «did the date move?» checks use this."""
+    return getattr(job, "_planned", None) or job.due_at
+
+
+def _best_effort(fn, *args):
+    """A notice in a job that also moves state on (plans the next phase, returns an object): a transient delivery
+    failure is recorded (the job ends «undelivered») instead of rolling that state back for a retry."""
+    try:
+        fn(*args)
+    except tg.DeliveryError:
+        pass
+
+
 @handler("lead_sla")
 def lead_sla(db: Session, job: Job):
     """~60% of the window → reminder; at the deadline → escalation to the operators group (+ superadmins)."""
@@ -39,7 +54,7 @@ def lead_sla(db: Session, job: Job):
     if settings.get(db, "sla_enabled") == "0":  # turned off in Управление → Настройки after this job was planned
         return "sla off"
     if job.payload.get("phase") == "warning":
-        notify.sla_warning(lead, stage)
+        _best_effort(notify.sla_warning, lead, stage)  # a late warning is useless; the overdue phase must be planned
         jobs.schedule(db, "lead_sla", lead.id, max(lead.sla_due_at, now()), {"stage": stage, "phase": "overdue"},
                       replace=False)
     else:
@@ -61,11 +76,11 @@ def take_idle(db: Session, job: Job):
     if properties.take_idle_minutes(db) <= 0:  # turned off in Управление → Настройки after the take
         return "off"
     if pl.get("phase") == "warn":
-        notify.property_idle_warning(p, properties.TAKE_IDLE_WARN_BEFORE)
+        _best_effort(notify.property_idle_warning, p, properties.TAKE_IDLE_WARN_BEFORE)
         jobs.schedule(db, "take_idle", p.id, datetime.fromisoformat(pl["return_at"]), {**pl, "phase": "return"})
         return None
     agent_id = properties.return_idle(db, p, int(pl.get("minutes") or 60))
-    notify.property_idle_returned(p, agent_id, int(pl.get("minutes") or 60))
+    _best_effort(notify.property_idle_returned, p, agent_id, int(pl.get("minutes") or 60))
 
 
 @handler("call_retry")
@@ -81,7 +96,7 @@ def owner_followup(db: Session, job: Job):
     p = db.get(Property, _ref_id(job))
     if not p or p.status not in ("taken", "call_failed", "owner_confirmed") or not p.next_call_at:
         return "stale"
-    if abs((job.due_at - p.next_call_at).total_seconds()) > 60:  # the date moved; its own job is scheduled
+    if abs((_planned(job) - p.next_call_at).total_seconds()) > 60:  # the date moved; its own job is scheduled
         return "stale"
     notify.property_owner_followup(p)
 
@@ -92,7 +107,7 @@ def viewing_reminder(db: Session, job: Job):
     if not lead or lead.status != "time_chosen" or not lead.viewing_at or lead.viewing_at <= now():
         return "stale"
     expected = lead.viewing_at - timedelta(minutes=env.VIEWING_REMINDER_MIN)
-    if abs((job.due_at - expected).total_seconds()) > 60:  # the viewing moved; its own reminder is scheduled
+    if abs((_planned(job) - expected).total_seconds()) > 60:  # the viewing moved; its own reminder is scheduled
         return "stale"
     notify.viewing_reminder(lead)
 
@@ -227,14 +242,30 @@ def run_job(db: Session, job: Job) -> str:
         db.commit()
         return "unknown"
     job_id, kind, ref = job.id, job.kind, job.ref
+    # The retry bookkeeping of an earlier failed attempt (below) lives in the payload; the handler sees its own keys only
+    pl = dict(job.payload or {})
+    replay, planned = pl.pop("_tg_sent", None), pl.pop("_due_at", None) or job.due_at.isoformat()
+    if len(pl) != len(job.payload or {}):
+        job.payload = pl
+    job._planned = datetime.fromisoformat(planned)
     # Claim inside the handler's transaction: if the handler commits midway (e.g. leads.mark_viewing_done) the row
     # lock is released, but done_at is committed with it, so another worker can never pick the job up again.
     job.done_at, job.attempts, job.last_error = now(), (job.attempts or 0) + 1, None
     db.flush()
+    d = None
     try:
-        res = fn(db, job) or "ok"
+        # Transient send failures raise tg.DeliveryError (→ except: retry with backoff). Permanent ones (blocked
+        # the bot, chat not found) and those a service swallowed after its commit only end the job «undelivered»:
+        # the same send would fail again, or the handler would find its work done and skip.
+        with tg.delivery(replay) as d:
+            res = fn(db, job) or "ok"
         job = db.get(Job, job_id)
-        job.last_error = None if res == "ok" else res
+        if d.failed:
+            log.warning("job %s %s:%s: %s", job_id, kind, ref, "; ".join(map(str, d.failed)))
+            job.last_error = ((f"{res}; " if res != "ok" else "") + "not delivered: " + "; ".join(map(str, d.failed)))[:500]
+            res = "undelivered"
+        else:
+            job.last_error = None if res == "ok" else res
         db.commit()
         return res
     except Exception as e:  # noqa: BLE001
@@ -249,6 +280,9 @@ def run_job(db: Session, job: Job) -> str:
         else:
             job.done_at = None
             job.due_at = now() + timedelta(minutes=2 ** job.attempts)
+            sent = {**(replay or {}), **(d.sent if d else {})}  # what already went out is not sent again
+            job.payload = {**{k: v for k, v in (job.payload or {}).items() if k not in ("_tg_sent", "_due_at")},
+                           "_due_at": planned, **({"_tg_sent": sent} if sent else {})}
         db.commit()
         return "error"
 

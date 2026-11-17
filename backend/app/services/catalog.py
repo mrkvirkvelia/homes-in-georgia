@@ -87,11 +87,13 @@ def fields(db: Session, p: Property) -> dict:
         "lng": src.lng if src else None, "geo_precision": src.geo_precision if src else None,
         "photos": json.dumps(photos), "features": json.dumps(d.get("yes") or []),
         "renovation": d.get("condition"), "text": post, "details": json.dumps(d, ensure_ascii=False),
+        # the bot's hard filter reads the old `pets` column (a pet owner never gets a flat that forbids pets)
+        "pets": _facts().PETS_RU.get(d.get("pets")),
     }
 
 
 SYNCED = ("status", "urls", "price_usd", "area", "floor", "bedrooms", "address", "district", "district_en", "lat", "lng",
-          "geo_precision", "photos", "features", "renovation", "text", "details")
+          "geo_precision", "photos", "features", "renovation", "text", "details", "pets")
 
 
 def _now() -> str:

@@ -540,7 +540,8 @@ def hard_filter(pool, q, dist=None, radius=None, drop=()):
             continue
         if "districts" not in drop and q.get("districts") and not _district_ok(i, q["districts"]):
             continue
-        if q.get("pets") and i.get("pets") == "нет":
+        # catalog rows carry the ban in both (backend catalog.fields); details.pets for rows synced before the column
+        if q.get("pets") and (i.get("pets") == "нет" or (i.get("details") or {}).get("pets") == "not_allowed"):
             continue
         if dist is not None and (i["id"] not in dist or ("radius" not in drop and dist[i["id"]] > radius * 1.5)):
             continue

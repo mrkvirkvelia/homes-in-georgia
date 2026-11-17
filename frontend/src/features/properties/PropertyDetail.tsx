@@ -19,6 +19,7 @@ import { RequestRow } from './requests';
 import { OwnerSuggest } from '../../components/OwnerSuggest';
 import { cadastralError, cadastralHint, cadastralInput, cadastralNorm } from '../../lib/cadastral';
 import { pool, shrinkPhoto } from '../../lib/upload';
+import { addMonths, isoDate, parseIsoDate } from '../../lib/dates';
 import { AddressField, type Point } from '../../components/AddressField';
 import { t, LOCALE } from '../../lib/i18n';
 
@@ -187,7 +188,8 @@ function OwnerOutcomes({ p }: { p: Property }) {
 }
 
 const dayIso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-const plusMonths = (iso: string, m: number) => { const [y, mo, d] = iso.split('-').map(Number); return dayIso(new Date(y, mo - 1 + m, d)); };
+// clamped to month end (31 Aug + 6 → 28/29 Feb), the same rule as the contract wizard's end date
+const plusMonths = (iso: string, m: number) => { const a = parseIsoDate(iso); return a ? isoDate(addMonths(a, m)) : ''; };
 
 /** «Сдано с / по» of «Собственник сдал»: both required, «по» after «с»; +6 / +12 мес from the start (Stanislav 11-16) */
 function useLease(p?: Property) {

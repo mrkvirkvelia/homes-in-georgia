@@ -12,6 +12,8 @@
 // The old CRM sent the fields below to a Google Apps Script that filled [[field]] placeholders in those docs;
 // buildContract() does the same here. RU / EN mean the bilingual GEO+RUS / GEO+ENG documents.
 
+import { addMonths, isoDate, parseIsoDate, ruDate, wholeMonths } from '../../lib/dates';
+
 export type CxType = 'rent' | 'comm' | 'sale';
 export type CxLang = 'GEO' | 'RU' | 'EN';
 
@@ -95,35 +97,22 @@ export function cxFmt(iso: string): string {
   const p = String(iso).slice(0, 10).split('-');
   return p.length === 3 ? `${p[2]}.${p[1]}.${p[0]}` : iso;
 }
-/** Start date + 1 month, clamped to month end (cxOnem). */
+/** Start date + 1 month, clamped to month end (cxOnem). Calendar math in lib/dates (no timezone shift). */
 export function cxOnem(iso: string): string {
-  if (!iso) return '';
-  const p = iso.split('-');
-  if (p.length !== 3) return '';
-  const d = new Date(+p[0], +p[1] - 1, +p[2]);
-  const o = d.getDate();
-  d.setMonth(d.getMonth() + 1);
-  if (d.getDate() !== o) d.setDate(0);
-  return `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}.${d.getFullYear()}`;
+  const a = iso ? parseIsoDate(iso) : null;
+  return a ? ruDate(addMonths(a, 1)) : '';
 }
-/** Whole months between two ISO dates (helper for the duration field). */
+/** Whole months between two ISO dates (helper for the duration field); the inverse of addMonthsIso. */
 export function monthsBetween(a: string, b: string): string {
-  if (!a || !b) return '';
-  const x = new Date(a), y = new Date(b);
-  if (Number.isNaN(x.getTime()) || Number.isNaN(y.getTime()) || y <= x) return '';
-  let m = (y.getFullYear() - x.getFullYear()) * 12 + (y.getMonth() - x.getMonth());
-  if (y.getDate() < x.getDate()) m -= 1;
+  const x = a && b ? parseIsoDate(a) : null, y = x ? parseIsoDate(b) : null;
+  if (!x || !y || isoDate(y) <= isoDate(x)) return '';
+  const m = wholeMonths(x, y);
   return m > 0 ? String(m) : '';
 }
-/** Start + N months → ISO (for auto end date). */
+/** Start + N months → ISO (for auto end date), clamped to month end. */
 export function addMonthsIso(iso: string, n: number): string {
-  if (!iso || !n) return '';
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '';
-  const day = d.getDate();
-  d.setMonth(d.getMonth() + n);
-  if (d.getDate() !== day) d.setDate(0);
-  return d.toISOString().slice(0, 10);
+  const a = iso && n ? parseIsoDate(iso) : null;
+  return a ? isoDate(addMonths(a, n)) : '';
 }
 
 

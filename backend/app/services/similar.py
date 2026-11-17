@@ -319,9 +319,8 @@ def find(db: Session, subject: str, user: User | None = None, limit: int = 30, i
         item = {**c["out"], "key": c["key"], "level": level, "score": score, "reasons": why,
                 "decided": d["verdict"] if d else None}
         if c["kind"] == "object":
+            # the card may be closed to him, its photos are not (api media_file, 11-17): he compares by them
             item["can_open"] = user is None or P.can_open(db, db.get(Property, c["property_id"]), user)
-            if not item["can_open"]:  # its own photos are closed to him (api media_file); the ad's ones stay
-                item["photos"] = [x for x in item["photos"] if not x.startswith("/api/media/")]
         out.append(item)
     out.sort(key=lambda x: (x["level"] != "same", x["kind"] != "object", -x["score"]))
     return out[:limit]

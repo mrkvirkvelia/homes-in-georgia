@@ -653,8 +653,10 @@ def media_file(path: str, preview: bool = Query(False, alias="p"), user: User = 
         if not prop or not P.can_see_owner(prop, user):
             raise DomainError("not_found", "file not found")
         preview = False
-    elif not at_least(user, "operator") and (m := re.match(r"(?:previews/)?properties/(\d+)/", path)):
-        prop = db.get(Property, int(m[1]))  # an object's photos / video: only for those who may open its card
+    elif not at_least(user, "recruit") and (m := re.match(r"(?:previews/)?properties/(\d+)/", path)):
+        # an object's photos / video: every agent sees them (Stanislav 11-17: «Похожие объекты» compare a new ad with
+        # colleagues' objects by photo); the card itself and the owner's documents stay closed
+        prop = db.get(Property, int(m[1]))
         if prop is None or not P.can_open(db, prop, user):
             raise DomainError("not_found", "file not found")
     if storage.is_s3():

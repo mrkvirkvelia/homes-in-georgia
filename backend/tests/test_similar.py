@@ -61,13 +61,13 @@ def test_object_card_shows_ads_of_every_site_and_competitors_by_phone_and_house(
     assert "ss5003" not in got
 
 
-def test_not_dubl_hides_the_pair_and_other_agents_dont_see_closed_photos(db, client):
+def test_not_dubl_hides_the_pair(db, client):
     vika, ana = make_user(db, "agent", "Вика"), make_user(db, "agent", "Аня")
     pid = _object(db, client, vika)
     p = db.get(Property, pid)
     make_listing(db, "mh7003", source="myhome", urls=json.dumps(["https://myhome.ge/7003"]), photo_hashes=json.dumps(H[:2]))
     item = next(x for x in similar.find(db, "l:mh7003", ana) if x["kind"] == "object")
-    assert item["can_open"] is False and all(not u.startswith("/api/media/") for u in item["photos"])
+    assert item["can_open"] is False  # the card stays closed; its photos show (api media_file)
     assert item["agent"] == "Вика"
     client.post("/api/similar/decide", json={"a": f"p:{p.id}", "b": "l:mh7003", "same": False}, headers=auth(ana))
     assert not any(x["kind"] == "object" for x in similar.find(db, "l:mh7003", ana))

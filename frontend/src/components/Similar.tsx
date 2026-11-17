@@ -1,16 +1,18 @@
 // «Похожие объекты» (Stanislav 11-17): one flat is never worked twice. For an ad or an object, every candidate across our
 // base (the archive too), ss / myhome / livo / korter, Facebook / Telegram and the competitors, with why it looks the
 // same; the agent says «Дубль» / «Не дубль» (backend services/similar.py).
+import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { ExternalLink } from 'lucide-react';
 import { api } from '../api';
 import type { PropertyStatus, SimilarItem } from '../api/types';
-import { Badge, Button, ErrorBox, Loading } from './ui';
-import { PhotoStrip, PropertyStatusBadge } from './domain';
+import { Badge, Button, ErrorBox, Loading, Modal } from './ui';
+import { CompareSide, ListingSide, PhotoStrip, PropertyStatusBadge } from './domain';
+import { useAuth } from '../auth/AuthContext';
 import { errText, useToast } from './toast';
 import { t } from '../lib/i18n';
-import { bedroomsLabel, districtLabel, money } from '../lib/format';
+import { PROPERTY_STATUS, bedroomsLabel, districtLabel, money } from '../lib/format';
 
 /** subject: «l:<ad id>» / «p:<object id>». intro: the warning line above the list (the review step, the take check). */
 export function SimilarList({ subject, intro, emptyText, onLinked }: { subject: string; intro?: string; emptyText?: string; onLinked?: (pid: number) => void }) {
@@ -32,11 +34,10 @@ export function SimilarList({ subject, intro, emptyText, onLinked }: { subject: 
   );
 }
 
-function SimilarRow({ subject, x, qk, onLinked }: { subject: string; x: SimilarItem; qk: unknown[]; onLinked?: (pid: number) => void }) {
+function useDecide(subject: string, x: SimilarItem, qk: unknown[], onLinked?: (pid: number) => void, after?: () => void) {
   const qc = useQueryClient();
   const toast = useToast();
-  const loc = useLocation();
-  const decide = useMutation({
+  return useMutation({
     mutationFn: (same: boolean) => api.similar.decide(subject, x.key, same),
     onSuccess: (r, same) => {
       qc.invalidateQueries({ queryKey: qk });
@@ -44,13 +45,23 @@ function SimilarRow({ subject, x, qk, onLinked }: { subject: string; x: SimilarI
       qc.invalidateQueries({ queryKey: ['property'] });
       if (r.linked_to) { toast(t('Объявление привязано к объекту #{id}', { id: r.linked_to })); onLinked?.(r.linked_to); }
       else toast(same ? t('Отмечено: дубль') : t('Отмечено: другой объект'));
+      after?.();
     },
     onError: (e) => toast(errText(e), true),
   });
+}
+
+const paramLine = (x: { district?: string | null; bedrooms?: number | null; area?: number | null; floor?: number | null; price_usd?: number | null }) =>
+  [districtLabel(x.district), bedroomsLabel(x.bedrooms), x.area ? `${x.area} ${t('м²')}` : null,
+    x.floor != null ? t('этаж {n}', { n: x.floor }) : null, x.price_usd ? money(x.price_usd, 'USD') : null].filter(Boolean).join(' · ');
+
+function SimilarRow({ subject, x, qk, onLinked }: { subject: string; x: SimilarItem; qk: unknown[]; onLinked?: (pid: number) => void }) {
+  const loc = useLocation();
+  const [cmp, setCmp] = useState(false);
+  const decide = useDecide(subject, x, qk, onLinked);
   const obj = x.kind === 'object';
   const title = obj ? t('Объект #{id}', { id: x.property_id ?? '' }) : x.where;
-  const params = [districtLabel(x.district), bedroomsLabel(x.bedrooms), x.area ? `${x.area} ${t('м²')}` : null,
-    x.floor != null ? t('этаж {n}', { n: x.floor }) : null, x.price_usd ? money(x.price_usd, 'USD') : null].filter(Boolean).join(' · ');
+  const params = paramLine(x);
   const objLink = obj && x.can_open ? `${loc.pathname.startsWith('/m/') ? '/m/properties' : '/objects'}/${x.property_id}` : null;
   return (
     <div className="card" style={{ padding: 12, borderColor: x.level === 'same' ? 'var(--red, #d33)' : undefined }}>
@@ -67,10 +78,10 @@ function SimilarRow({ subject, x, qk, onLinked }: { subject: string; x: SimilarI
         {params && <div className="muted" style={{ fontSize: 13 }}>{params}</div>}
         {obj && <div className="faint" style={{ fontSize: 12 }}>{x.agent ? t('Ведёт: {name}', { name: x.agent }) : t('Без агента')}</div>}
         <div style={{ fontSize: 13 }}><span className="label">{t('Почему: ')}</span>{x.reasons.join(' · ')}</div>
-        {obj && !x.can_open && !x.photos.length
-          ? <div className="faint" style={{ fontSize: 12 }}>{t('Фото объекта видит его агент и оператор')}</div>
-          : <PhotoStrip photos={x.photos} />}
+        <PhotoStrip photos={x.photos} />
+        {cmp && <CompareModal subject={subject} x={x} qk={qk} onLinked={onLinked} onClose={() => setCmp(false)} />}
         <div className="row row-wrap gap-sm">
+          <Button size="sm" variant="secondary" onClick={() => setCmp(true)}>{t('Сравнить')}</Button>
           {objLink && <Link className="btn btn-secondary btn-sm" to={objLink}><ExternalLink size={14} />{t('Открыть объект')}</Link>}
           {x.url && <a className="btn btn-secondary btn-sm" href={x.url} target="_blank" rel="noreferrer"><ExternalLink size={14} />{obj ? t('Пост в канале') : t('Открыть источник')}</a>}
           {x.decided !== 'same' && (
@@ -97,5 +108,80 @@ export function TakeCheck({ listingId, items, taking, onTake, onClose }: { listi
         <Button block variant="secondary" onClick={onClose}>{t('Отмена')}</Button>
       </div>
     </div>
+  );
+}
+
+/** Side by side, as «Сравнить по фото» in the feed: this ad / object on the left, the candidate on the right; «Дубль» /
+ * «Не дубль», and for two objects the operator merges them right here: the other one goes «В архив → Дубль» (its leads,
+ * deals, contracts and exclusive contract move to the one that stays, backend properties._merge_duplicate). */
+function CompareModal({ subject, x, qk, onLinked, onClose }: { subject: string; x: SimilarItem; qk: unknown[]; onLinked?: (pid: number) => void; onClose: () => void }) {
+  const isAd = subject.startsWith('l:');
+  const id = subject.slice(2);
+  const { isStaff } = useAuth();
+  const qc = useQueryClient();
+  const toast = useToast();
+  const navigate = useNavigate();
+  const loc = useLocation();
+  const ad = useQuery({ queryKey: ['listing', id], queryFn: () => api.listings.get(id), enabled: isAd });
+  const me = useQuery({ queryKey: ['property', Number(id)], queryFn: () => api.properties.get(Number(id)), enabled: !isAd });
+  const decide = useDecide(subject, x, qk, onLinked, onClose);
+  const obj = x.kind === 'object';
+  const merge = useMutation({
+    mutationFn: ({ drop, keep }: { drop: number; keep: number }) => api.properties.archive(drop, { reason: 'duplicate', duplicate_of: keep }),
+    onSuccess: (_, { drop, keep }) => {
+      qc.invalidateQueries({ queryKey: ['similar'] });
+      qc.invalidateQueries({ queryKey: ['properties'] });
+      qc.invalidateQueries({ queryKey: ['property'] });
+      toast(t('Объединено: #{drop} удалён как дубль, всё перенесено в #{keep}', { drop, keep }));
+      onClose();
+      if (drop === Number(id)) navigate(`${loc.pathname.startsWith('/m/') ? '/m/properties' : '/objects'}/${keep}`);
+    },
+    onError: (e) => toast(errText(e), true),
+  });
+  const ask = (drop: number, keep: number) => {
+    if (window.confirm(t('Объект #{drop} будет удалён как дубль: его заявки, показы, сделки и договор перейдут в #{keep}. Продолжить?', { drop, keep }))) merge.mutate({ drop, keep });
+  };
+  const p = me.data;
+  const own = (p?.media || []).filter((m) => m.kind === 'photo').map((m) => m.url || m.path);
+  const left = isAd
+    ? (ad.data ? <ListingSide l={ad.data} /> : <Loading />)
+    : (p ? <CompareSide label={t('Этот объект #{id}', { id: p.id })} photos={own.length ? own : p.photos || []} address={p.address} rows={[
+        [t('Цена'), money(p.price, p.currency || 'USD')], [t('Район'), districtLabel(p.district) || '—'], [t('Спальни'), bedroomsLabel(p.bedrooms) || '—'],
+        [t('Площадь'), p.area ? `${p.area} ${t('м²')}` : '—'], [t('Этаж'), p.floor ?? '—'],
+      ]} /> : <Loading />);
+  const right = (
+    <CompareSide label={obj ? `${t('Объект #{id}', { id: x.property_id ?? '' })}${x.status ? ` · ${PROPERTY_STATUS[x.status as PropertyStatus] || x.status}` : ''}${x.agent ? ` · ${x.agent}` : ''}` : x.where}
+      photos={x.photos} address={x.address} rows={[
+        [t('Цена'), money(x.price_usd ?? null, 'USD')], [t('Район'), districtLabel(x.district) || '—'], [t('Спальни'), bedroomsLabel(x.bedrooms) || '—'],
+        [t('Площадь'), x.area ? `${x.area} ${t('м²')}` : '—'], [t('Этаж'), x.floor ?? '—'],
+      ]}
+      link={obj && x.can_open ? { href: `${loc.pathname.startsWith('/m/') ? '/m/properties' : '/objects'}/${x.property_id}`, text: t('Открыть объект') }
+        : x.url ? { href: x.url, text: obj ? t('Пост в канале') : t('Открыть источник') } : undefined} />
+  );
+  const both = !isAd && obj && x.property_id;
+  return (
+    <Modal open wide onClose={onClose} title={t('Это та же квартира?')}>
+      <div className="col gap-lg">
+        <div className={`alert ${x.level === 'same' ? 'alert-warn' : 'alert-info'}`} style={{ fontSize: 13 }}>
+          {t('Почему похож: {why}. Сравните фото (нажмите, чтобы открыть крупно) и решите сами.', { why: x.reasons.join('; ') })}
+        </div>
+        <div className="cmp">{left}{right}</div>
+        <div className="row row-wrap gap-sm">
+          {x.decided !== 'same' && !both && (
+            <Button loading={decide.isPending && decide.variables === true} onClick={() => decide.mutate(true)}>{isAd && obj ? t('Дубль: это он') : t('Дубль')}</Button>
+          )}
+          {both && isStaff && (
+            <>
+              <Button loading={merge.isPending} onClick={() => ask(Number(id), x.property_id!)}>{t('Объединить: оставить #{id}', { id: x.property_id! })}</Button>
+              <Button variant="secondary" loading={merge.isPending} onClick={() => ask(x.property_id!, Number(id))}>{t('Объединить: оставить #{id}', { id })}</Button>
+            </>
+          )}
+          {both && !isStaff && x.decided !== 'same' && (
+            <Button loading={decide.isPending && decide.variables === true} onClick={() => decide.mutate(true)}>{t('Дубль — сообщить оператору')}</Button>
+          )}
+          <Button variant="secondary" loading={decide.isPending && decide.variables === false} onClick={() => decide.mutate(false)}>{t('Не дубль')}</Button>
+        </div>
+      </div>
+    </Modal>
   );
 }

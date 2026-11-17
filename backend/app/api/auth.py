@@ -9,7 +9,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.config import settings
-from app.api.deps import create_token, current_user
+from app.api.deps import MEDIA_TOKEN_TTL_HOURS, create_media_token, create_token, current_user
 from app.db import get_db
 from datetime import date
 
@@ -171,6 +171,13 @@ def login(body: LoginIn, request: Request, db: Session = Depends(get_db, scope="
 @router.get("/me")
 def me(user: User = Depends(current_user)):
     return user_out(user)
+
+
+@router.get("/media-token")
+def media_token(user: User = Depends(current_user)):
+    """The short-lived token for file URLs (deps.current_user: ?token= of GET /api/media/… only); the frontend renews
+    it ahead of expires_in (seconds)."""
+    return {"token": create_media_token(user), "expires_in": int(MEDIA_TOKEN_TTL_HOURS * 3600)}
 
 
 class ProfileIn(BaseModel):

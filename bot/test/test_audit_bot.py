@@ -160,5 +160,33 @@ class EmbedPhotos(Base):
         self.assertGreater(float(np.abs(s["img"][0]).sum()), 0)
 
 
+class IndexChanged(unittest.TestCase):
+    # 6: a changed ad gets a fresh AI profile; old entries get their fingerprint without a model call
+    def test_changed_ads_are_reindexed(self):
+        import json
+        import tempfile
+        import ingest
+        mk = lambda x, text="t": {"id": x, "source": "ss.ge", "address": "", "price_usd": 1, "area": 1, "floor": 1,
+                                  "bedrooms": 1, "text": text, "photos": ["p.jpg"]}
+        calls = []
+
+        def ask(prompt, schema, images=(), **kw):
+            ids = [json.loads(ln)["id"] for ln in prompt.splitlines() if ln.startswith("{")]
+            calls.append(ids)
+            return {"listings": [{"id": x, "looks": f"new {x}"} for x in ids]}
+        with tempfile.TemporaryDirectory() as d, mock.patch.object(ingest, "CACHE", f"{d}/cache.json"), \
+                mock.patch.object(ingest, "ask", ask):
+            json.dump({x: {"id": x, "v": ingest.INDEX_V, "looks": "old"} for x in ("a", "b")}, open(ingest.CACHE, "w"))
+            cache = ingest.index_all([mk("a"), mk("b")])
+            self.assertEqual(calls, [])  # no fingerprint yet: backfilled, nothing re-indexed
+            self.assertEqual(json.load(open(ingest.CACHE))["a"]["fp"], ingest.content_fp(mk("a")))
+            cache = ingest.index_all([mk("a", "сдаю, цена снижена"), mk("b")])
+            self.assertEqual(calls, [["a"]])
+            self.assertEqual((cache["a"]["looks"], cache["b"]["looks"]), ("new a", "old"))
+            self.assertEqual(cache["a"]["fp"], ingest.content_fp(mk("a", "сдаю, цена снижена")))
+            ingest.index_all([mk("a", "сдаю, цена снижена"), {**mk("b"), "photo_urls": ["https://x/new.jpg"]}])
+            self.assertEqual(calls, [["a"], ["b"]])  # another photo
+
+
 if __name__ == "__main__":
     unittest.main()

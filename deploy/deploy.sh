@@ -1,5 +1,5 @@
 #!/bin/sh
-# Prod deploy, run on the server by .github/workflows/ci.yml (or by hand): backup → pull → build → health check.
+# Prod deploy, run by deploy/autodeploy.sh after green tests (or by hand): backup → pull → build → health check.
 # Stops if the checkout has local edits or unpushed commits (someone worked on the server: push them first).
 set -eu
 cd /opt/homes-in-georgia

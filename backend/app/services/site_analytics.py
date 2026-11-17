@@ -19,8 +19,9 @@ from app.config import settings
 from app.models import SiteEvent
 
 PERIODS = (1, 7, 30, 90)
-# In-app browser / extension noise, not our code (also filtered on the site)
-_ERR_NOISE = re.compile(r"Java object is gone|enableDidUserTypeOnKeyboardLogging|Error invoking postMessage|^Script error\.?(\s|$)|(chrome|moz|safari)-extension:|fbq?events|fburl|webkit\.messageHandlers|window\.ethereum", re.I)
+# Only errors thrown in our own scripts: the site reports them with the file and line («chunk.js:12»). Anything else
+# (in-app browsers, extensions, wallets, pixels; also older reports without a file of ours) is not our code.
+_ERR_OWN = re.compile(r"\.js:\d+$")
 TYPES = {"pageview", "listing", "contact", "share", "fav", "search", "error", "perf", "social"}
 MAX_BATCH = 50
 CACHE_SEC = 120
@@ -176,7 +177,7 @@ def aggregate(cur: list, prev: list, start: datetime, end: datetime, days: int) 
                 _inc(zero, k)
         if t == "error":
             m = str(x.get("msg") or "")[:140]
-            if _ERR_NOISE.search(f"{m} {x.get('at') or ''}"):
+            if not _ERR_OWN.search(str(x.get("at") or "")):
                 continue
             er = errors.setdefault(m, {"name": m, "n": 0, "sessions": set(), "page": e.path, "device": e.device, "last": 0})
             er["n"] += 1

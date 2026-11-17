@@ -163,14 +163,22 @@ export function trackSearch(service: string, params: string, count: number) {
   }, 1500);
 }
 
-// Noise from in-app browsers (FB/IG), extensions and cross-origin scripts, not our code.
-const NOISE = /Java object is gone|enableDidUserTypeOnKeyboardLogging|Error invoking postMessage|^Script error\.?(\s|$)|(chrome|moz|safari)-extension:|fbq?events|fburl|webkit\.messageHandlers|window\.ethereum/i;
+// Only our own code is reported: an error counts when it was thrown in a script of this site (/_next/static/ on this
+// origin) — the file of the error event, or a frame of its stack. Errors of in-app browsers (FB/IG/Telegram), wallet and
+// other extensions, analytics/pixel scripts and inline injections have no such frame and are dropped.
+function ownFrame(file: unknown, line: unknown, stack: unknown): string | null {
+  const own = `${location.origin}/_next/static/`;
+  if (typeof file === 'string' && file.startsWith(own)) return `${file}:${line || 0}`;
+  for (const m of String(stack || '').matchAll(/(https?:\/\/[^\s()]+?):(\d+)(?::\d+)?/g))
+    if (m[1].startsWith(own)) return `${m[1]}:${m[2]}`;
+  return null;
+}
 
-function onError(message: unknown, where: unknown) {
-  if (NOISE.test(`${message} ${where}`)) return;
-  if (errors >= MAX_ERRORS) return;
+function onError(message: unknown, file: unknown, line: unknown, stack: unknown) {
+  const where = ownFrame(file, line, stack);
+  if (!where || errors >= MAX_ERRORS) return;
   errors++;
-  track('error', { x: { msg: String(message || 'error').slice(0, 200), at: String(where || '').split('/').pop()!.slice(0, 120) } });
+  track('error', { x: { msg: String(message || 'error').slice(0, 200), at: where.split('/').pop()!.slice(0, 120) } });
 }
 
 function measure() {
@@ -197,8 +205,8 @@ export function initAnalytics() {
   active = true;
   try {
     document.addEventListener('click', onClick, true);
-    addEventListener('error', e => onError(e.message, `${e.filename || ''}:${e.lineno}`));
-    addEventListener('unhandledrejection', e => onError(e.reason?.message || e.reason, 'promise'));
+    addEventListener('error', e => onError(e.message, e.filename, e.lineno, e.error?.stack));
+    addEventListener('unhandledrejection', e => onError(e.reason?.message || e.reason, '', 0, e.reason?.stack));
     addEventListener('pagehide', () => flush(true));
     document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flush(true); });
     measure();

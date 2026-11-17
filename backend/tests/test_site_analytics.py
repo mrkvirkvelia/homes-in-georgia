@@ -66,3 +66,14 @@ def test_only_superadmins_see_site_analytics(db, client):
     assert client.get("/api/analytics/site").status_code == 401
     r = client.get("/api/analytics/site", params={"days": 5000}, headers=auth(make_user(db, "superadmin")))
     assert r.status_code == 200 and r.json()["period"]["days"] == 7  # unknown period → 7 days
+
+
+def test_only_errors_of_our_own_scripts_are_reported(db, client):
+    post(client, [
+        ev("error", x={"msg": "TypeError: x is undefined", "at": "page-3f2a.js:12"}),
+        ev("error", s="s2", x={"msg": "TypeError: undefined is not an object (evaluating 'window.webkit.messageHandlers')", "at": ":0"}),
+        ev("error", s="s3", x={"msg": "TypeError: window.ethereum.selectedAddress = undefined", "at": "listing:5"}),
+        ev("error", s="s4", x={"msg": "boom", "at": "promise"}),
+    ])
+    names = [e["name"] for e in site_analytics.report(db, 7, fresh=True)["errors"]]
+    assert names == ["TypeError: x is undefined"]

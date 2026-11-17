@@ -809,6 +809,89 @@ on('POST', '/public/nda/:token/details', (_m, b) => {
   ndaPub.html = ndaPub.html.replace(/<p>IBAN.*$/, '') + `<p>IBAN GEL: <b>${ndaPub.details.iban_gel || '—'}</b> · IBAN USD: <b>${ndaPub.details.iban_usd || '—'}</b> · ИП: <b>${ndaPub.details.ie || '—'}</b></p>`;
   return ndaPub;
 });
+// ---------- «Документ на подпись» (pages/SignDocs.tsx, the signing page /doc/<token>; backend services/sign_docs.py)
+type SdSigner = { id: number; side: 'party' | 'company'; user_id: number | null; full_name: string; personal_id: string | null; phone: string | null;
+  telegram: string | null; token: string; tg_username: string | null; signed_at: string | null };
+type SdDoc = { id: number; status: 'draft' | 'sent' | 'signed' | 'cancelled'; lang: 'KA-RU' | 'KA' | 'RU'; title: Record<string, string>;
+  body: Record<string, string>; signers: SdSigner[]; created_at: string; sent_at: string | null; signed_at: string | null; confirmed: Record<string, boolean> };
+const SD_LABEL = { draft: 'Черновик', sent: 'Отправлен', signed: 'Подписан', cancelled: 'Отменён' };
+const sdLns = (d: SdDoc) => (d.lang === 'KA-RU' ? ['ka', 'ru'] : d.lang === 'KA' ? ['ka'] : ['ru']);
+const sdNum = (d: SdDoc) => `D-2026-${String(d.id).padStart(4, '0')}`;
+const sdEsc = (x: string) => x.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+const sdHtml = (d: SdDoc) => {
+  const paras = (ln: string) => (d.body[ln] || '').split(/\n\s*\n/).filter((x) => x.trim()).map((x) => `<p>${sdEsc(x.trim()).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>').replace(/\n/g, '<br>')}</p>`).join('');
+  const cols = sdLns(d).map((ln) => `<td style="vertical-align:top;width:50%">${paras(ln)}</td>`).join('');
+  const rows = [['Давид Тибелашвили', '1'], ...d.signers.map((s) => [s.full_name, s.side === 'party' ? '2' : '1'])];
+  return `<html><head></head><body style="font-family:sans-serif;font-size:13px">${sdLns(d).map((ln) => `<h2 style="text-align:center;color:#1D3560;margin:0">${sdEsc(d.title[ln] || '')}</h2>`).join('')}`
+    + `<p style="text-align:center;color:#666">Homes in Georgia · № ${sdNum(d)} (mock)</p><table style="width:100%"><tr>${cols}</tr></table>`
+    + `<h3>${d.lang === 'RU' ? 'Подписи Сторон' : d.lang === 'KA' ? 'მხარეთა ხელმოწერები' : 'მხარეთა ხელმოწერები / Подписи Сторон'}</h3><table border="1" style="border-collapse:collapse;width:100%">${rows.map(([n, side]) => `<tr><td>${sdEsc(n)}<br><small>${side}</small></td><td>${d.status === 'signed' ? '✍️' : '[эл. подпись]'}</td></tr>`).join('')}</table></body></html>`;
+};
+// kept in localStorage: the signing link opens a new page (a reload would lose an in-memory list)
+const SD_KEY = 'mock_sign_docs';
+const sdDocs: SdDoc[] = (() => { try { return JSON.parse(localStorage.getItem(SD_KEY) || '[]'); } catch { return []; } })();
+let sdNext = Math.max(0, ...sdDocs.map((d) => d.id)) + 1;
+const sdSave = <T>(x: T): T => { try { localStorage.setItem(SD_KEY, JSON.stringify(sdDocs)); } catch { /* private mode */ } return x; };
+const sdPerson = (p: Record<string, unknown> | null | undefined, side: SdSigner['side'], old?: SdSigner): SdSigner | null => {
+  if (!p || (!p.user_id && !String(p.full_name || '').trim())) return null;
+  const u = p.user_id ? F.users.find((x) => x.id === Number(p.user_id)) : undefined;
+  const full_name = String(p.full_name || '').trim() || [u?.first_name, u?.last_name].filter(Boolean).join(' ') || u?.name || '';
+  if (side === 'party' && !u && !String(p.phone || '').trim()) throw new ApiError(400, 'Укажите телефон другой стороны', 'missing_fields');
+  return { id: old?.id ?? nextId(), side, user_id: u?.id ?? null, full_name, personal_id: String(p.personal_id || '') || (u ? '01001000000' : null),
+    phone: String(p.phone || '') || u?.phone || null, telegram: u ? null : String(p.telegram || '').replace(/^@/, '') || null,
+    token: old?.token ?? `mock-doc-${Math.random().toString(36).slice(2, 14)}xxxxxxxx`, tg_username: null, signed_at: null };
+};
+const sdFill = (d: SdDoc, b: Record<string, unknown>) => {
+  d.lang = (b.lang as SdDoc['lang']) || 'KA-RU';
+  d.title = (b.title as Record<string, string>) || {};
+  d.body = (b.body as Record<string, string>) || {};
+  for (const ln of sdLns(d)) if (!d.title[ln]?.trim() || !d.body[ln]?.trim()) throw new ApiError(400, 'Укажите название и вставьте текст документа', 'missing_fields');
+  d.signers = [sdPerson(b.party as Record<string, unknown>, 'party', d.signers.find((s) => s.side === 'party')),
+    sdPerson(b.cosigner as Record<string, unknown>, 'company', d.signers.find((s) => s.side === 'company'))].filter(Boolean) as SdSigner[];
+  if (!d.signers.some((s) => s.side === 'party')) throw new ApiError(400, 'Укажите ФИО другой стороны', 'missing_fields');
+};
+const sdEditable = (d: SdDoc) => d.status === 'draft' || (d.status === 'sent' && !d.signers.some((s) => s.signed_at));
+const sdOut = (d: SdDoc) => ({ id: d.id, number: sdNum(d), status: d.status, status_label: SD_LABEL[d.status], lang: d.lang, title: d.title, body: d.body,
+  html: sdHtml(d), created_at: d.created_at, created_by: { id: 1, name: 'Давид' }, sent_at: d.sent_at, signed_at: d.signed_at, has_pdf: d.status === 'signed',
+  editable: sdEditable(d), signers: d.signers.map((s) => ({ ...s, need_tg: !!(s.user_id || s.telegram), path: d.status === 'sent' && !s.signed_at ? `/doc/${s.token}` : null })) });
+const sdGet = (id: string) => { const d = sdDocs.find((x) => x.id === Number(id)); if (!d) throw new ApiError(404, 'Документ не найден'); return d; };
+on('GET', '/sign-docs', (_m, _b, q) => {
+  const st = q.get('status'); const needle = (q.get('q') || '').toLowerCase();
+  return page(sdDocs.filter((d) => (!st || st === 'all' || d.status === st)
+    && (!needle || JSON.stringify(d.title).toLowerCase().includes(needle) || d.signers.some((s) => s.full_name.toLowerCase().includes(needle)))).slice().reverse().map(sdOut));
+});
+on('POST', '/sign-docs', (_m, b) => { const d: SdDoc = { id: sdNext++, status: 'draft', lang: 'KA-RU', title: {}, body: {}, signers: [], created_at: new Date().toISOString(), sent_at: null, signed_at: null, confirmed: {} }; sdFill(d, b); sdDocs.push(d); return sdSave(sdOut(d)); });
+on('GET', '/sign-docs/:id', (m) => sdOut(sdGet(m[1])));
+on('PUT', '/sign-docs/:id', (m, b) => { const d = sdGet(m[1]); if (!sdEditable(d)) throw new ApiError(409, 'Документ уже подписан одной из сторон — текст не меняется', 'bad_status'); sdFill(d, b); return sdSave(sdOut(d)); });
+on('POST', '/sign-docs/:id/send', (m) => {
+  const d = sdGet(m[1]);
+  if (d.status === 'draft') Object.assign(d, { status: 'sent', sent_at: new Date().toISOString() });
+  return sdSave({ ...sdOut(d), links: d.signers.filter((s) => !s.signed_at).map((s) => ({ id: s.id, sent: !!s.user_id })) });
+});
+on('POST', '/sign-docs/:id/cancel', (m) => { const d = sdGet(m[1]); if (d.status === 'signed') throw new ApiError(409, 'Документ: Подписан', 'bad_status'); d.status = 'cancelled'; return sdSave(sdOut(d)); });
+on('GET', '/sign-docs/:id/pdf', (m) => ({ __html: sdHtml(sdGet(m[1])) }));  // fetchBlob in the mock opens it as a page
+const sdTok = (t: string) => {
+  for (const d of sdDocs) { const s = d.signers.find((x) => x.token === t); if (s && d.status !== 'draft' && d.status !== 'cancelled') return { d, s }; }
+  throw new ApiError(404, 'Ссылка недействительна. Попросите прислать новую');
+};
+const sdView = (t: string) => {
+  const { d, s } = sdTok(t);
+  return { kind: 'doc', lang: d.lang, status: d.status, title: d.title, number: sdNum(d), full_name: s.full_name, telegram: s.telegram,
+    need_tg: !!(s.user_id || s.telegram), doc_sha256: 'mock', confirmed: !!d.confirmed[s.token] || !!s.signed_at, tg_username: s.tg_username, tg_name: null,
+    signed: !!s.signed_at, signed_at: s.signed_at || d.signed_at, has_pdf: d.status === 'signed', test_mode: true,
+    signers: d.signers.map((x) => ({ full_name: x.full_name, signed: !!x.signed_at })), html: d.status === 'sent' ? sdHtml(d) : null };
+};
+on('GET', '/public/doc/:token', (m) => sdView(m[1]));
+on('POST', '/public/doc/:token/telegram', (m) => { const { d, s } = sdTok(m[1]); d.confirmed[s.token] = true; s.tg_username = s.telegram || 'mock_user'; sdSave(0); return sdView(m[1]); });
+on('POST', '/public/doc/:token', (m, b) => {
+  const { d, s } = sdTok(m[1]);
+  if ((s.user_id || s.telegram) && !d.confirmed[s.token]) throw new ApiError(403, 'Подтвердите себя через Telegram', 'telegram_required');
+  if (b.consent !== true) throw new ApiError(400, 'Нужно согласие с условиями', 'consent_required');
+  s.signed_at = new Date().toISOString();
+  if (d.signers.every((x) => x.signed_at)) Object.assign(d, { status: 'signed', signed_at: s.signed_at });
+  sdSave(0);
+  return sdView(m[1]);
+});
+
 on('GET', '/public/esign/:token', (m) => esView(m[1]));
 on('POST', '/public/esign/:token', (m, b) => {
   const { s } = esFind(m[1]);

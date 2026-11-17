@@ -166,7 +166,7 @@ export function NdaSignPage({ kind = 'nda' }: { kind?: Kind }) {
       {head}
       <div className="alert alert-ok"><CheckCircle2 size={16} style={{ verticalAlign: -3 }} /> {t.done} · {fmtDateTime(v.signed_at)}</div>
       {v.has_pdf
-        ? <><a className="btn btn-ok btn-lg" href={`/api${base}/pdf?download=1`}><Download size={18} />{t.pdf}</a><span className="muted" style={{ fontSize: 13 }}>{t.sent}</span></>
+        ? <><a className="btn btn-ok btn-lg" href={`/api${base}/pdf?download=1`}><Download size={18} />{t.pdf}</a>{(!doc || v.need_tg) && <span className="muted" style={{ fontSize: 13 }}>{t.sent}</span>}</>
         : <span className="muted">{t.pdfWait}</span>}
     </>);
   }

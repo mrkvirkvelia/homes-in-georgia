@@ -194,6 +194,12 @@ async function request<T>(method: string, path: string, body?: unknown, query?: 
 
 /** A file from an authenticated endpoint (contract PDFs). */
 export async function fetchBlob(path: string): Promise<Blob> {
+  if (IS_MOCK) {  // a mock route may answer {__html} (e.g. /sign-docs/:id/pdf): opened as a page instead of a PDF
+    const { mockFetch } = await import('./mock/server');
+    const r = (await mockFetch('GET', path)) as { __html?: string } | null;
+    if (r?.__html) return new Blob([r.__html], { type: 'text/html' });
+    throw new ApiError(404, 'Файл не найден');
+  }
   const token = getToken();
   const res = await fetch(`/api${path}`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
   if (!res.ok) throw new ApiError(res.status, res.status === 404 ? 'Файл не найден' : `Ошибка ${res.status}`);

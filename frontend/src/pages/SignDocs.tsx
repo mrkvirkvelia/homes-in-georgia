@@ -32,7 +32,6 @@ interface Form { lang: Lang; title: Record<Ln, string>; body: Record<Ln, string>
 
 const LANGS = [{ value: 'KA-RU', label: 'ქართული + Русский' }, { value: 'KA', label: 'ქართული' }, { value: 'RU', label: 'Русский' }];
 const LNS: Record<Lang, Ln[]> = { 'KA-RU': ['ka', 'ru'], KA: ['ka'], RU: ['ru'] };
-const LN_LABEL: Record<Ln, string> = { ka: 'по-грузински', ru: 'по-русски' };
 const TABS = [{ value: 'all', label: 'Все' }, { value: 'draft', label: 'Черновики' }, { value: 'sent', label: 'Отправлены' },
   { value: 'signed', label: 'Подписаны' }, { value: 'cancelled', label: 'Отменены' }] as const;
 const TONE = { draft: 'warn', sent: 'blue', signed: 'ok', cancelled: 'grey' } as const;
@@ -74,16 +73,16 @@ function DocForm({ doc, onDone, onClose }: { doc: Doc | null; onDone: (d: Doc) =
   const ok = lns.every((l) => f.title[l].trim() && f.body[l].trim()) && f.party.full_name.trim()
     && (f.who === 'team' ? !!f.party.user_id : !!f.party.phone.trim() && !!f.party.personal_id.trim());
   return (
-    <Card label={doc ? `№ ${doc.number} · ${doc.status_label}` : t('Новый документ')} title={doc ? titleOf(doc) : t('Документ на подпись')}
+    <Card label={doc ? `№ ${doc.number} · ${t(doc.status_label)}` : t('Новый документ')} title={doc ? titleOf(doc) : t('Документ на подпись')}
       actions={<Button size="sm" variant="ghost" onClick={onClose}>{t('Закрыть')}</Button>}>
       <div className="col gap">
         {doc?.status === 'sent' && <div className="alert alert-warn">{t('Документ уже отправлен: после сохранения открытые ссылки попросят обновить страницу')}</div>}
         <div className="form-grid">
           <Field label={t('Язык документа')}><Select value={f.lang} onChange={(e) => setF({ ...f, lang: e.target.value as Lang })} options={LANGS} /></Field>
-          {lns.map((l) => <Field key={l} label={`${t('Название')} ${LN_LABEL[l]} *`}><Input value={f.title[l]} onChange={(e) => setF({ ...f, title: { ...f.title, [l]: e.target.value } })} placeholder={l === 'ka' ? 'ხელშეკრულება' : 'Договор'} /></Field>)}
+          {lns.map((l) => <Field key={l} label={l === 'ka' ? t('Название по-грузински *') : t('Название по-русски *')}><Input value={f.title[l]} onChange={(e) => setF({ ...f, title: { ...f.title, [l]: e.target.value } })} placeholder={l === 'ka' ? 'ხელშეკრულება' : 'Договор'} /></Field>)}
         </div>
         {lns.map((l) => (
-          <Field key={l} label={`${t('Текст')} ${LN_LABEL[l]} *`} hint={t('Вставьте текст как есть: пустая строка между абзацами, **жирный** — звёздочками')}>
+          <Field key={l} label={l === 'ka' ? t('Текст по-грузински *') : t('Текст по-русски *')} hint={t('Вставьте текст как есть: пустая строка между абзацами, **жирный** — звёздочками')}>
             <Textarea rows={12} value={f.body[l]} onChange={(e) => setF({ ...f, body: { ...f.body, [l]: e.target.value } })} />
           </Field>
         ))}
@@ -188,7 +187,7 @@ export function SignDocsPage() {
                         {s.side === 'company' ? ` (${t('наш подписант')})` : ''}{s.signed_at ? ` — ${fmtDateTime(s.signed_at)}` : ''}{s.tg_username ? ` · @${s.tg_username}` : ''}</small>
                     ))}
                   </span>
-                  <Badge tone={TONE[d.status]}>{d.status_label}</Badge>
+                  <Badge tone={TONE[d.status]}>{t(d.status_label)}</Badge>
                 </div>
                 <div className="row row-wrap gap-sm">
                   <Button size="sm" variant="ghost" onClick={() => open(d, setView)}><Eye size={14} />{t('Просмотр')}</Button>

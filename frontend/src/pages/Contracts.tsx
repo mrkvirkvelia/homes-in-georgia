@@ -160,6 +160,10 @@ function useDrafts() {
 
 // ---------------------------------------------------------------- wizard
 
+type EditSession = { id: number; key: string };
+// randomUUID needs a secure context: the mock on a LAN http address gets a random string instead
+const newSession = (id: number): EditSession => ({ id, key: globalThis.crypto?.randomUUID?.() ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}` });
+
 export function ContractWizard({ compact }: { compact?: boolean }) {
   const toast = useToast();
   const [params, setParams] = useSearchParams();
@@ -184,7 +188,10 @@ export function ContractWizard({ compact }: { compact?: boolean }) {
   // ---- the contract lives in the deal: the form autosaves into it (contracts.autosave) and reopens from it
   const [contract, setContract] = useState<Contract | null>(null);  // the server's copy: status, PDF, versions
   const saved = contract?.has_pdf ? contract : null;
-  const cidRef = useRef(editId);
+  // the editing session: one per form (reset / another lead or object / another contract in the URL). Its id is read
+  // when a queued save actually runs, and answers of an older session never reach the form; its key makes the first
+  // autosaves of a standalone draft idempotent (contracts.autosave data._key) while the id is not known yet
+  const sess = useRef(newSession(editId));
   const restored = useRef(0);
   const touched = useRef(false);  // only the agent's input (or a lead prefill) saves, not opening the form
   const chain = useRef<Promise<unknown>>(Promise.resolve());  // autosaves one after another: one draft, no races
@@ -197,6 +204,16 @@ export function ContractWizard({ compact }: { compact?: boolean }) {
   useEffect(() => {
     if (existing && !editId) setParams((sp) => { sp.set('edit', String(existing.id)); return sp; }, { replace: true });
   }, [existing?.id]);  // eslint-disable-line react-hooks/exhaustive-deps
+  // the URL switched to another contract (or away from it) without the pickers / reset: a new session, so a save still
+  // in flight lands in the old contract and the next one does not
+  const linkKey = `${leadId}:${dealId}:${propId}`;
+  const prevLink = useRef(linkKey);
+  useEffect(() => {
+    const moved = prevLink.current !== linkKey;
+    prevLink.current = linkKey;
+    if (!moved && editId === sess.current.id) return;  // our own ?edit= after the first save
+    sess.current = newSession(editId); restored.current = 0; touched.current = false; setContract(null);
+  }, [editId, linkKey]);  // eslint-disable-line react-hooks/exhaustive-deps
   const fresh = !editId && dealDraft.isSuccess && !existing;  // no draft yet: prefill from the lead / deal
   const stored = useQuery({ queryKey: ['contracts', 'one', editId], queryFn: () => api.contracts.get(editId), enabled: !!editId });
   useEffect(() => {
@@ -213,7 +230,7 @@ export function ContractWizard({ compact }: { compact?: boolean }) {
     setD({ ...EMPTY, timestamp: todayStr(), ...data });
     setDepTouched(!!x._dep); setEndTouched(!!x._end);
     setStep(c.has_pdf ? 3 : Math.min(5, Number(x._step) || (c.kind ? 2 : 1)));
-    cidRef.current = c.id;
+    sess.current.id = c.id;
     setContract(c);
     touched.current = false;
     setPrefilled({ key: `contract:${c.id}`, text: c.has_pdf
@@ -284,12 +301,12 @@ export function ContractWizard({ compact }: { compact?: boolean }) {
   const objDq = useDebounced(objQ.trim());
   const objFound = useQuery({ queryKey: ['deal-search', objDq], queryFn: () => api.properties.dealSearch({ q: objDq }), enabled: !!objDq });
   function pickObject(id: number) {
-    cidRef.current = 0; restored.current = 0; touched.current = false; setContract(null); setObjQ('');
+    sess.current = newSession(0); restored.current = 0; touched.current = false; setContract(null); setObjQ('');
     setParams({ property_id: String(id) }, { replace: true });
   }
   const pickable = useQuery({ queryKey: ['leads', 'list', 'contract'], queryFn: () => api.leads.list({ status: CONTRACT_STAGES.join(',') }) });
   function pickLead(id: number) {
-    cidRef.current = 0; restored.current = 0; touched.current = false; setContract(null);
+    sess.current = newSession(0); restored.current = 0; touched.current = false; setContract(null);
     setParams({ lead_id: String(id) }, { replace: true });
   }
 
@@ -298,17 +315,21 @@ export function ContractWizard({ compact }: { compact?: boolean }) {
   useEffect(() => {
     if (!touched.current || locked) return;  // a standalone contract (no lead / deal) autosaves too (11-13)
     const t = setTimeout(() => {
-      const body = { id: cidRef.current || null, kind: type, lang, lead_id: linkLead || null, deal_id: linkDeal || null, property_id: linkProp || null, data: payloadData() };
-      chain.current = chain.current.then(() => api.contracts.autosave(body).then((c) => {
-        const first = !cidRef.current;
-        cidRef.current = c.id; restored.current = c.id;
+      const s = sess.current;
+      const body = { kind: type, lang, lead_id: linkLead || null, deal_id: linkDeal || null, property_id: linkProp || null, data: payloadData() };
+      chain.current = chain.current.then(() => api.contracts.autosave(  // the id as it is now, after the saves before
+        s.id ? { ...body, id: s.id } : { ...body, id: null, data: { ...body.data, _key: s.key } }).then((c) => {
+        const first = !s.id;
+        s.id = c.id;
+        if (s !== sess.current) return;  // the form went on to another contract meanwhile
+        restored.current = c.id;
         setContract(c);
         setAutoState({ at: new Date().toLocaleTimeString(LOCALE, { hour: '2-digit', minute: '2-digit' }) });
         if (first) {
           setParams((sp) => { sp.set('edit', String(c.id)); return sp; }, { replace: true });
           qc.invalidateQueries({ queryKey: ['contracts', 'list'] });
         }
-      }, (e) => setAutoState({ err: errText(e) })));
+      }, (e) => { if (s === sess.current) setAutoState({ err: errText(e) }); }));
     }, AUTOSAVE_MS);
     return () => clearTimeout(t);
   }, [type, lang, d, depTouched, endTouched, step]);  // eslint-disable-line react-hooks/exhaustive-deps
@@ -422,7 +443,7 @@ export function ContractWizard({ compact }: { compact?: boolean }) {
   }
   function reset() {
     // the current draft stays in its deal (Кабинет → Договоры); the form starts a new one
-    cidRef.current = 0; restored.current = 0; touched.current = false; setContract(null); setAutoState({});
+    sess.current = newSession(0); restored.current = 0; touched.current = false; setContract(null); setAutoState({});
     setType(''); setLang(''); setD({ ...EMPTY, timestamp: todayStr() }); setDepTouched(false); setPetTouched(false);
     setStep(1); setErr(''); setMissing(new Set()); setPrefilled(null);
     setParams({ new: '1' }, { replace: true });
@@ -454,12 +475,15 @@ export function ContractWizard({ compact }: { compact?: boolean }) {
         address: d.street_house, client_name: d.client_full_name, owner_name: d.owner_full_name,
         lead_id: linkLead || leadC.data?.lead_id || null, deal_id: linkDeal || leadC.data?.deal_id || null, property_id: linkProp || null,
         data: payloadData() };  // the wizard's CxData: the deal page prefills from the signed contract (contracts.data)
+      const s = sess.current;
       await chain.current;  // a pending autosave lands first
-      return cidRef.current ? api.contracts.update(cidRef.current, b) : api.contracts.create(b);
+      return { s, c: await (s.id ? api.contracts.update(s.id, b) : api.contracts.create(b)) };
     },
-    onSuccess: (c) => {
-      const first = !cidRef.current;
-      cidRef.current = c.id; restored.current = c.id;
+    onSuccess: ({ s, c }) => {
+      const first = !s.id;
+      s.id = c.id;
+      if (s !== sess.current) { qc.invalidateQueries({ queryKey: ['contracts'] }); return; }  // another form by now
+      restored.current = c.id;
       setContract(c);
       if (first) setParams((sp) => { sp.set('edit', String(c.id)); return sp; }, { replace: true });
       qc.invalidateQueries({ queryKey: ['contracts'] });

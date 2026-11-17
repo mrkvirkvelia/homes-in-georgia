@@ -360,13 +360,24 @@ def autosave(db: Session, body: dict, user: User) -> Contract:
             raise DomainError("bad_status", "Подписанный или закрытый договор не меняется", 409)
     else:
         link = _link(db, body, user)
-        c = _draft_for(db, link, user)
+        # the wizard's editing session key (data._key): a retried / overlapping first autosave that went out before the
+        # first one returned its id gets that same draft back instead of a second one. The user's row lock serializes
+        # his keyless-id creates, so two such requests can't both miss the draft (no column: the key lives in data).
+        key = data.get("_key") if isinstance(data.get("_key"), str) and 8 <= len(data["_key"]) <= 64 else None
+        c = None
+        if key:
+            db.scalar(select(User.id).where(User.id == user.id).with_for_update())
+            c = db.scalar(select(Contract).where(Contract.created_by == user.id, Contract.status == "draft",
+                                                 Contract.created_at >= now() - timedelta(days=2),
+                                                 Contract.data["_key"].astext == key)
+                          .order_by(Contract.id.desc()).limit(1).with_for_update())
+        c = c or _draft_for(db, link, user)
         if c is None:
             c = Contract(**link, created_by=user.id, status="draft")
             db.add(c)
             db.flush()
             log_event(db, "contract", c.id, "draft_started", user, lead_id=c.lead_id)
-    core = lambda x: {k: v for k, v in (x or {}).items() if k not in DATA_META}  # noqa: E731
+    core = lambda x: {k: v for k, v in (x or {}).items() if k not in DATA_META and k != "_key"}  # noqa: E731
     if (kind or c.kind, lang or c.lang, core(data)) == (c.kind, c.lang, core(c.data)):
         c.data = data  # only the wizard's step / flags: the PDF stays current
         db.commit()

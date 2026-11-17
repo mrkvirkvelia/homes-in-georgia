@@ -533,8 +533,11 @@ async def on_start(update: Update, ctx, cl):
 # ---------- A2b/A3: the card and ❤️ ----------
 
 def remember_card(cl, listing_id, chat_id, message_id, text, rows, search_id=None):
-    """The sent card (text + extra button rows) so notify.lead_client_ack can rewrite it (A3); logged in client_views."""
+    """The sent card (text + extra button rows) so notify.lead_client_ack can rewrite it (A3); logged in client_views.
+    A search's card (search_id) is marked shown only now that it reached the client: «Ещё» skips it."""
     def fn(st, r):
+        if search_id is not None and listing_id not in st.setdefault("shown", []):
+            st["shown"].append(listing_id)
         cards = st.setdefault("cards", {})
         cards.pop(listing_id, None)
         cards[listing_id] = {"text": text, "rows": rows}

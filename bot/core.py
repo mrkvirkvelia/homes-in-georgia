@@ -162,9 +162,10 @@ def client(channel, external_id, chat_id=None, username=None, name=None, lang_hi
 
 def update(cl, fn):
     """Atomically change the stored client state: fn(state, client) runs on a fresh copy from the DB
-    (a search running in a thread must not overwrite a message that arrived meanwhile)."""
+    (a search running in a thread must not overwrite a message that arrived meanwhile). The row lock holds a concurrent
+    update (the bot runs updates concurrently) until this one commits: no lost writes."""
     with db.tx() as c:
-        r = db.row(c.execute("SELECT * FROM clients WHERE id = ?", (cl["id"],)).fetchone())
+        r = db.row(c.execute("SELECT * FROM clients WHERE id = ? FOR UPDATE", (cl["id"],)).fetchone())
         fn(r["state"], r)
         c.execute("UPDATE clients SET state = ?, lang = ?, updated_at = ? WHERE id = ?",
                   (json.dumps(r["state"], ensure_ascii=False), r["lang"], db.now(), cl["id"]))

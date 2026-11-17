@@ -19,10 +19,47 @@ export function getToken(): string | null {
   try { return localStorage.getItem(TOKEN_KEY); } catch { return null; }
 }
 export function setToken(t: string | null) {
+  if (t !== getToken()) dropMedia();  // logout / another user: his media token goes with the session
   try {
     if (t) localStorage.setItem(TOKEN_KEY, t);
     else localStorage.removeItem(TOKEN_KEY);
   } catch { /* storage unavailable */ }
+}
+
+// ---- the media token. <img> / <video> / <a href> can't send the Authorization header, so file URLs carry ?token=. Not
+// the session JWT (a copied photo link would open the whole CRM): a short-lived purpose="media" token that the backend
+// takes only from the query and only for GET /api/media/… (deps.current_user). Kept with its expiry and renewed ahead of
+// it by the API calls themselves: a response waits for it only while there is none (mediaUrl() is synchronous).
+const MEDIA_KEY = 'hig_media_token';
+const MEDIA_RENEW_MS = 2 * 3600_000;  // of its 8 h
+type MediaToken = { token: string; exp: number };  // exp: ms, from the server's expires_in (no clock-skew guess)
+let media: MediaToken | null = (() => {
+  try { const m = JSON.parse(localStorage.getItem(MEDIA_KEY) || 'null'); return m?.token && m.exp ? m : null; } catch { return null; }
+})();
+let mediaFetch: Promise<void> | null = null;
+function dropMedia() {
+  media = null;
+  try { localStorage.removeItem(MEDIA_KEY); } catch { /* storage unavailable */ }
+}
+const mediaLeft = () => (media ? media.exp - Date.now() : 0);
+/** Gets / renews the media token (one request at a time); never throws, a failure leaves file URLs without one. */
+export function ensureMediaToken(): Promise<void> {
+  const session = getToken();
+  if (IS_MOCK || !session || mediaLeft() > MEDIA_RENEW_MS) return Promise.resolve();
+  mediaFetch ??= fetch('/api/auth/media-token', { headers: { Authorization: `Bearer ${session}` } })
+    .then(async (r) => {
+      if (!r.ok || getToken() !== session) return;  // a 401 here is the session's: the API call itself handles it
+      const d = (await r.json()) as { token: string; expires_in: number };
+      media = { token: d.token, exp: Date.now() + d.expires_in * 1000 };
+      try { localStorage.setItem(MEDIA_KEY, JSON.stringify(media)); } catch { /* storage unavailable */ }
+    })
+    .catch(() => undefined)
+    .finally(() => { mediaFetch = null; });
+  return mediaFetch;
+}
+function mediaToken(): string {
+  if (mediaLeft() <= MEDIA_RENEW_MS) void ensureMediaToken();
+  return mediaLeft() > 0 ? media!.token : '';
 }
 
 let onUnauthorized: () => void = () => {
@@ -82,7 +119,15 @@ const ERROR_TEXT: Record<string, string> = {
   exclusive_conflict: 'Эксклюзив ещё висит на других сайтах. Попросите собственника снять объявление, затем оператор отмечает «Проверено: снято»',
 };
 
+let keepaliveNow = false;
+/** Requests started synchronously inside fn go out with fetch keepalive: they outlive the page (autosave on pagehide). */
+export function withKeepalive<T>(fn: () => T): T {
+  keepaliveNow = true;
+  try { return fn(); } finally { keepaliveNow = false; }
+}
+
 async function request<T>(method: string, path: string, body?: unknown, query?: Query, retried = false): Promise<T> {
+  const keepalive = keepaliveNow;  // read before the first await
   const url = path + qs(query);
   if (IS_MOCK) {
     const { mockFetch } = await import('./mock/server');
@@ -93,6 +138,8 @@ async function request<T>(method: string, path: string, body?: unknown, query?: 
       throw e;
     }
   }
+  // the data may hold file URLs: without a valid media token it waits for one (fetched alongside), else renewal is in background
+  const mediaReady = mediaLeft() <= 0 ? ensureMediaToken() : (void ensureMediaToken(), null);
   const headers: Record<string, string> = {};
   const token = getToken();
   if (token) headers.Authorization = `Bearer ${token}`;
@@ -104,7 +151,7 @@ async function request<T>(method: string, path: string, body?: unknown, query?: 
   }
   let res: Response;
   try {
-    res = await fetch(`/api${url}`, { method, headers, body: payload });
+    res = await fetch(`/api${url}`, { method, headers, body: payload, keepalive });
   } catch (e) {
     reportError({ kind: 'network', message: String(e), api_path: `${method} ${path}` });
     throw new ApiError(0, 'Нет связи с сервером. Проверьте интернет и повторите', 'network');
@@ -139,6 +186,7 @@ async function request<T>(method: string, path: string, body?: unknown, query?: 
     if (res.status >= 500) reportError({ kind: 'api', message: msg, api_path: `${method} ${path}`, api_status: res.status, api_rid: rid });
     throw new ApiError(res.status, msg, code, rid);
   }
+  if (mediaReady) await mediaReady;
   return data as T;
 }
 
@@ -171,14 +219,16 @@ export function thumbUrl(path?: string | null): string {
   return /^\/api\/(media|listing-photos)\//.test(u) ? `${u}${u.includes('?') ? '&' : '?'}p=1` : u;
 }
 
+/** A file's URL for <img> / <video> / <a>: /api/media/… gets the media token (see above); other /api/ files (listing
+ * photos, /public/ PDFs) need no login and get none. */
 export function mediaUrl(path?: string | null): string {
   if (!path) return '';
   if (path.startsWith('/api/')) {
-    const tk = getToken();
-    return tk && !path.includes('token=') ? `${path}${path.includes('?') ? '&' : '?'}token=${encodeURIComponent(tk)}` : path;
+    const tk = path.startsWith('/api/media/') && !path.includes('token=') ? mediaToken() : '';
+    return tk ? `${path}${path.includes('?') ? '&' : '?'}token=${encodeURIComponent(tk)}` : path;
   }
   if (/^(https?:|data:|blob:|\/)/.test(path)) return path;
-  const t = getToken();
+  const t = mediaToken();
   return `/api/media/${path}${t ? `?token=${encodeURIComponent(t)}` : ''}`;
 }
 

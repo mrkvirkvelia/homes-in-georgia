@@ -27,22 +27,39 @@ def decode_token(token: str) -> dict:
 
 # The only CRM API a Daily Rent manager may call (Irakli 11-13): everything else is refused for that role here, in the
 # one dependency every endpoint goes through — so a new endpoint is closed to it by default.
-DAILY_RENT_PATHS = ("/api/auth/me",)
+DAILY_RENT_PATHS = ("/api/auth/me", "/api/auth/media-token")  # + the token its photos load with
 DAILY_RENT_PREFIX = ("/api/daily-rent/", "/api/media/daily/")  # its section and the apartments' photos
 # «Оператор авто» (Stanislav 11-16): the same, for the cars (api/offers.py) and their photos
 CARS_PREFIX = ("/api/offers/car", "/api/media/offers/")
 
 
+# <img> / <video> / <a href> can't send the Authorization header, so file URLs carry ?token=. Not the session JWT (a
+# copied photo link would open the whole CRM for 72 h): a short-lived purpose="media" token (GET /api/auth/media-token),
+# taken ONLY from the query and ONLY for GET of the file endpoints below — the one the frontend's mediaUrl() builds
+# (content.media_file; listing photos and the /public/ PDFs need no login, contract PDFs go by fetch + header).
+MEDIA_TOKEN_TTL_HOURS = 8
+MEDIA_TOKEN_PREFIX = ("/api/media/",)
+
+
+def create_media_token(user: User) -> str:
+    return create_token(user, MEDIA_TOKEN_TTL_HOURS, purpose="media")
+
+
 def current_user(request: Request, db: Session = Depends(get_db, scope="function"), authorization: str | None = Header(None),
                  token: str | None = Query(None, include_in_schema=False)) -> User:
-    raw = None
+    raw, from_query = None, False
     if authorization and authorization.lower().startswith("bearer "):
         raw = authorization[7:].strip()
-    raw = raw or token
+    if not raw and token:
+        raw, from_query = token, True
     if not raw:
         raise DomainError("unauthorized", "missing bearer token", 401)
     payload = decode_token(raw)
-    if payload.get("purpose"):
+    if from_query:  # a media token for a file, nothing else (the session token in a URL is refused too)
+        path = request.url.path
+        if payload.get("purpose") != "media" or request.method != "GET" or not path.startswith(MEDIA_TOKEN_PREFIX) or ".." in path:
+            raise DomainError("unauthorized", "wrong token type", 401)
+    elif payload.get("purpose"):
         raise DomainError("unauthorized", "wrong token type", 401)
     user = db.get(User, int(payload["sub"]))
     if not user or not user.is_active:

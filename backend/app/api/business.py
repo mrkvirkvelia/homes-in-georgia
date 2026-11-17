@@ -75,12 +75,11 @@ class EvaluationIn(BaseModel):
 @router.post("/deals/calc")
 def deals_calc(body: DealIn, db: Session = Depends(get_db, scope="function"), user: User = Depends(require_level("agent"))):
     data = body.model_dump()
-    if not at_least(user, "operator"):  # the same fixed commission deals.create applies to an agent's deal
-        data["commission_total"] = None
-        data["split"] = None
-        data["commission_pct"] = deals.default_commission_pct(data.get("deal_type"), data.get("sub_type"))
+    staff = at_least(user, "operator")
+    if not staff:  # the same payout inputs deals.create takes from an agent (his own deal only, so his own level)
+        deals.agent_inputs(data)
     if not data.get("agent_level"):
-        agent = db.get(User, data["agent_id"]) if data.get("agent_id") else user
+        agent = db.get(User, data["agent_id"]) if data.get("agent_id") and staff else user
         data["agent_level"] = users.effective_level(agent)
     return deals.calc(**data)
 

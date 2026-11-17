@@ -29,7 +29,7 @@ tapped_card = contextvars.ContextVar("tapped_card", default=None)
 
 
 def safe(fn):
-    """Never raises; without BOT_TOKEN it is a logged no-op (no DB reads either: API tests, dev without a bot)."""
+    """Never raises (but a worker job's transient tg.DeliveryError); without BOT_TOKEN it is a logged no-op (no DB reads either: API tests, dev without a bot)."""
     @functools.wraps(fn)
     def wrap(*a, **kw):
         if not tg.base():
@@ -37,6 +37,8 @@ def safe(fn):
             return None
         try:
             return fn(*a, **kw)
+        except tg.DeliveryError:  # only inside a worker job (tg.delivery): the job retries, an API request never sees it
+            raise
         except Exception:
             log.exception("notify.%s failed", fn.__name__)
             return None

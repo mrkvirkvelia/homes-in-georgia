@@ -162,9 +162,10 @@ def client(channel, external_id, chat_id=None, username=None, name=None, lang_hi
 
 def update(cl, fn):
     """Atomically change the stored client state: fn(state, client) runs on a fresh copy from the DB
-    (a search running in a thread must not overwrite a message that arrived meanwhile)."""
+    (a search running in a thread must not overwrite a message that arrived meanwhile). The row lock holds a concurrent
+    update (the bot runs updates concurrently) until this one commits: no lost writes."""
     with db.tx() as c:
-        r = db.row(c.execute("SELECT * FROM clients WHERE id = ?", (cl["id"],)).fetchone())
+        r = db.row(c.execute("SELECT * FROM clients WHERE id = ? FOR UPDATE", (cl["id"],)).fetchone())
         fn(r["state"], r)
         c.execute("UPDATE clients SET state = ?, lang = ?, updated_at = ? WHERE id = ?",
                   (json.dumps(r["state"], ensure_ascii=False), r["lang"], db.now(), cl["id"]))
@@ -177,6 +178,7 @@ def reset(cl, lang_hint=None):
     def fn(st, r):
         # card texts (A3 edits), T14 answers, the language picked by the client and the DM slot choice outlive a /start
         keep = {k: st[k] for k in ("cards", "t14", "lang_set", "dm_choice") if k in st}
+        keep["gen"] = st.get("gen", 0) + 1  # a search still running for the old request must not write into the new one
         st.clear(), st.update(json.loads(json.dumps(NEW_STATE)), **keep)
         if lang_hint and not st.get("lang_set"):
             r["lang"] = detect_lang(None, hint=lang_hint)
@@ -202,7 +204,22 @@ def add_input(cl, text=None, image=None, pin=None, pin_label=None, radius=None):
         if pin:
             st["pin"], st["pin_label"], st["pin_radius"] = list(pin), pin_label, radius or 2.0
         st["shown"] = []  # new request -> earlier results that still fit may be shown again
+        st["gen"] = st.get("gen", 0) + 1  # ...and a search running for the old one writes nothing (_finish)
     update(cl, fn)
+
+
+def begin_search(cl):
+    """A new search for the client: bumps state["gen"] and remembers it in cl["search_gen"]. A search whose generation
+    moved on (a newer search, a new message, /start) finishes in its thread but keeps out of the state (_finish)."""
+    update(cl, lambda st, r: st.update(gen=st.get("gen", 0) + 1))
+    cl["search_gen"] = cl["state"]["gen"]
+    return cl["search_gen"]
+
+
+def mark_shown(cl, ids):
+    """Listings the client got: the next «Ещё» of the same request skips them (the bot marks each card once it is sent:
+    journey.remember_card)."""
+    update(cl, lambda st, r: st["shown"].extend(x for x in dict.fromkeys(ids) if x not in st["shown"]))
 
 
 # ---------- listings ----------
@@ -374,11 +391,14 @@ def line(i, dist=None):
 
 def search(cl):
     """Up to 5 new published listings for the client's current request.
-    -> {"understood", "total", "base", "planned", "items": [{"listing", "reason", "near"}], "search_id"}; marks them shown.
+    -> {"understood", "total", "base", "planned", "items": [{"listing", "reason", "near"}], "search_id"}; marks them shown
+    (the caller gets them all at once; the bot sends search_steps batches and marks each card as it is sent).
     Setting search_mode: llm (whole catalog to Codex, default) | hybrid (see search_hybrid). All batches of search_steps."""
     out = None
     for b in search_steps(cl):
         out = b if out is None else {**out, "items": out["items"] + b["items"]}
+    if out and out["items"]:
+        mark_shown(cl, [x["listing"]["id"] for x in out["items"]])
     return out
 
 
@@ -448,14 +468,16 @@ def search_llm(cl):
 
 
 def _finish(cl, items, understood, total, base, sid=None, planned=None, **state):
-    """Common end of a search batch: English texts, mark shown, keep the caches (state), count the search
-    (sid: a later batch of the same search adds to its count)."""
+    """Common end of a search batch: English texts, keep the caches (state), count the search (sid: a later batch of
+    the same search adds to its count). Nothing is marked shown here: a card counts as shown once it reached the client
+    (search / journey.remember_card). A superseded search (begin_search: the generation moved on) leaves the state alone."""
     if cl["lang"] != "ru" and items:  # en and ka clients see the English card texts
         try:
             translate([x["listing"] for x in items])
         except Exception as e:  # noqa: BLE001  the model down: Russian descriptions beat no cards
             print("translate failed, cards in Russian:", str(e)[-200:])
-    update(cl, lambda s, r: (s["shown"].extend(x["listing"]["id"] for x in items), s.update(state)))
+    gen = cl.get("search_gen")
+    update(cl, lambda s, r: (gen is None or s.get("gen", 0) == gen) and s.update(state))
     with db.tx() as c:
         if sid:
             c.execute("UPDATE searches SET results = results + ? WHERE id = ?", (len(items), sid))
@@ -548,7 +570,8 @@ def hard_filter(pool, q, dist=None, radius=None, drop=()):
             continue
         if "districts" not in drop and q.get("districts") and not _district_ok(i, q["districts"]):
             continue
-        if q.get("pets") and i.get("pets") == "нет":
+        # catalog rows carry the ban in both (backend catalog.fields); details.pets for rows synced before the column
+        if q.get("pets") and (i.get("pets") == "нет" or (i.get("details") or {}).get("pets") == "not_allowed"):
             continue
         if dist is not None and (i["id"] not in dist or ("radius" not in drop and dist[i["id"]] > radius * 1.5)):
             continue

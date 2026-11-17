@@ -111,11 +111,30 @@ def client_listing_eligible(db: Session, listing_id: str) -> bool:
                                               or_(ours, fast_live))) is not None
 
 
+def object_listing_id(db: Session, pid: int) -> str | None:
+    """The one listing id a client acts on for an object (a channel post's button, a ❤️ in the search): its catalog row
+    obj<id>, the ad it was taken from only while the row is missing or not on offer (a manual object has no ad).
+    None: nothing the client may act on."""
+    p = db.get(Property, pid)
+    if p is None:
+        return None
+    for lid in (catalog.catalog_id(pid), p.listing_id):
+        if lid and client_listing_eligible(db, lid):
+            return lid
+    return None
+
+
 def create_from_like(db: Session, client_id: int, listing_id: str, request: str | None = None) -> Lead:
-    """A3: ❤️ on a card. Idempotent per (client, listing)."""
+    """A3: ❤️ on a card. Idempotent per (client, listing) and per (client, object): the object's other id (its catalog
+    row vs the ad it was taken from; older leads exist under either) reuses that lead."""
     if not client_listing_eligible(db, listing_id):
         raise DomainError("listing_unavailable", "Объект ещё не опубликован агентством или уже недоступен")
     existing = db.scalar(select(Lead).where(Lead.client_id == client_id, Lead.listing_id == listing_id))
+    if existing is None and (prop := catalog.property_for(db, listing_id)) is not None:
+        ids = [catalog.catalog_id(prop.id)] + ([prop.listing_id] if prop.listing_id else [])
+        existing = db.scalar(select(Lead).where(Lead.client_id == client_id,
+                                                or_(Lead.property_id == prop.id, Lead.listing_id.in_(ids)))
+                             .order_by(Lead.status == "refused", Lead.id.desc()).limit(1))  # a live one first
     if existing:
         if existing.status == "refused":
             return _reopen(db, existing.id, request)

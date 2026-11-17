@@ -600,7 +600,7 @@ def update(db: Session, pid: int, data: dict, actor: User, reason: str | None = 
     p = _prop(db, pid)
     _require_owner(p, actor)
     if oid := data.pop("owner_id", None):  # picked from the owners list: that contact, its phone may be hidden to agents
-        o = get_or_404(db, Owner, int(oid), "owner")
+        o = pick_owner(db, oid, actor)
         data["owner_name"], data["owner_phone"] = o.name, o.phone
     locked = {}
     if is_locked_for(p, actor):
@@ -2186,6 +2186,26 @@ def check_duplicate(db: Session, phone: str | None = None, address: str | None =
 
 def can_see_owner(p: Property, user: User) -> bool:
     return at_least(user, "operator") or p.agent_id == user.id
+
+
+def can_pick_owner(db: Session, o: Owner, user: User) -> bool:
+    """May this user take the owner from the owners list into a form (deal, object card)? The pick copies his phone,
+    which GET /owners hides from an agent, so the same rule: staff; the owner bound to the agent (stage 6.5) or on one
+    of his objects; or a free contact — bound to no other agent and on no other agent's object (old Owner_Base,
+    «unlinked»: the link appears with the pick)."""
+    if at_least(user, "operator") or o.agent_id == user.id:
+        return True
+    holders = set(db.scalars(select(Property.agent_id).where(Property.owner_id == o.id, Property.agent_id.isnot(None))))
+    if user.id in holders:
+        return True
+    return not holders and (o.agent_id is None or o.is_agent)
+
+
+def pick_owner(db: Session, oid, user: User) -> Owner:
+    o = get_or_404(db, Owner, int(oid), "owner")
+    if not can_pick_owner(db, o, user):
+        raise DomainError("owner_taken", "Этот собственник закреплён за другим агентом", 403)
+    return o
 
 
 def can_open(db: Session, p: Property, user: User) -> bool:

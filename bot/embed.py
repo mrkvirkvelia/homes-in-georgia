@@ -3,7 +3,7 @@
 Model: multilingual SigLIP (google/siglip-base-patch16-256-multilingual): photos and multilingual text (ru/en) in one vector space.
 Per listing: every photo, the mean of its photos, and its profile text (style, renovation, light, looks...).
 Vectors live next to the DB in vectors.npz (float32, L2-normalized), keyed by listing id; a fingerprint
-(model + photo paths + profile text) means only new or changed listings get embedded, and gone ones drop out.
+(model + photo refs + profile text; a CRM object's s3:<key> photos are fetched like the card album's) means only new or changed listings get embedded, and gone ones drop out.
 
 Usage: python embed.py           # incremental, after `db.py sync` (refresh.sh does it)
        python embed.py --full    # re-embed everything
@@ -121,6 +121,15 @@ def fingerprint(i):
     return hashlib.sha1(json.dumps([MODEL, i.get("photos") or [], profile_text(i)], ensure_ascii=False).encode()).hexdigest()[:16]
 
 
+def photo_file(ref):
+    """A catalog photo ref -> a local file the encoder reads, or None (skipped). A CRM object's 's3:<key>' is fetched
+    once from the storage like the card's album does (core.media_file); a plain path as is."""
+    if str(ref).startswith("s3:"):
+        from core import media_file  # lazy: core imports this module for the search
+        return media_file(ref)
+    return ref if os.path.exists(ref) else None
+
+
 def build(listings, old=None, enc_img=None, enc_txt=None):
     """listings -> store dict {ids, keys, img, txt, photo, owner}; rows of `old` with the same fingerprint are reused.
     enc_img / enc_txt are injectable for tests."""
@@ -137,7 +146,7 @@ def build(listings, old=None, enc_img=None, enc_txt=None):
         else:
             todo.append((i, key))
     if todo:
-        photos = [[p for p in (i.get("photos") or []) if os.path.exists(p)] for i, _ in todo]
+        photos = [[f for p in (i.get("photos") or []) if (f := photo_file(p))] for i, _ in todo]
         flat = enc_img([p for ps in photos for p in ps])
         txt = enc_txt([profile_text(i) for i, _ in todo])
         k = 0

@@ -261,19 +261,26 @@ def _link(db: Session, body: dict, user: User) -> dict:
     lead_id = body.get("lead_id") or None
     deal_id = body.get("deal_id") or None
     prop_id = body.get("property_id") or None
+    linked = None  # the object of the lead / deal
     if lead_id:
         lead = get_or_404(db, Lead, int(lead_id), "lead")
         if not at_least(user, "operator") and lead.agent_id != user.id:
             raise DomainError("not_found", "lead not found")
-        prop_id = prop_id or lead.property_id
+        linked = lead.property_id
         deal_id = deal_id or lead.deal_id
     if deal_id:
         deal = get_or_404(db, Deal, int(deal_id), "deal")
         if not at_least(user, "operator") and deal.agent_id != user.id:
             raise DomainError("not_found", "deal not found")
-        lead_id, prop_id = lead_id or deal.lead_id, prop_id or deal.property_id
-    if prop_id and not lead_id and not deal_id:  # «Оформить договор аренды» in the object card (Irakli 11-15)
-        _own_object(db, int(prop_id), user)
+        lead_id, linked = lead_id or deal.lead_id, linked or deal.property_id
+    # with a lead / deal the object is its own, never another one sent along: a contract opens its object's card to
+    # its creator (properties.can_open); an explicit object only where the lead / deal has none, and only one he may use
+    if linked:
+        prop_id = linked
+    elif prop_id:  # also «Оформить договор аренды» in the object card (Irakli 11-15)
+        from app.services import properties
+        _own_object(db, int(prop_id), user)  # another agent's: 403, as the deal form
+        properties.get_visible(db, int(prop_id), user)  # a card he can't open (a platform object): 404, as the card
     return {"lead_id": lead_id, "deal_id": deal_id, "property_id": prop_id}
 
 
@@ -360,13 +367,24 @@ def autosave(db: Session, body: dict, user: User) -> Contract:
             raise DomainError("bad_status", "Подписанный или закрытый договор не меняется", 409)
     else:
         link = _link(db, body, user)
-        c = _draft_for(db, link, user)
+        # the wizard's editing session key (data._key): a retried / overlapping first autosave that went out before the
+        # first one returned its id gets that same draft back instead of a second one. The user's row lock serializes
+        # his keyless-id creates, so two such requests can't both miss the draft (no column: the key lives in data).
+        key = data.get("_key") if isinstance(data.get("_key"), str) and 8 <= len(data["_key"]) <= 64 else None
+        c = None
+        if key:
+            db.scalar(select(User.id).where(User.id == user.id).with_for_update())
+            c = db.scalar(select(Contract).where(Contract.created_by == user.id, Contract.status == "draft",
+                                                 Contract.created_at >= now() - timedelta(days=2),
+                                                 Contract.data["_key"].astext == key)
+                          .order_by(Contract.id.desc()).limit(1).with_for_update())
+        c = c or _draft_for(db, link, user)
         if c is None:
             c = Contract(**link, created_by=user.id, status="draft")
             db.add(c)
             db.flush()
             log_event(db, "contract", c.id, "draft_started", user, lead_id=c.lead_id)
-    core = lambda x: {k: v for k, v in (x or {}).items() if k not in DATA_META}  # noqa: E731
+    core = lambda x: {k: v for k, v in (x or {}).items() if k not in DATA_META and k != "_key"}  # noqa: E731
     if (kind or c.kind, lang or c.lang, core(data)) == (c.kind, c.lang, core(c.data)):
         c.data = data  # only the wizard's step / flags: the PDF stays current
         db.commit()

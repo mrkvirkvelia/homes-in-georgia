@@ -7,7 +7,7 @@ import re
 import subprocess
 import sys
 from pathlib import Path
-from urllib.parse import quote
+from urllib.parse import parse_qs, quote, unquote, urlsplit
 
 import psycopg
 
@@ -43,6 +43,34 @@ def url(driver=False):
     return u
 
 
+def _db_key(u):
+    """(host, port, database) of a Postgres URL, driver and credentials aside (a socket dir in ?host= counts as host)."""
+    p = urlsplit(re.sub(r"^postgres(?:ql)?(\+\w+)?://", "postgresql://", u.strip()))
+    return (p.hostname or parse_qs(p.query).get("host", [""])[0], p.port or 5432, unquote(p.path.lstrip("/")))
+
+
+def check_test_db(test_url, main_url, schema):
+    """ensure() drops and rebuilds SCHEMA, reset() truncates it: only a test schema of a test database, never the
+    app's own DATABASE_URL (a .env copied from prod, BOT_TEST_SCHEMA=public by mistake)."""
+    name = _db_key(test_url)[2]
+    if "test" not in name.lower():
+        raise RuntimeError(f"TEST_DATABASE_URL points at database {name!r}: the bot tests drop a schema in it, so its name "
+                           "must contain 'test' (e.g. homes_test)")
+    if "test" not in schema.lower():
+        raise RuntimeError(f"BOT_TEST_SCHEMA={schema!r}: the bot tests drop it, so its name must contain 'test' (default bot_test)")
+    if main_url and _db_key(main_url) == _db_key(test_url):
+        raise RuntimeError("TEST_DATABASE_URL is the same database as DATABASE_URL: the bot tests would write into it")
+
+
+def _main_url():
+    """The app's DATABASE_URL (environment, else the repo .env), read before _setup_env points it at the test schema."""
+    u = os.environ.get("DATABASE_URL")
+    if not u and (ROOT / ".env").exists():
+        m = re.search(r"^DATABASE_URL=(.+)$", (ROOT / ".env").read_text(), re.M)
+        u = m and m[1].strip()
+    return u or None
+
+
 def fingerprint():
     if (ALEMBIC / "versions").is_dir():
         files = sorted(p for p in (ALEMBIC / "versions").glob("*.py"))
@@ -53,6 +81,7 @@ def fingerprint():
 def ensure():
     if _ready:
         return
+    check_test_db(base_url(), MAIN_URL, SCHEMA)
     fp = fingerprint()
     with psycopg.connect(db.dsn(base_url()), autocommit=True) as c:
         cur = c.execute("SELECT obj_description(oid, 'pg_namespace') FROM pg_namespace WHERE nspname = %s", (SCHEMA,)).fetchone()
@@ -87,4 +116,5 @@ def reset():
     db.init()
 
 
+MAIN_URL = _main_url()
 _setup_env()

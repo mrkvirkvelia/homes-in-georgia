@@ -122,9 +122,15 @@ def calc(price=None, commission_pct=None, commission_total=None, platform_amount
     level = int(agent_level or 50)
     share = level if is_exclusive else 50
     comm = Decimal(0) if is_rerented else _d(commission_total) or _round(price_d * pct / 100)
+    if any(v is not None and v < 0 for v in (price_d, pct, comm, _d(platform_amount), _d(recruit_pct), _d(recruit_amount))):
+        raise DomainError("bad_amount", "Суммы и проценты не могут быть отрицательными", 422)
+    if (_d(recruit_pct) or 0) > 100:
+        raise DomainError("bad_amount", "Доля рекрута не может превышать 100%", 422)
     rows = None
     if not is_rerented and split:
         rows = [{"who": r.get("who") or "other", "role": str(r.get("role") or "")[:80], "pct": float(r.get("pct") or 0)} for r in split]
+        if any(r["pct"] < 0 for r in rows):
+            raise DomainError("bad_split", "Доля в распределении не может быть отрицательной", 422)
         if abs(sum(r["pct"] for r in rows) - 100) > 0.01:
             raise DomainError("bad_split", "Распределение должно давать 100%", 422)
     elif not is_rerented and scenario:
@@ -136,8 +142,10 @@ def calc(price=None, commission_pct=None, commission_total=None, platform_amount
     if rows is not None:
         amounts = [_round(comm * Decimal(str(r["pct"])) / 100) for r in rows]
         pi = next((i for i, r in enumerate(rows) if r["who"] == "platform"), None)
-        if pi is not None:  # the platform takes the rounding remainder: the rows always add up to the commission
-            amounts[pi] = comm - sum(a for i, a in enumerate(amounts) if i != pi)
+        if pi is None:  # no platform row (a staff split): the largest row takes it, the last of equal ones
+            pi = max(range(len(rows)), key=lambda i: (amounts[i], i))
+        # the platform takes the rounding remainder: the rows always add up to the commission
+        amounts[pi] = comm - sum(a for i, a in enumerate(amounts) if i != pi)
         sum_of = lambda who: sum((a for r, a in zip(rows, amounts) if r["who"] == who), Decimal(0))  # noqa: E731
         plat, agent, rec, src = sum_of("platform"), sum_of("agent"), sum_of("partner"), Decimal(0)
         rpct = Decimal(str(sum(r["pct"] for r in rows if r["who"] == "partner")))
@@ -155,6 +163,8 @@ def calc(price=None, commission_pct=None, commission_total=None, platform_amount
         rec = comm * rpct / 100
     src = _round(comm * Decimal("0.1")) if client_src else Decimal(0)
     agent = comm - plat - rec - src
+    if plat < 0 or agent < 0:  # e.g. a level over 100 or the shares above the commission: nobody's payout goes negative
+        raise DomainError("bad_amount", "Платформа, рекрут и источник клиента в сумме превышают комиссию", 422)
     p = lambda a: round(float(a / comm * 100), 2) if comm else 0  # noqa: E731
     dist = [{"who": "platform", "role": "Платформа", "pct": p(plat), "amount": _r(plat)},
             {"who": "agent", "role": "Агент", "pct": p(agent), "amount": _r(agent)}]
@@ -174,6 +184,18 @@ def default_commission_pct(deal_type: str | None, sub_type: str | None) -> int:
     return 3 if deal_type == "sale" else 100 if sub_type == "commercial" else 50
 
 
+def agent_inputs(data: dict) -> dict:
+    """Payout inputs an agent must not set for himself (deal form and /deals/calc): the fixed commission, his own level,
+    the platform's share by it, no manual split; the recruit's share (it comes out of the agent's part) only as a
+    percent and only with a recruit — never an amount (a negative one would raise his own payout)."""
+    for k in ("split", "agent_level", "platform_amount", "commission_total", "recruit_amount"):
+        data.pop(k, None)
+    if not (data.get("recruit_id") or data.get("recruit")):
+        data.pop("recruit_pct", None)
+    data["commission_pct"] = default_commission_pct(data.get("deal_type"), data.get("sub_type"))
+    return data
+
+
 def _month(d: date | None) -> str:
     d = d or now().astimezone(TZ).date()
     return f"{d.month}/{d.year}"
@@ -184,8 +206,9 @@ def create(db: Session, data: dict, actor: User | None, commit: bool = True, not
     if actor is not None and not at_least(actor, "agent"):
         raise forbidden("recruits do not create deals")
     data = dict(data or {})
+    from app.services import properties
     if oid := data.pop("owner_id", None):  # picked from the owners list (autocomplete): the base's contact, not a retype
-        o = get_or_404(db, Owner, int(oid), "owner")
+        o = get_or_404(db, Owner, int(oid), "owner") if actor is None else properties.pick_owner(db, oid, actor)
         data["owner_name"], data["owner_phone"] = o.name or data.get("owner_name"), o.phone or data.get("owner_phone")
     agent = None
     if data.get("agent_id"):
@@ -217,7 +240,6 @@ def create(db: Session, data: dict, actor: User | None, commit: bool = True, not
             data.setdefault("client_name", client.name)
             data.setdefault("client_phone", client.phone)
             data.setdefault("client_tg", f"@{client.username}" if client.username else None)
-    from app.services import properties
     if actor is not None and (cad := (data.get("cadastral") or "").strip()):  # the form's code; the object's own one stays
         known = db.get(Property, int(data["property_id"])) if data.get("property_id") else None
         if cad != ((known.cadastral_code if known else None) or "").strip():
@@ -238,12 +260,8 @@ def create(db: Session, data: dict, actor: User | None, commit: bool = True, not
             if not p.cadastral_code and (data.get("cadastral") or "").strip():
                 p.cadastral_code = data["cadastral"].strip()
             data.update(properties.deal_fields(db, p, actor, data.get("deal_type") or "rent"))
-    if actor is not None and not at_least(actor, "operator"):  # payout inputs an agent must not set for themselves
-        data.pop("split", None)
-        data.pop("agent_level", None)
-        data.pop("platform_amount", None)
-        data.pop("commission_total", None)
-        data["commission_pct"] = default_commission_pct(data.get("deal_type"), data.get("sub_type"))
+    if actor is not None and not at_least(actor, "operator"):
+        agent_inputs(data)
     level = int(data.get("agent_level") or users.effective_level(agent))
     sc = data.get("scenario") or None
     if sc:

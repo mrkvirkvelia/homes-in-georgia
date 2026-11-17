@@ -261,19 +261,26 @@ def _link(db: Session, body: dict, user: User) -> dict:
     lead_id = body.get("lead_id") or None
     deal_id = body.get("deal_id") or None
     prop_id = body.get("property_id") or None
+    linked = None  # the object of the lead / deal
     if lead_id:
         lead = get_or_404(db, Lead, int(lead_id), "lead")
         if not at_least(user, "operator") and lead.agent_id != user.id:
             raise DomainError("not_found", "lead not found")
-        prop_id = prop_id or lead.property_id
+        linked = lead.property_id
         deal_id = deal_id or lead.deal_id
     if deal_id:
         deal = get_or_404(db, Deal, int(deal_id), "deal")
         if not at_least(user, "operator") and deal.agent_id != user.id:
             raise DomainError("not_found", "deal not found")
-        lead_id, prop_id = lead_id or deal.lead_id, prop_id or deal.property_id
-    if prop_id and not lead_id and not deal_id:  # «Оформить договор аренды» in the object card (Irakli 11-15)
-        _own_object(db, int(prop_id), user)
+        lead_id, linked = lead_id or deal.lead_id, linked or deal.property_id
+    # with a lead / deal the object is its own, never another one sent along: a contract opens its object's card to
+    # its creator (properties.can_open); an explicit object only where the lead / deal has none, and only one he may use
+    if linked:
+        prop_id = linked
+    elif prop_id:  # also «Оформить договор аренды» in the object card (Irakli 11-15)
+        from app.services import properties
+        _own_object(db, int(prop_id), user)  # another agent's: 403, as the deal form
+        properties.get_visible(db, int(prop_id), user)  # a card he can't open (a platform object): 404, as the card
     return {"lead_id": lead_id, "deal_id": deal_id, "property_id": prop_id}
 
 

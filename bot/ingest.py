@@ -451,10 +451,29 @@ PROFILE = obj(
 )
 FACTS = obj(id=S, pets={"type": "string", "enum": ["да", "нет", "по договорённости", "не указано"]}, **DETAILS)
 METROS = ", ".join(f"{ru}/{en}" for ru, en in facts.METRO)
+CLIENT_ONLY = ("это текст для клиента, только о самой квартире. Если поля (bedrooms, area, floor) и текст объявления "
+               "расходятся, бери поля или опусти эту деталь. НИКОГДА не пиши о расхождениях, нехватке данных, о «карточке» "
+               "или «тексте объявления/описания» и не советуй что-то уточнить или проверить")
+# sentences of staff notes the model still slips into client copy («В карточке указаны две спальни, хотя текст
+# описания упоминает одну; количество стоит уточнить.») -> dropped by client_copy()
+STAFF_NOTE = re.compile(r"в карточке|в (?:тексте|описании|объявлении)[^.!?]{0,40}(?:указ|упомина|говорит|написан)|"
+                        r"текст[а-я]* (?:описания|объявления)|(?:стоит|нужно|следует|надо|рекомендуем|лучше) уточн|уточните|"
+                        r"расход[яи]тся|расхожден|противореч|не указан|in the (?:card|listing text)|(?:worth|need to|should) (?:be )?(?:check|clarif|confirm)",
+                        re.I)
+
+
+def client_copy(text):
+    """Client-facing AI text without sentences about data conflicts, missing data or what to check."""
+    if not text:
+        return text
+    parts = re.split(r"(?<=[.!?…])\s+", text.strip())
+    return " ".join(x for x in parts if not STAFF_NOTE.search(x)).strip() or None
+
+
 DETAILS_RULES = f"""Факты для карточки в стиле поста агентства (null / [] если в тексте этого нет — НЕ выдумывай):
 - metro_ru / metro_en: станция метро, если она названа в тексте или адрес явно в 10 минутах пешком от неё; только из списка: {METROS};
 - address_ru / address_en: улица и номер дома без района и города (ru «ул. Ивана Мачабели, 9», en «9 Ivane Machabeli St»); null, если улицы нет;
-- headline_ru / headline_en: короткое описание в 1-2 фразы (до 160 знаков), как строка ⭐️ в посте агентства: чем хороша квартира и где она. Если в тексте есть строка между ⭐️, переведи её. Без телефонов, ссылок, имён, названий сайтов и агентств, без цены;
+- headline_ru / headline_en: короткое описание в 1-2 фразы (до 160 знаков), как строка ⭐️ в посте агентства: чем хороша квартира и где она; {CLIENT_ONLY}. Если в тексте есть строка между ⭐️, переведи её. Без телефонов, ссылок, имён, названий сайтов и агентств, без цены;
 - district_en: район по-английски (Vake, Saburtalo, Old Tbilisi...);
 - property: apartment / house / commercial; building: new — новостройка, old — старый (советский) фонд, historical — исторический дом в старом городе, construction — строящийся; condition: new — новый ремонт, good — хороший, mixed — смешанный стиль, old — старый ремонт, white_frame — белый каркас, needs_repair — нужен ремонт, retro — ретро;
 - floors: этажей в доме; heating: central / gas / electric / none; bath: shower / bath / both; bathrooms: число санузлов;
@@ -470,7 +489,7 @@ INDEX_PROMPT = """Ты индексируешь объявления об аре
 - features: короткие теги по-русски (балкон, вид на город, посудомойка, кондиционер, парковка, бассейн, камин, высокие потолки, терраса, лифт, центральное отопление...);
 - impression: общее впечатление от квартиры по фото 1..5;
 - looks: одна фраза по-русски, как квартира выглядит;
-- description_ru: 2-4 предложения по-русски для клиента: суть объявления. БЕЗ телефонов, ссылок, имён, названий сайтов и агентств, без условий комиссии;
+- description_ru: 2-4 предложения по-русски для клиента: суть объявления; """ + CLIENT_ONLY + """. БЕЗ телефонов, ссылок, имён, названий сайтов и агентств, без условий комиссии;
 - agent_suspect: true если по тексту похоже на агента/посредника, а не собственника (комиссия, «наше агентство», несколько объектов, «сотрудничаю с агентами 50/50» НЕ делает автора агентом). Для source=agency всегда false;
 - agent_reason: кратко почему (или пустая строка).
 
@@ -551,6 +570,7 @@ PETS_CODE = {"да": "allowed", "нет": "not_allowed", "по договорё�
 def apply_profile(it, p):
     """Cached profile + parsed source facts -> listing fields and listing["details"] (facts.merge: parsed wins)."""
     parsed = it.pop("parsed", None) or {}
+    p = {**p, **{k: client_copy(p.get(k)) for k in ("description_ru", "headline_ru", "headline_en") if p.get(k)}}
     llm = {k: p.get(k) for k in DETAILS}
     llm["pets"] = PETS_CODE.get(p.get("pets"))
     it.update({k: v for k, v in p.items() if k not in DETAILS and k != "v" and (v is not None or k != "bedrooms")})

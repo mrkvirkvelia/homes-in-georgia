@@ -388,6 +388,18 @@ class IndexCache(unittest.TestCase):
         self.assertEqual((d["yes"], d["no"]), (["tv", "balcony"], ["elevator"]))  # the post's "✖️ Elevator" beats the model
         self.assertNotIn("building", d)
 
+    def test_client_copy_has_no_staff_notes(self):
+        for prompt in (ingest.INDEX_PROMPT, ingest.FACTS_PROMPT):
+            self.assertIn(ingest.CLIENT_ONLY, prompt)
+        leak = ("Меблированная квартира площадью 65 м² на 9-м этаже в Крцаниси. В карточке указаны две спальни, хотя текст "
+                "описания упоминает одну; количество стоит уточнить. Есть оборудованная кухня. Коммунальные расходы отдельно.")
+        it = {"id": "x", "source": "ss.ge", "price_usd": 900, "area": 65, "floor": 9, "bedrooms": 2}
+        ingest.apply_profile(it, {"id": "x", "description_ru": leak, "headline_ru": "Светлая квартира. Площадь стоит уточнить."})
+        self.assertEqual(it["description_ru"], "Меблированная квартира площадью 65 м² на 9-м этаже в Крцаниси. "
+                                               "Есть оборудованная кухня. Коммунальные расходы отдельно.")
+        self.assertEqual(it["details"]["headline_ru"], "Светлая квартира.")
+        self.assertIsNone(ingest.client_copy("Количество спален не указано."))
+
 
 class Column(unittest.TestCase):
     def test_details_json_synced(self):

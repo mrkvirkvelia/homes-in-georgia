@@ -830,9 +830,11 @@ def check_archive(db: Session, p: Property, reason: str | None, comment: str | N
         dup = int(duplicate_of) if str(duplicate_of or "").strip().lstrip("#").isdigit() else None
         if dup is None or dup == p.id or db.get(Property, dup) is None:
             raise DomainError("bad_duplicate", "Укажите номер объекта, дублем которого является этот")
-        if p.is_exclusive or db.scalar(select(PropertyMedia.id).where(PropertyMedia.property_id == p.id,
-                                                                       PropertyMedia.kind == CONTRACT)):
-            raise DomainError("dup_has_contract", "У объекта эксклюзивный договор — дубль не удаляется, сначала перенесите договор")
+        # the duplicate's exclusive contract and owner docs move to the original (_merge_duplicate); refused only when
+        # both have a contract, so neither signed one is lost
+        if contract(db, p.id) and contract(db, dup):
+            raise DomainError("dup_has_contract", f"У объекта №{dup} тоже есть эксклюзивный договор — дубль не удаляется, "
+                                                  "чтобы не потерять ни один из договоров")
     return {"reason": reason, "comment": comment, "duplicate_of": dup}
 
 
@@ -858,6 +860,20 @@ def _merge_duplicate(db: Session, p: Property, orig: int, actor: User | None) ->
     channel posts and outside ads move to the object that stays; the worker (job dup_purge) then deletes its Telegram
     posts, files and the row itself."""
     moved = {}
+    o = db.get(Property, orig)
+    kinds = (CONTRACT, *OWNER_DOCS)
+    have = set(db.scalars(select(PropertyMedia.kind).where(PropertyMedia.property_id == orig, PropertyMedia.kind.in_(kinds))))
+    docs = [m for m in db.scalars(select(PropertyMedia).where(PropertyMedia.property_id == p.id,
+                                                               PropertyMedia.kind.in_(kinds))) if m.kind not in have]
+    for m in docs:  # the files stay where they are; the rows no longer belong to the duplicate, so dup_purge keeps them
+        m.property_id = orig
+    if docs:
+        moved["owner_docs"] = [m.kind for m in docs]
+    if p.is_exclusive and not o.is_exclusive:
+        o.is_exclusive = True
+        moved["is_exclusive"] = True
+    if p.sign_draft and not o.sign_draft and CONTRACT not in have:
+        o.sign_draft = p.sign_draft
     for model in (Lead, Deal, Contract, ClientView, ChannelPost, PropertyListing):
         n = db.execute(update_(model).where(model.property_id == p.id).values(property_id=orig)).rowcount
         if n:

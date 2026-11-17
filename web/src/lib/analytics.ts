@@ -164,7 +164,7 @@ export function trackSearch(service: string, params: string, count: number) {
 }
 
 // Noise from in-app browsers (FB/IG), extensions and cross-origin scripts, not our code.
-const NOISE = /Java object is gone|enableDidUserTypeOnKeyboardLogging|Error invoking postMessage|^Script error\.?(\s|$)|(chrome|moz|safari)-extension:|fbq?events|fburl/i;
+const NOISE = /Java object is gone|enableDidUserTypeOnKeyboardLogging|Error invoking postMessage|^Script error\.?(\s|$)|(chrome|moz|safari)-extension:|fbq?events|fburl|webkit\.messageHandlers|window\.ethereum/i;
 
 function onError(message: unknown, where: unknown) {
   if (NOISE.test(`${message} ${where}`)) return;

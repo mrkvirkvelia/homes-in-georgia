@@ -20,7 +20,7 @@ from app.models import SiteEvent
 
 PERIODS = (1, 7, 30, 90)
 # In-app browser / extension noise, not our code (also filtered on the site)
-_ERR_NOISE = re.compile(r"Java object is gone|enableDidUserTypeOnKeyboardLogging|Error invoking postMessage|^Script error\.?(\s|$)|(chrome|moz|safari)-extension:|fbq?events|fburl", re.I)
+_ERR_NOISE = re.compile(r"Java object is gone|enableDidUserTypeOnKeyboardLogging|Error invoking postMessage|^Script error\.?(\s|$)|(chrome|moz|safari)-extension:|fbq?events|fburl|webkit\.messageHandlers|window\.ethereum", re.I)
 TYPES = {"pageview", "listing", "contact", "share", "fav", "search", "error", "perf", "social"}
 MAX_BATCH = 50
 CACHE_SEC = 120

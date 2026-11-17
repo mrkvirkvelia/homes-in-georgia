@@ -36,10 +36,36 @@ def test_duplicate_is_deleted_and_its_lead_and_deal_move(db, client, monkeypatch
     assert ev["duplicate_merged"].entity_id == str(orig) and ev["duplicate_merged"].data["moved"]["leads"] == 1
 
 
-def test_exclusive_duplicate_is_refused(db, client):
+def _media(db, pid, kind, path):
+    db.add(PropertyMedia(property_id=pid, kind=kind, path=path, position=0))
+    db.commit()
+
+
+def test_exclusive_duplicate_hands_its_contract_to_the_original(db, client, monkeypatch):
+    _posts(monkeypatch)
+    gone = []
+    monkeypatch.setattr(storage, "delete", gone.append)
     georgiy, nino, pid, _ = _submitted(db, client)
     orig = client.post("/api/properties", json={"listing_id": make_listing(db, "ss7002").id}, headers=auth(georgiy)).json()["id"]
     db.get(Property, pid).is_exclusive = True
-    db.commit()
+    _media(db, pid, properties.CONTRACT, "properties/x/contract.pdf")
+    _media(db, pid, properties.OWNER_ID_DOC, "private/x/id.jpg")
+    r = client.post(f"/api/properties/{pid}/archive", json={"reason": "duplicate", "duplicate_of": orig}, headers=auth(nino)).json()
+    assert (r["status"], r["archive_reason"]) == ("archived", "duplicate")
+    worker.tick()
+    db.expire_all()
+    assert db.get(Property, pid) is None
+    o = db.get(Property, orig)
+    assert o.is_exclusive and properties.contract(db, orig).path == "properties/x/contract.pdf"
+    assert set(properties.owner_docs(db, orig)) == {properties.OWNER_ID_DOC}
+    assert "properties/x/contract.pdf" not in gone and "private/x/id.jpg" not in gone
+
+
+def test_duplicate_refused_when_both_have_a_contract(db, client):
+    georgiy, nino, pid, _ = _submitted(db, client)
+    orig = client.post("/api/properties", json={"listing_id": make_listing(db, "ss7003").id}, headers=auth(georgiy)).json()["id"]
+    db.get(Property, pid).is_exclusive = True
+    _media(db, pid, properties.CONTRACT, "properties/x/a.pdf")
+    _media(db, orig, properties.CONTRACT, "properties/y/b.pdf")
     r = client.post(f"/api/properties/{pid}/archive", json={"reason": "duplicate", "duplicate_of": orig}, headers=auth(nino)).json()
     assert r["code"] == "dup_has_contract" and db.get(Property, pid) is not None

@@ -22,13 +22,12 @@ until docker exec homes-ci-db pg_isready -q -U homes -d homes_test; do sleep 1; 
 nice -n 10 docker run --rm --network $net -v $src:/src -w /src -v homes-ci-pip:/root/.cache/pip \
   -e TEST_DATABASE_URL=postgresql+psycopg://homes:homes@homes-ci-db:5432/homes_test python:3.12-slim sh -c '
     pip install -q --root-user-action=ignore -r bot/requirements.txt &&
-    (cd backend && python -m pytest -q -p no:cacheprovider) || exit 1
-    # ponytail: bot tests are report-only until the 8 drifted ones are fixed; then fold them into the gate above
-    (cd bot && python -m unittest discover -s test) > /src/bot-tests.log 2>&1 || echo "WARNING: bot tests failed (report-only)"
+    (cd backend && python -m pytest -q -p no:cacheprovider) &&
+    (cd bot && python -m unittest discover -s test) > /src/bot-tests.log 2>&1
     ' > /opt/homes-ci/tests.log 2>&1
 ok=$?
 docker rm -f homes-ci-db >/dev/null 2>&1
-grep -E "passed|failed|WARNING" /opt/homes-ci/tests.log | tail -5
+grep -E "passed|failed" /opt/homes-ci/tests.log | tail -5
 grep -E "^(Ran|OK|FAILED)" $src/bot-tests.log 2>/dev/null; cp $src/bot-tests.log /opt/homes-ci/ 2>/dev/null
 if [ $ok -ne 0 ]; then
   echo "tests FAILED, not deploying (full output: /opt/homes-ci/tests.log)"; echo "$new" > /var/lib/homes-autodeploy.failed; exit 1

@@ -1,6 +1,6 @@
 """End-to-end client journey (docs/user-journey.txt, funnel 2) through the real bot application and the real backend
 services against the fake Bot API (test/e2e/fake_tg.py) and the test Postgres schema; LLM and geocoding are stubbed:
-/start → questionnaire (A1a-A2a) → search → ❤️ (A3: the operator DM link, the lead from that DM) → operators group take + assign (B1/B3) → agent quick
+/start → questionnaire (A1a-A2a) → search → ❤️ (A3: the operator DM link, the lead from that DM) → the lead card in the operator account's DM, the agent assigned in the panel (B1/B3) → agent quick
 slots (C6/C7) → the operator's userbot sends the bot's inline slot card into the client's DM (A4a) → the client presses a
 slot on that inline message (A4b, edited «✅ Вы выбрали») → contacts to the agent (C8), details as the operator's DM →
 late → survey (A5a/C9a) → deal confirmed (C9c) → T14 (A6). The userbot is the real app.telegram.userbot HTTP endpoint
@@ -285,8 +285,9 @@ class JourneyE2E(unittest.TestCase):
         self.assertTrue(like["callback_data"].startswith("like:"))
         m = self.fake.mark()
         f.press(CLIENT, card, "❤️ Нравится")
-        grp = self.with_text(GROUP["id"], "Заявка #1", m)              # B1
+        grp = self.with_text(OPERATOR["id"], "Заявка #1", m)           # B1: in the connected operator account's DM (4ca819f)
         self.assertIn("2 человека", grp["text"])
+        self.assertEqual([b["text"] for row in f.markup(grp) for b in row], ["💬 Написать клиенту", "👤 Назначить агента"])
         ack = self.find(cid, lambda c: c["method"] == "editMessageReplyMarkup" and c.get("message_id") == card["message_id"], m, "A3 mark")
         self.assertEqual(self.fake.markup(ack)[0][0]["text"], "❤️ Нравится ✅")   # the same card marks the like
         intro = self.find(cid, lambda c: "Вы отметили: " in (c.get("text") or ""), m, "operator intro")
@@ -295,23 +296,15 @@ class JourneyE2E(unittest.TestCase):
         with db.tx() as c:
             self.assertEqual(c.execute("SELECT status, sla_stage FROM leads WHERE id = 1").fetchone()[:], ("new", "operator_take"))
 
-        m = self.press(OPERATOR, GROUP["id"], "✋ Взять заявку", group=GROUP)
-        taken = self.with_text(GROUP["id"], "✋ <b>Взяла Нино</b>", m)
-        self.assertEqual(self.fake.markup(taken)[0][0]["text"], "👤 Назначить агента")
-        m = self.fake.mark()
-        f.press(OPERATOR2, grp, "✋ Взять заявку", group=GROUP)        # second operator: too late
-        alert = f.wait(lambda calls: next((c for c in calls if c["method"] == "answerCallbackQuery"), None), since=m)
-        self.assertEqual(alert["text"], "Уже взяла Нино")
-
-        m = self.press(OPERATOR, GROUP["id"], "👤 Назначить агента", group=GROUP)   # B3
-        m = self.press(OPERATOR, GROUP["id"], "⭐ Георгий", group=GROUP, since=m, prefix=True)
+        from app.services import leads
+        m = f.mark()                                                   # B3: «👤 Назначить агента» is the panel (a39760b)
+        self.svc(lambda s: leads.assign_agent(s, 1, self.user(s, AGENT["id"]).id, self.user(s, OPERATOR["id"])))
         c6 = self.with_text(AGENT["id"], "Заявка #1", m)                           # C6: no contacts
         self.assertIn("🔒 Контакты клиента бот пришлёт сам", c6["text"])
         self.assertNotIn("anna_e2e", c6["text"])
-        self.with_text(GROUP["id"], "Агент: <b>Георгий</b>", m)
+        self.assertIn("✋ <b>Взяла Нино</b>", self.with_text(OPERATOR["id"], "Агент: <b>Георгий</b>", m)["text"])   # the card edited
 
-        self.assertEqual([b.get("text") for row in f.markup(c6) for b in row], ["🕐 Предложить время"])   # C7: the Mini App only
-        from app.services import leads
+        self.assertEqual([b.get("text") for row in f.markup(c6) for b in row], ["🕐 Выбрать время", "🏠 Уже сдана"])   # C7: the Mini App
         from datetime import datetime, timezone
         m = f.mark()
         self.svc(lambda s: leads.add_slots(s, 1, [datetime.now(timezone.utc) + timedelta(days=1, hours=h) for h in (1, 3)],
@@ -386,9 +379,16 @@ class JourneyE2E(unittest.TestCase):
         self.assertEqual(f.markup(form)[0][0]["web_app"]["url"], "https://crm.e2e.test/deals/new?lead=1")
         with db.tx() as c:
             self.assertEqual(c.execute("SELECT status, client_outcome, agent_outcome FROM leads WHERE id = 1").fetchone()[:],
-                             ("deal_pending", "rented", "rented"))
+                             ("contract", "rented", "rented"))   # «Договор» first, then «Сделка» (c70ab76)
 
         today = date.today()
+        from datetime import datetime, timezone
+        from app.models import Contract
+        def sign(s):                                                             # «Договор подписан» (the contracts wizard)
+            s.add(Contract(lead_id=1, kind="rent", lang="RU", html="<p>договор</p>", status="signed", data={},
+                           signed_at=datetime.now(timezone.utc)))
+            s.commit()
+        self.svc(sign)
         deal = self.svc(lambda s: deals.create(s, {"lead_id": 1, "price": 850, "rent_from": today.isoformat(),
                                                    "rent_to": (today + timedelta(days=365)).isoformat(), "is_exclusive": True},
                                                self.user(s, AGENT["id"])))
@@ -406,7 +406,7 @@ class JourneyE2E(unittest.TestCase):
         m = f.mark()
         _, ed = self.press_inline(CLIENT, ed, "1")
         self.assertIn("Спасибо", ed["text"])
-        self.with_text(GROUP["id"], f"Сигнал по сделке #{deal.id}", m)           # low score → operators
+        self.with_text(OPERATOR["id"], f"Сигнал по сделке #{deal.id}", m)        # low score → the operator account
         _, ed = self.press_inline(CLIENT, ed, "✍️ Есть проблема")
         self.assertIn("Опишите, пожалуйста, проблему", ed["text"])
         self.assertEqual(userbot.on_incoming(cid, "anna_e2e", "Не работает бойлер"), "problem")   # written in the operator's DM
@@ -518,7 +518,7 @@ class JourneyE2E(unittest.TestCase):
         m = f.mark()
         self.svc(lambda s: leads.assign_agent(s, lead.id, self.user(s, AGENT["id"]).id, self.user(s, OPERATOR["id"])))
         card = self.with_text(AGENT["id"], f"Заявка #{lead.id}", m)
-        self.assertEqual([b.get("text") for row in f.markup(card) for b in row], ["🕐 Предложить время"])   # one way: the Mini App
+        self.assertEqual([b.get("text") for row in f.markup(card) for b in row], ["🕐 Выбрать время", "🏠 Уже сдана"])   # the Mini App
         from datetime import datetime, timezone
         m = f.mark()
         self.svc(lambda s: leads.add_slots(s, lead.id, [datetime.now(timezone.utc) + timedelta(days=1, hours=h) for h in (1, 3)],
@@ -544,7 +544,7 @@ class JourneyE2E(unittest.TestCase):
         words come as a DM (userbot: client_comment); «🔄 Да, подобрать» on that card searches in the bot."""
         from app.services import leads
         from app.telegram import userbot
-        f, u = self.fake, {"id": 1030, "name": "Ира", "username": "ira_e2e", "lang": "ru"}
+        f, u = self.fake, {"id": 1050, "name": "Ира", "username": "ira_e2e", "lang": "ru"}
         cl = core.client("tg", u["id"], chat_id=u["id"], username="ira_e2e", name="Ира", lang_hint="ru")
         lead = self.svc(leads.create_from_like, cl["id"], "tg2")
         self.svc(lambda s: leads.assign_agent(s, lead.id, self.user(s, AGENT["id"]).id, self.user(s, OPERATOR["id"])))
@@ -621,7 +621,7 @@ class JourneyE2E(unittest.TestCase):
                                        "'message_from_client' AND l.client_id = ?", (cl["id"],)).fetchone()[0], 0)
 
     def test_z_staff_robustness(self):
-        """An operator added in the CRM by @username takes a lead from the group; «📤 Отправить» tapped twice sends the
+        """An operator added in the CRM by @username takes a lead from an old group card (lg:take still answers); «📤 Отправить» tapped twice sends the
         slots once; /cancel ends the typed-slots mode; an edited message is ignored."""
         from app.services import leads
         f = self.fake
@@ -633,8 +633,11 @@ class JourneyE2E(unittest.TestCase):
         with db.tx() as c:  # an object still on the market (the journey above rented one through a deal)
             free = c.execute("SELECT listing_id FROM properties WHERE status = 'published' ORDER BY id DESC LIMIT 1").fetchone()[0]
         lead = self.svc(leads.create_from_like, cl["id"], free, "1 спальня")
-        self.with_text(GROUP["id"], f"Заявка #{lead.id}", m)
-        m = self.press(zura, GROUP["id"], "✋ Взять заявку", group=GROUP, since=m)
+        self.with_text(OPERATOR["id"], f"Заявка #{lead.id}", m)
+        old = {"chat": GROUP["id"], "message_id": 998, "text": "", "reply_markup": {"inline_keyboard": [[{"text": "✋ Взять заявку",
+                                                                                                       "callback_data": f"lg:take:{lead.id}"}]]}}
+        m = f.mark()
+        f.press(zura, old, "✋ Взять заявку", group=GROUP)
         ans = f.wait(lambda calls: next((c for c in calls if c["method"] == "answerCallbackQuery"), None), since=m)
         self.assertEqual(ans.get("text"), "Заявка ваша ✋")
         with db.tx() as c:

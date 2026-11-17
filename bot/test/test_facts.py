@@ -335,7 +335,7 @@ class Albums(unittest.TestCase):
             sent = []
 
             class Bot:
-                async def send_media_group(self, chat, media):
+                async def send_media_group(self, chat, media, **kw):
                     sent.append(media)
                     return [mock.Mock(video=None)] * 2 + [mock.Mock(video=mock.Mock(file_id="VID1"))]
 
@@ -356,7 +356,7 @@ class IndexCache(unittest.TestCase):
                       open(ingest.CACHE, "w"))
             calls = []
 
-            def ask(prompt, schema, images=()):
+            def ask(prompt, schema, images=(), **kw):
                 calls.append((prompt, list(images), schema))
                 ids = [json.loads(ln)["id"] for ln in prompt.splitlines() if ln.startswith("{")]
                 none = {k: ([] if k in ("yes", "no", "terms") else None) for k in ingest.DETAILS}

@@ -188,20 +188,21 @@ class NotifyTest(unittest.TestCase):
         for want in (f"🆕 <b>Заявка #{self.lid}</b>", "👤 <b>Анна</b> · Telegram", "👥 2 человека", "💰 до $900",
                      "🏠 <b>Объект:</b> Ваке, ул. Каштановая, 12", "2 спальни · 78 м² · $850 · ❗️ эксклюзив", "Источник: канал агентства"):
             self.assertIn(want, card["text"])
-        self.assertEqual(self.buttons(card), [("✋ Взять заявку", f"lg:take:{self.lid}"), ("📋 Открыть в панели", f"https://crm.test/leads/{self.lid}")])
+        # no «Взять заявку» (one connected operator account, a39760b): write to the client, assign an agent in the panel
+        self.assertEqual(self.buttons(card), [("💬 Написать клиенту", "https://t.me/anna"), ("👤 Назначить агента", f"https://crm.test/leads/{self.lid}")])
         m = self.fake.mark()
         notify.lead_taken_group({**self.lead, "operator_id": self.op}, {"name": "Нино"})
         ed = self.last("editMessageText", -100777, m)
         self.assertEqual(ed["message_id"], card["message_id"])
         self.assertIn("✋ <b>Взяла Нино</b>", ed["text"])
         self.assertNotIn("⏱", ed["text"])
-        self.assertEqual(self.buttons(ed)[0], ("👤 Назначить агента", f"lg:assign:{self.lid}"))
+        self.assertEqual(self.buttons(ed), self.buttons(card))  # the buttons follow the lead (still no agent), not the stage
         m = self.fake.mark()
         notify.lead_assigned_agent({**self.lead, "operator_id": self.op, "agent_id": self.ag, "status": "agent_assigned"})
         c6 = self.last("sendMessage", 600, m)
         self.assertIn("от оператора Нино", c6["text"])
         self.assertNotIn("Анна", c6["text"])  # no client contacts before the time is chosen
-        self.assertEqual([b[1] for b in self.buttons(c6)], [f"https://crm.test/leads/{self.lid}"])
+        self.assertEqual([b[1] for b in self.buttons(c6)], [f"https://crm.test/leads/{self.lid}", f"lo:a:{self.lid}:gone"])  # «🏠 Уже сдана» (27e534f)
         self.assertIn("👤 Агент: <b>Георгий</b>", self.last("editMessageText", -100777, m)["text"])
 
     def test_client_ack_edits_the_card(self):
@@ -289,8 +290,11 @@ class NotifyTest(unittest.TestCase):
             raw = (Path(media_dir) / "properties" / "b.jpg").read_bytes()
             self.assertEqual(Path(originals["media"][0]["file"]).read_bytes(), raw)  # b first: the picked order, no watermark
             self.assertNotEqual(Path(album["media"][0]["file"]).read_bytes(), raw)     # the album photo is watermarked
-            self.assertEqual(ref, (album["message_id"], f"https://t.me/c/300/{album['message_id']}"))
             owner = self.last("sendMessage", -100300, m)
+            # + chat and every message id of the post, so properties.unpost can delete it (88c1cfa)
+            self.assertEqual(ref[:3], (album["message_id"], f"https://t.me/c/300/{album['message_id']}", "-100300"))
+            self.assertEqual(len(ref[3]), 5)  # 2 originals + 2 album photos + the owner card
+            self.assertIn(owner["message_id"], ref[3])
             self.assertEqual(owner["message_thread_id"], "22")
             self.assertIn("+995 555 12 34 56", owner["text"])
             self.assertIn(f"https://t.me/c/300/{album['message_id']}", owner["text"])

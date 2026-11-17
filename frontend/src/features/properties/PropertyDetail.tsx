@@ -12,6 +12,7 @@ import { FIELD_FILTER, atLeast } from '../../api/types';
 import { useAuth } from '../../auth/AuthContext';
 import { AiFlagBadges, CopyPhone, DupCheck, ExclusiveConflictBadge, PropertyStatusBadge, Timeline } from '../../components/domain';
 import { errText, useToast } from '../../components/toast';
+import { SimilarList } from '../../components/Similar';
 import { Badge, Button, Card, Checkbox, Empty, ErrorBox, Field, Input, KV, Lightbox, Loading, Modal, Seg, Select, Switch, Textarea, DistrictSelect } from '../../components/ui';
 import { ARCHIVE_REASON, agentLabel, distLabel, districtLabel, SOURCE_LABEL, bedroomsLabel, demandLabel, fmtDate, fmtDateTime, formatPhone, isoToLocal, localToIso, money, phoneInput } from '../../lib/format';
 import { DealStatusBadge } from '../../pages/Deals';
@@ -1520,6 +1521,13 @@ export function PropertyDetail({ id, compact }: { id: number; compact?: boolean 
       <div className={compact ? 'col gap-lg' : 'split'}>
         <div className="col gap-lg">
           {p.needs_check && <NeedsCheck p={p} />}
+          {/* Stanislav 11-17: the operator checks the similar ones before he publishes (a twin of a posted object) */}
+          {p.status === 'review' && isStaff && (
+            <Card label={t('Проверка на дубль')} title={t('Похожие объекты')}>
+              <SimilarList subject={`p:${p.id}`} intro={t('Перед публикацией проверьте похожие: это может быть дубль объекта из базы или уже выложенного.')}
+                emptyText={t('Похожих объектов не найдено: ни в базе, ни на сайтах, ни у конкурентов.')} />
+            </Card>
+          )}
           {action && (
             <Card label={t('Следующий шаг')} title={STEPS[Math.min(step, STEPS.length - 1)]}>
               {action}
@@ -1544,6 +1552,12 @@ export function PropertyDetail({ id, compact }: { id: number; compact?: boolean 
             </Card>
           )}
           <ExclusiveConflict p={p} />
+          {!(p.status === 'review' && isStaff) && (
+            <Card label={t('Дубли')} title={t('Похожие объекты')}>
+              <div className="muted" style={{ fontSize: 13, marginBottom: 8 }}>{t('Те же фото, адрес, собственник или параметры — в нашей базе, на ss.ge / myhome.ge и у конкурентов. Отметьте: дубль или нет.')}</div>
+              <SimilarList subject={`p:${p.id}`} emptyText={t('Похожих объектов не найдено: ни в базе, ни на сайтах, ни у конкурентов.')} />
+            </Card>
+          )}
           {!mediaInAction && <Gallery p={p} />}
           <Publications p={p} />
           <Ads p={p} />

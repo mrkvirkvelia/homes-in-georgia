@@ -4,13 +4,14 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Archive, ArrowRightLeft, DollarSign, ExternalLink, List, Map as MapIcon, Search, Users } from 'lucide-react';
 import { api, type ListingFilter, type PropertyScope } from '../../api';
-import { itemsOf, thumbUrl } from '../../api/client';
-import type { Listing, Property, PropertyStatus } from '../../api/types';
+import { ApiError, itemsOf, thumbUrl } from '../../api/client';
+import type { Listing, Property, PropertyStatus, SimilarItem } from '../../api/types';
 import { FIELD_FILTER } from '../../api/types';
 import { StatusBar, dragBoardProps } from '../leads/LeadBoard';
 import { pageScroller, useAuth } from '../../auth/AuthContext';
 import { ChipButton, CompareSide, CopyPhone, ExclusiveConflictBadge, ListingCard, ListingSide, PropertyStatusBadge, Place } from '../../components/domain';
 import { errText, useToast } from '../../components/toast';
+import { TakeCheck } from '../../components/Similar';
 import { Badge, Button, Empty, ErrorBox, Field, Loading, Modal, MultiSelect, Select, Seg } from '../../components/ui';
 import { ListingsMap } from './ListingsMap';
 import { Resume, metroLabel } from './PropertyDetail';
@@ -126,15 +127,24 @@ function RentListings({ base = '', competitor = false }: { base?: string; compet
   const { data, isLoading, isFetching, error } = useQuery({ queryKey: ['listings', 'new', q, view === 'map' ? MAP_LIMIT : limit], queryFn: () => api.listings.new(q, view === 'map' ? MAP_LIMIT : limit), placeholderData: (p) => p });
   const { data: facets } = useQuery({ queryKey: ['listings', 'facets', competitor], queryFn: () => api.listings.facets(competitor), staleTime: 60_000 });
   const filtered = Object.entries(f).some(([k, v]) => (Array.isArray(v) ? v.length : v) && k !== 'q' && k !== 'known');
+  // possible_duplicate (Stanislav 11-17): the ad may already be our object — the agent looks first (TakeCheck)
+  const [dupCheck, setDupCheck] = useState<{ id: string; items: SimilarItem[] } | null>(null);
   const take = useMutation({
-    mutationFn: (id: string) => api.properties.take(id),
+    mutationFn: (v: string | { id: string; force: true }) => (typeof v === 'string' ? api.properties.take(v) : api.properties.take(v.id, true)),
     onSuccess: (p) => {
+      setDupCheck(null);
       qc.invalidateQueries({ queryKey: ['listings'] });
       qc.invalidateQueries({ queryKey: ['properties'] });
       toast(t('Объект закреплён за вами'));
       navigate(base === '/m' ? `/m/properties/${p.id}` : `/objects/${p.id}`);
     },
-    onError: (e) => { toast(errText(e), true); qc.invalidateQueries({ queryKey: ['listings'] }); },
+    onError: (e, v) => {
+      if (e instanceof ApiError && e.code === 'possible_duplicate' && typeof v === 'string') {
+        setDupCheck({ id: v, items: (e.data?.items as SimilarItem[]) || [] });
+        return;
+      }
+      toast(errText(e), true); qc.invalidateQueries({ queryKey: ['listings'] });
+    },
   });
   const [agentFor, setAgentFor] = useState<string | null>(null);
   const [agentC, setAgentC] = useState({ owner_name: '', owner_phone: '' });
@@ -195,6 +205,11 @@ function RentListings({ base = '', competitor = false }: { base?: string; compet
   return (
     <>
       {peek && <PropertyModal id={peek.id} listing={peek.listing} reasons={peek.reasons} base={base} onClose={() => setPeek(null)} />}
+      <Modal open={!!dupCheck} wide onClose={() => setDupCheck(null)} title={t('Проверка на дубль')}>
+        {dupCheck && <TakeCheck listingId={dupCheck.id} items={dupCheck.items} taking={take.isPending}
+          onTake={() => take.mutate({ id: dupCheck.id, force: true })}
+          onClose={() => { setDupCheck(null); qc.invalidateQueries({ queryKey: ['listings'] }); }} />}
+      </Modal>
       <Modal open={!!agentFor} onClose={() => setAgentFor(null)} title={t('Это агент')}>
         <form className="col gap-lg" onSubmit={(e) => { e.preventDefault(); markAgent.mutate(); }}>
           <Field label={t('Имя')}><input className="input" value={agentC.owner_name} onChange={(e) => setAgentC((c) => ({ ...c, owner_name: e.target.value }))} autoFocus /></Field>

@@ -7,11 +7,13 @@ export class ApiError extends Error {
   status: number;
   code?: string;
   rid?: string;  // X-Request-Id: the server log line of this request (shown in toasts of 5xx errors)
-  constructor(status: number, message: string, code?: string, rid?: string) {
+  data?: Record<string, unknown>;  // extra JSON of the error (possible_duplicate: the objects to look at)
+  constructor(status: number, message: string, code?: string, rid?: string, data?: Record<string, unknown>) {
     super(message);
     this.status = status;
     this.code = code;
     this.rid = rid;
+    this.data = data;
   }
 }
 
@@ -122,7 +124,7 @@ async function request<T>(method: string, path: string, body?: unknown, query?: 
     try { data = JSON.parse(text); } catch { data = text; }
   }
   if (!res.ok) {
-    const d = data as { detail?: unknown; code?: string; message?: string } | null;
+    const d = data as { detail?: unknown; code?: string; message?: string; data?: Record<string, unknown> } | null;
     if (res.status === 401 && path === '/auth/login') throw new ApiError(401, 'Неверный логин или пароль', 'invalid_credentials');
     if (res.status === 401 && path.startsWith('/auth/telegram')) throw new ApiError(401, 'Не удалось войти через Telegram. Попробуйте ещё раз', 'unauthorized');
     if (res.status === 401) throw new ApiError(401, 'Сессия истекла, войдите снова', 'unauthorized');
@@ -137,7 +139,7 @@ async function request<T>(method: string, path: string, body?: unknown, query?: 
     }
     if (code && ERROR_TEXT[code]) msg = ERROR_TEXT[code];
     if (res.status >= 500) reportError({ kind: 'api', message: msg, api_path: `${method} ${path}`, api_status: res.status, api_rid: rid });
-    throw new ApiError(res.status, msg, code, rid);
+    throw new ApiError(res.status, msg, code, rid, d && typeof d === 'object' ? d.data : undefined);
   }
   return data as T;
 }

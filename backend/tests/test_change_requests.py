@@ -10,7 +10,7 @@ from tests.conftest import auth, fill_required, make_listing, make_user
 def _verified(db, client, sent, lid="ss6001"):
     """An object of agent Георгий with an owner, submitted and published by operator Нино (= verified)."""
     georgiy, nino = make_user(db, "agent", "Георгий"), make_user(db, "operator", "Нино")
-    pid = client.post("/api/properties", json={"listing_id": make_listing(db, lid).id}, headers=auth(georgiy)).json()["id"]
+    pid = client.post("/api/properties", json={"listing_id": make_listing(db, lid).id, "force": True}, headers=auth(georgiy)).json()["id"]
     client.post(f"/api/properties/{pid}/owner", json={"is_owner": True, "owner_name": "Нана", "owner_phone": "+995 599 11 22 33"},
                 headers=auth(georgiy))
     p = db.get(Property, pid)
@@ -24,7 +24,7 @@ def _verified(db, client, sent, lid="ss6001"):
 
 def test_agent_edits_freely_before_verification(db, client, sent):
     georgiy = make_user(db, "agent", "Георгий")
-    pid = client.post("/api/properties", json={"listing_id": make_listing(db, "ss6000").id}, headers=auth(georgiy)).json()["id"]
+    pid = client.post("/api/properties", json={"listing_id": make_listing(db, "ss6000").id, "force": True}, headers=auth(georgiy)).json()["id"]
     r = client.patch(f"/api/properties/{pid}", json={"price": 900, "owner_phone": "599000111", "owner_name": "Нана",
                                                     "address": "Ваке, 5"}, headers=auth(georgiy)).json()
     assert r["change_request"] is None and r["locked_fields"] == [] and r["price"] == 900 and r["owner"]["phone"] == "599000111"
@@ -80,7 +80,7 @@ def test_reject_needs_comment_and_changes_nothing(db, client, sent):
 
 def test_archive_reason_validation_and_agent_request_after_verification(db, client, sent):
     georgiy, nino, pid = _verified(db, client, sent)
-    other_pid = client.post("/api/properties", json={"listing_id": make_listing(db, "ss6002").id}, headers=auth(georgiy)).json()["id"]
+    other_pid = client.post("/api/properties", json={"listing_id": make_listing(db, "ss6002").id, "force": True}, headers=auth(georgiy)).json()["id"]
     arch = lambda uid, b: client.post(f"/api/properties/{uid}/archive", json=b, headers=auth(nino)).json()  # noqa: E731
     assert arch(other_pid, {})["code"] == "bad_reason"
     assert arch(other_pid, {"reason": "other"})["code"] == "comment_required"
@@ -114,8 +114,8 @@ def test_existing_flows_set_reasons_and_transfer_request(db, client, sent):
     properties.unmark_rented(db, pid, nino)
     assert db.get(Property, pid).archive_reason is None
 
-    a = client.post("/api/properties", json={"listing_id": make_listing(db, "ss6003").id}, headers=auth(georgiy)).json()["id"]
-    b = client.post("/api/properties", json={"listing_id": make_listing(db, "ss6004").id}, headers=auth(georgiy)).json()["id"]
+    a = client.post("/api/properties", json={"listing_id": make_listing(db, "ss6003").id, "force": True}, headers=auth(georgiy)).json()["id"]
+    b = client.post("/api/properties", json={"listing_id": make_listing(db, "ss6004").id, "force": True}, headers=auth(georgiy)).json()["id"]
     assert client.post(f"/api/properties/{a}/refused", json={}, headers=auth(georgiy)).json()["archive_reason"] == "owner_refused"
     assert client.post(f"/api/properties/{b}/rented-self", json={"rent_from": "2026-11-01", "rent_to": "2027-11-01"}, headers=auth(georgiy)).json()["archive_reason"] == "rented_by_owner"
     # re-taking a refused object clears its archive reason

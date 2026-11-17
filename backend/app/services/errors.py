@@ -4,8 +4,9 @@ class DomainError(Exception):
     STATUS = {"not_found": 404, "forbidden": 403, "not_registered": 403, "already_taken": 409, "taken_by_other": 409,
               "conflict": 409, "bad_status": 409, "unauthorized": 401}
 
-    def __init__(self, code: str, message: str = "", status: int | None = None):
+    def __init__(self, code: str, message: str = "", status: int | None = None, data: dict | None = None):
         super().__init__(message or code)
+        self.data = data  # extra JSON for the client (possible_duplicate: the objects to look at)
         self.code = code
         self.message = message or code
         self.status = status or self.STATUS.get(code, 400)

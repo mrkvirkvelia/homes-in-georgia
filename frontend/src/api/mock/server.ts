@@ -207,6 +207,9 @@ on('GET', '/listings/new/facets', (_m, _b, q) => {
   return { sources: count(ls.map((l) => l.source)), districts: count(ls.map((l) => l.district)), metros: [] };
 });
 on('GET', '/listings/:id', (m) => F.listings.find((l) => l.id === m[1]));
+on('GET', '/listings/:id/similar', () => ({ items: [] }));
+on('GET', '/properties/:id/similar', () => ({ items: [] }));
+on('POST', '/similar/decide', (_m, b) => ({ ok: true, verdict: (b as { same?: boolean }).same ? 'same' : 'different', linked_to: null }));
 const dealOf = (p: Property) => (p.post_fields?.deal === 'Sale' ? 'sale' : 'rent');
 const dealOk = (q: URLSearchParams) => (p: Property) => !q.get('deal') || dealOf(p) === q.get('deal');
 on('GET', '/properties/counts', (_m, _b, q) => F.properties.filter(dealOk(q)).reduce<Record<string, number>>((a, p) => ({ ...a, [p.status]: (a[p.status] || 0) + 1 }), {}));

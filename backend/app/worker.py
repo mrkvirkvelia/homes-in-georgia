@@ -317,6 +317,12 @@ def main():
                 avatars.run(out=log.info)
             except Exception:  # noqa: BLE001
                 log.exception("avatar sync failed")
+        try:  # «Похожие объекты»: dHash of the objects' own photos, a batch per pass (services/similar.py)
+            from app.services import similar
+            with SessionLocal() as db:
+                similar.backfill(db)
+        except Exception:  # noqa: BLE001
+            log.exception("photo hashes failed")
         try:  # the bot's catalog follows the objects (services/catalog.py)
             with SessionLocal() as db:
                 if n := catalog.sync_all(db):

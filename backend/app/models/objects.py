@@ -1,4 +1,4 @@
-from sqlalchemy import (Boolean, Column, Date, DateTime, Float, ForeignKey, Index, Integer, Numeric, Text, UniqueConstraint, func,
+from sqlalchemy import (Boolean, CheckConstraint, Column, Date, DateTime, Float, ForeignKey, Index, Integer, Numeric, Text, UniqueConstraint, func,
                         text)
 from sqlalchemy.dialects.postgresql import JSONB
 
@@ -89,6 +89,7 @@ class Property(Base):
     # stage 10: «Собственник согласен показать клиентам»: client-eligible with the ad's photos before the publication
     fast_track_at = Column(DateTime(timezone=True))
     fast_track_by = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"))
+    photo_hashes = Column(Text)  # dHash of its own photos as JSON (services/similar.py), NULL = not computed (0029)
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
     # + text_embedding / photo_embedding vector(768) (migration 0006): not mapped, raw SQL in app/embeddings.py
@@ -135,6 +136,19 @@ class ListingMatch(Base):
     decided_by = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"))
     decided_at = Column(DateTime(timezone=True))
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class SimilarDecision(Base):
+    """«Дубль» / «Не дубль» on a pair of «Похожие объекты» (services/similar.py): keys «l:<listing>» / «p:<object>», a < b."""
+    __tablename__ = "similar_decisions"
+    __table_args__ = (UniqueConstraint("a", "b", name="similar_decisions_pair_uq"),
+                      CheckConstraint("verdict IN ('same', 'different')", name="similar_decisions_verdict_check"))
+    id = Column(Integer, primary_key=True)
+    a = Column(Text, nullable=False)
+    b = Column(Text, nullable=False)
+    verdict = Column(Text, nullable=False)
+    decided_by = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"))
+    decided_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
 
 class PropertyPublication(Base):

@@ -9,6 +9,7 @@ import type { AiFlags, EventItem, Lead, LeadStatus, Listing, Property, PropertyS
 import { thumbUrl } from '../api/client';
 import { Badge, Button, ErrorBox, KV, Lightbox, Loading, Modal, useNow } from './ui';
 import { useToast } from './toast';
+import { SimilarList } from './Similar';
 import { lx, t, tmap } from '../lib/i18n';
 import { ARCHIVE_REASON, CR_KIND, LEAD_STATUS, OUTCOME_LABEL, PROPERTY_STATUS, REFUSAL_LABEL, bedroomsLabel, districtLabel, fmtDateTime, formatPhone, money, pluralForm, SOURCE_LABEL } from '../lib/format';
 
@@ -164,6 +165,10 @@ export function ListingModal({ id, onClose, actions }: { id: string; onClose: ()
             <div className="alert alert-warn">{t('Дубль: эта квартира уже опубликована в канале агентства. Ссылка на пост — в списке ниже.')}</div>
           )}
           {!l.ai_flags?.duplicate && !!l.similar?.length && <SimilarInChannel listing={l} similar={l.similar} />}
+          <div className="col gap-sm">
+            <span className="label">{t('Похожие объекты')}</span>
+            <SimilarList subject={`l:${l.id}`} emptyText={t('Похожих объектов не найдено: ни в базе, ни на сайтах, ни у конкурентов.')} />
+          </div>
           {!!l.urls?.length && (
             <div className="col gap-sm">
               <span className="label">{l.urls.length > 1 ? t('Где опубликовано · {n}', { n: l.urls.length }) : t('Источник')}</span>

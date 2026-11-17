@@ -169,7 +169,7 @@ async def client_log(request: Request):
 @app.exception_handler(DomainError)
 async def domain_error(request: Request, e: DomainError):
     request.state.err = {"code": e.code, "message": str(e.message)[:300]}
-    return JSONResponse({"detail": e.message, "code": e.code}, status_code=e.status)
+    return JSONResponse({"detail": e.message, "code": e.code, **({"data": e.data} if e.data else {})}, status_code=e.status)
 
 
 @app.exception_handler(RequestValidationError)

@@ -1128,6 +1128,9 @@ def upload_media(db: Session, pid: int, files: list[tuple[str, bytes]], room: st
         key = f"properties/{p.id}/{uuid.uuid4().hex}{ext}"
         storage.put(key, content)
         storage.put_preview(key, content)
+        if ext in PHOTO_EXT:  # «Похожие объекты» compare its photos with the ads' (services/similar.py)
+            from app.services import similar
+            similar.add_photo_hash(p, content)
         pos += 1
         kind = "video" if ext in VIDEO_EXT else "photo"
         m = PropertyMedia(property_id=p.id, kind=kind, path=key, room=room if kind == "photo" else None,  # rooms: photos only
@@ -1428,6 +1431,8 @@ def delete_media(db: Session, pid: int, mid: int, actor: User) -> None:
         storage.delete(m.path)
     except Exception:
         log.warning("could not delete %s", m.path)
+    if m.kind == "photo":
+        p.photo_hashes = None  # recomputed by the worker (services/similar.py backfill)
     db.delete(m)
     log_event(db, "property", p.id, "media_deleted", actor, media_id=mid)
     db.commit()

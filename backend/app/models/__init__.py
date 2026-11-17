@@ -4,7 +4,7 @@ from app.models.people import (ADMINS, CARS_ONLY, CARS_ROLES, DAILY_RENT_ONLY, D
 from app.models.catalog import (LEAD_STATUSES, ChannelVideo, Client, ClientView, InlineCard, JourneyAnswer, Lead, LeadEvent, LeadSlot,
                                 Listing, Message, Reaction, Search, Setting, Source, TgFile)
 from app.models.objects import (ARCHIVE_REASONS, PROPERTY_STATUSES, PUBLICATION_CHANNELS, ChangeRequest, Event, ListingMatch,
-                                Owner, Property, PropertyListing, PropertyMedia, PropertyPublication)
+                                Owner, Property, PropertyListing, PropertyMedia, PropertyPublication, SimilarDecision)
 from app.models.deals import CONTRACT_CLOSE_REASONS, CONTRACT_STATUSES, Contract, ContractSigner, Deal, Evaluation
 from app.models.content import REPORT_KINDS, Address, ChannelPost, Job, News, Report, SiteEvent, TickerMessage
 from app.models.nda import AgentNda

@@ -6,7 +6,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Archive, ArrowRightLeft, Camera, CheckCircle2, Copy, FileText, ChevronDown, Clock, ExternalLink, Globe, Home, Lock, Pencil, Phone, PhoneOff, Play, RotateCcw, Send, Sparkles, Trash2, Upload, Wand2 } from 'lucide-react';
 import { api, type PublishProgress } from '../../api';
-import { ApiError, itemsOf, mediaUrl, thumbUrl } from '../../api/client';
+import { ApiError, itemsOf, mediaUrl, thumbUrl, withKeepalive } from '../../api/client';
 import type { Media, PostFields, Property } from '../../api/types';
 import { FIELD_FILTER, atLeast } from '../../api/types';
 import { useAuth } from '../../auth/AuthContext';
@@ -20,6 +20,7 @@ import { OwnerSuggest } from '../../components/OwnerSuggest';
 import { cadastralError, cadastralHint, cadastralInput, cadastralNorm } from '../../lib/cadastral';
 import { pool, shrinkPhoto } from '../../lib/upload';
 import { addMonths, isoDate, parseIsoDate } from '../../lib/dates';
+import { Autosaver, type AutosaveState } from '../../lib/autosave';
 import { AddressField, type Point } from '../../components/AddressField';
 import { t, LOCALE } from '../../lib/i18n';
 
@@ -316,29 +317,43 @@ export function Chips({ options, value, onChange }: { options: Record<string, st
 function PostGeneratorStep({ p, canEdit }: { p: Property; canEdit: boolean }) {
   const { toast, set, qc } = useProp(p.id);
   const [f, setF] = useState<GenForm>(() => genOf(p));
-  const saved = useRef<GenForm>(f);
   const [metroM, setMetroM] = useState<number | null>(null);  // the auto-picked station's distance, shown by the select
   const fileRef = useRef<HTMLInputElement>(null);
   const exRef = useRef<HTMLDivElement>(null);
   useEffect(() => { if (f.is_exclusive && !p.is_exclusive) exRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); }, [f.is_exclusive]); // eslint-disable-line react-hooks/exhaustive-deps
   const media = p.media || [];
   const checklist = p.checklist || {};
-  const save = useMutation({
-    mutationFn: (d: Record<string, unknown>) => api.properties.update(p.id, d as Parameters<typeof api.properties.update>[1]),
-    onSuccess: (r) => set(r),
-    onError: (e) => toast(errText(e), true),
-  });
-  const flush = async () => {
-    const d = genDiff(saved.current, f);
-    if (!Object.keys(d).length) return;
-    saved.current = f;
-    await save.mutateAsync(d);
-  };
+  // one save at a time, the confirmed form moves only on success (lib/autosave); a failed one stays dirty with a retry
+  const [saveState, setSaveState] = useState<AutosaveState>({ saving: false, error: null });
+  const latest = useRef({ set, toast });
+  latest.current = { set, toast };
+  const [ctl] = useState(() => new Autosaver<GenForm>(f, {
+    diff: genDiff,
+    send: (d, keepalive) => {
+      const go = () => api.properties.update(p.id, d as Parameters<typeof api.properties.update>[1]);
+      return keepalive ? withKeepalive(go) : go();
+    },
+    // the answer is merged into the query cache only; the form keeps what the user typed meanwhile (it never reloads from p)
+    onSaved: (r) => latest.current.set(r as Property),
+    onError: (e) => latest.current.toast(errText(e), true),
+    onState: setSaveState,
+  }));
+  ctl.update(f);
+  const flush = () => ctl.flush();
   useEffect(() => {
     if (!canEdit) return;
-    const t = setTimeout(() => { flush().catch(() => undefined); }, f.is_exclusive !== saved.current.is_exclusive ? 0 : 700); // the exclusive toggle at once: its signing link comes from the save
+    const t = setTimeout(() => { flush().catch(() => undefined); }, f.is_exclusive !== ctl.confirmed.is_exclusive ? 0 : 700); // the exclusive toggle at once: its signing link comes from the save
     return () => clearTimeout(t);
   }, [f]); // eslint-disable-line react-hooks/exhaustive-deps
+  // what is still in the 700 ms debounce goes out when the tab hides / the page goes away / the step unmounts
+  useEffect(() => {
+    if (!canEdit) return;
+    const away = () => { if (document.visibilityState === 'hidden') ctl.flush({ keepalive: true }).catch(() => undefined); };
+    const hide = () => { ctl.flush({ keepalive: true }).catch(() => undefined); };
+    document.addEventListener('visibilitychange', away);
+    window.addEventListener('pagehide', hide);
+    return () => { document.removeEventListener('visibilitychange', away); window.removeEventListener('pagehide', hide); hide(); };
+  }, [canEdit, ctl]);
   const upd = <K extends keyof GenForm>(k: K, v: GenForm[K]) => setF((x) => ({ ...x, [k]: v }));
   const pf = f.post_fields;
   const setPf = (k: string, v: unknown) => setF((x) => ({ ...x, post_fields: { ...x.post_fields, [k]: v === '' || v === undefined ? undefined : v } }));
@@ -413,7 +428,8 @@ function PostGeneratorStep({ p, canEdit }: { p: Property; canEdit: boolean }) {
   const done = ROOMS.filter((r) => checklist[r] || media.some((m) => m.room === r)).length;
   const roomsOn = p.room_picker !== false;
   const missing = p.missing || [];
-  const dirty = Object.keys(genDiff(saved.current, f)).length > 0 || save.isPending;
+  const dirty = Object.keys(genDiff(ctl.confirmed, f)).length > 0 || saveState.saving;
+  const failed = !!saveState.error && !saveState.saving && dirty;
   const ro = !canEdit;
 
   return (
@@ -553,7 +569,9 @@ function PostGeneratorStep({ p, canEdit }: { p: Property; canEdit: boolean }) {
       </div>
 
       <div className="gen-block">
-        <div className="row row-between"><span className="gen-title">{t('5 · Превью поста')}</span>{dirty && <span className="faint" style={{ fontSize: 12 }}>{t('сохраняем…')}</span>}</div>
+        <div className="row row-between"><span className="gen-title">{t('5 · Превью поста')}</span>{failed
+          ? <Button size="sm" variant="ghost" style={{ color: 'var(--accent)' }} onClick={() => { flush().catch(() => undefined); }}><RotateCcw size={14} />{t('не сохранено — повторить')}</Button>
+          : dirty && <span className="faint" style={{ fontSize: 12 }}>{t('сохраняем…')}</span>}</div>
         {post.isLoading ? <Loading /> : <div className="post-preview">{postPreview(post.data?.text || '—')}</div>}
         <div className="muted" style={{ fontSize: 12 }}>{t('Пост собирается из полей выше. Оператор проверит его, при необходимости поправит и опубликует.')}</div>
       </div>

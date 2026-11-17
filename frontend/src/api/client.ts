@@ -82,7 +82,15 @@ const ERROR_TEXT: Record<string, string> = {
   exclusive_conflict: 'Эксклюзив ещё висит на других сайтах. Попросите собственника снять объявление, затем оператор отмечает «Проверено: снято»',
 };
 
+let keepaliveNow = false;
+/** Requests started synchronously inside fn go out with fetch keepalive: they outlive the page (autosave on pagehide). */
+export function withKeepalive<T>(fn: () => T): T {
+  keepaliveNow = true;
+  try { return fn(); } finally { keepaliveNow = false; }
+}
+
 async function request<T>(method: string, path: string, body?: unknown, query?: Query, retried = false): Promise<T> {
+  const keepalive = keepaliveNow;  // read before the first await
   const url = path + qs(query);
   if (IS_MOCK) {
     const { mockFetch } = await import('./mock/server');
@@ -104,7 +112,7 @@ async function request<T>(method: string, path: string, body?: unknown, query?: 
   }
   let res: Response;
   try {
-    res = await fetch(`/api${url}`, { method, headers, body: payload });
+    res = await fetch(`/api${url}`, { method, headers, body: payload, keepalive });
   } catch (e) {
     reportError({ kind: 'network', message: String(e), api_path: `${method} ${path}` });
     throw new ApiError(0, 'Нет связи с сервером. Проверьте интернет и повторите', 'network');

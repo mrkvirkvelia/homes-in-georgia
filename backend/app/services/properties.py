@@ -198,7 +198,7 @@ def _untaken():
 def new_listings(db: Session, q: str | None = None, source: str | list[str] | None = None, flag: str | None = None,
                  limit: int = 50, offset: int = 0, district: str | list[str] | None = None, metro: str | None = None,
                  price_min: int | None = None, price_max: int | None = None, bedrooms: str | None = None,
-                 known: bool = False, competitor: bool = False) -> dict:
+                 known: bool = False, competitor: bool = False, prop_type: str | None = None) -> dict:
     """Listings not yet taken into work, newest first. competitor=True: instead every ad of the competitor sources
     (any status, the ones linked to our objects too: they show «Уже в базе»). `source` is a type (ss, facebook…) or an exact source (fb:group);
     `source` and `district` take one value or a list (any of them).
@@ -223,6 +223,9 @@ def new_listings(db: Session, q: str | None = None, source: str | list[str] | No
         stmt = stmt.where(Listing.price_usd <= price_max)
     if bedrooms:
         stmt = stmt.where(_beds(Listing.bedrooms, bedrooms))
+    if prop_type:  # «Тип» (Irakli 11-17): details.property of the parsers (bot/facts.py), none = an apartment
+        kind = cast(Listing.details, JSONB)["property"].astext
+        stmt = stmt.where(or_(kind == prop_type, kind.is_(None)) if prop_type == "apartment" else kind == prop_type)
     if flag == "owner":
         stmt = stmt.where(Listing.agent_suspect == 0, Listing.agent_reasons == "[]")
     elif flag == "agent_suspect":
@@ -1564,6 +1567,8 @@ POST_MANY = {
                   "Microwave", "WashingMachine", "VacuumCleaner", "Fireplace") + FIXED_AMENITIES,
     "periods": ("1Day", "1Month", "2Month", "3Month", "4Month", "5Month", "6Month", "9Month", "12Month"),
 }
+# kept on the card and the site, never a post hashtag (Irakli 11-17: the old rent list has no #WashingMachine either)
+NO_POST_TAG = ("WashingMachine",)
 # the old generator's sale block offers only these amenities, in this order (s-amenity); others stay out of a sale post
 SALE_AMENITIES = ("Balcony", "Terrace", "Courtyard", "ParkingPlace", "Conditioner", "Dishwasher", "Oven", "Stove", "Bath",
                   "Shower", "Elevator", "Fireplace")
@@ -1756,7 +1761,7 @@ def post_text(db: Session, p: Property) -> str:
         am = [a for a in SALE_AMENITIES if a in am]
         lines += [" ".join(f"✅ #{a}" for a in am[i:i + 3]) for i in range(0, len(am), 3)]
     else:
-        has = [a for a in am if a not in FIXED_AMENITIES] + [a for a in FIXED_AMENITIES if a in am]
+        has = [a for a in am if a not in FIXED_AMENITIES + NO_POST_TAG] + [a for a in FIXED_AMENITIES if a in am]
         lines += ["  ".join(f"✅\u00a0#{a}" for a in has[i:i + 3]) for i in range(0, len(has), 3)]
         missing = [a for a in FIXED_AMENITIES if a not in am]
         if am and missing:

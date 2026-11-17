@@ -709,7 +709,7 @@ const ndaBlocks = [{ k: 'h', n: '1', ka: 'ტერმინები', ru: 'Т�
   { k: 't', head: [{ ka: 'დონე', ru: 'Уровень', en: 'Level' }], rows: [[{ ka: '25', ru: '25', en: '25' }]] }];
 const ndaSigned = { ...nda, id: 9102, status: 'signed', status_label: 'Подписано', number: '2026-9102', full_name: 'Giorgi Lomidze', path: null, telegram: 'gio_l',
   signed_at: new Date().toISOString(), tg_username: 'gio_l', has_pdf: true, user_id: 8, details: { level: '50', iban_gel: 'GE29TB0000000000000001', address: 'Tbilisi' } };
-on('GET', '/ndas', () => page([nda, ndaSigned]));
+on('GET', '/ndas', () => page([nda, ndaSigned].map((x) => ({ ...x, edition: (x.details as { edition?: string }).edition || '1.3' }))));
 // team members without a signed agreement: one with no NDA (complete profile), one missing the personal number
 const pre = (id: number, full_name: string, personal_id: string, role: string) => ({ user_id: id, lang: 'KA-RU', full_name, full_name_ka: '', personal_id, ie: '', address: '', phone: '+995 555 000 111', email: '', telegram: '', role, level: role === 'recruit' ? '25' : '50', access: '2026-10-01', iban_gel: '', iban_usd: '' });
 on('GET', '/ndas/team', () => ({ signed: 3, total: 6, items: [
@@ -718,8 +718,20 @@ on('GET', '/ndas/team', () => ({ signed: 3, total: 6, items: [
   { user_id: 9, name: 'Нино', role: 'agent', level: 70, username: 'nino_agent', can_send: true, missing: [], ready: true, status: 'sent', nda: { ...nda, user_id: 9 }, prefill: pre(9, 'Nino Beridze', '01001055555', 'agent') }] }));
 on('POST', '/ndas/team/send-all', () => ({ made: 1, sent: 1, not_sent: [] }));
 on('POST', '/ndas/:id/send', () => ({ sent: false, url: `${location.origin}${nda.path}`, path: nda.path }));
+const tpl = { edition: '1.3', blocks: ndaBlocks as unknown[], history: [{ edition: '1.3', at: null as string | null, by_name: null as string | null, changes: [] as string[], note: '', default: true, from: null as string | null }] };
+const tplOut = () => ({ ...tpl, default: tpl.edition === '1.3', next: tpl.edition.replace(/\d+$/, (x) => String(+x + 1)), code_edition: '1.3', history: [...tpl.history].reverse() });
+on('GET', '/ndas/template', tplOut);
+on('PUT', '/ndas/template', (_m, b) => {
+  const ed = (b.edition as string) || tplOut().next;
+  const from = (b.from_edition as string) || (b.blocks === null ? '1.3' : null);
+  tpl.blocks = (b.blocks as unknown[]) || ndaBlocks;
+  tpl.history.push({ edition: ed, at: new Date().toISOString(), by_name: 'Давид', changes: from ? [] : ['1.2'], note: (b.note as string) || '', default: false, from });
+  tpl.edition = ed;
+  return tplOut();
+});
+on('POST', '/ndas/template/preview', (_m, b) => ({ html: `<h1>Preview ${b.lang} · ${b.edition}</h1>${(b.blocks as { n?: string; ka?: string; ru?: string }[]).map((x) => `<p>${x.n || ''} ${x.ka || ''} | ${x.ru || ''}</p>`).join('')}` }));
 on('GET', '/ndas/company-signature', () => ({ signature: null, at: null, by_name: null }));
-on('GET', '/ndas/:id/text', () => ({ blocks: nda.details.blocks || ndaBlocks, edited: !!nda.details.blocks, edition: '1.2', lang: nda.lang, status: nda.status }));
+on('GET', '/ndas/:id/text', () => ({ blocks: nda.details.blocks || ndaBlocks, edited: !!nda.details.blocks, edition: (nda.details.edition as string) || '1.3', current: tpl.edition, lang: nda.lang, status: nda.status }));
 on('PUT', '/ndas/:id/text', (_m, b) => { nda.details = b.blocks ? { blocks: b.blocks } : {}; return nda; });
 on('POST', '/ndas/:id/text/preview', (_m, b) => ({ html: `<h1>Preview</h1>${(b.blocks as { n?: string; ka?: string; ru?: string }[]).map((x) => `<p>${x.n || ''} ${x.ka || ''} | ${x.ru || ''}</p>`).join('')}` }));
 

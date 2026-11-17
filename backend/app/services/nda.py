@@ -11,6 +11,7 @@ signatures in the «Signatures» table + a last page with the signing record: Te
 signed hash = the «confirmation code» of clause 5, time in Tbilisi, IP, device, SHA-256 of the text) and sends it to the
 staff member who made the NDA and to the agent (Telegram), and to Google Drive when configured."""
 import base64
+import difflib
 import hashlib
 import hmac
 import html as H
@@ -28,7 +29,7 @@ from sqlalchemy.orm import Session
 
 from app import storage
 from app.config import settings as env
-from app.models import ADMINS, FIELD_SQL, STAFF, SUPER, AgentNda, User
+from app.models import ADMINS, FIELD_SQL, STAFF, SUPER, AgentNda, Setting, User
 from app.services import contracts as C, jobs
 from app.services.common import TZ, log_event, now
 from app.services.errors import DomainError, forbidden
@@ -99,16 +100,17 @@ def _sig_table(lang: str, f: dict) -> str:
             f'<td>{slot("recipient-time", SIGNATURES["auto"][lang])}</td></tr></table>')
 
 
-def render(lang: str, f: dict, blocks: list | None = None) -> str:
+def render(lang: str, f: dict, blocks: list | None = None, edition: str = EDITION) -> str:
     """The agreement's HTML (A4 print CSS) for the participant's fields f (nda_text: {num} {date} {name_ka} {name2} …;
-    role_ka / role2 come from f["role"], a ROLES key)."""
+    role_ka / role2 come from f["role"], a ROLES key); blocks: the clauses (None = the code default), edition → {edition}
+    and the page footer."""
     second = SECOND[lang]
     langs = ["ka"] + ([second] if second else [])
     f = {k: (str(v).strip() if v else "—") for k, v in f.items()}
     role = ROLES.get(f.pop("role", ""), None)
     per = {ln: {**f, "role_ka": role["ka"] if role else "—", "role2": role[ln if ln != "ka" else "ru"] if role else "—"}
            for ln in ("ka", "ru", "en")}
-    fill = lambda texts, ln: _md(_fill(texts[ln], per[ln]))  # noqa: E731
+    fill = lambda texts, ln: _md(_fill(texts[ln].replace("{edition}", edition), per[ln]))  # noqa: E731
 
     def cell(b: dict, ln: str) -> str:
         k = b["k"]
@@ -159,7 +161,7 @@ def render(lang: str, f: dict, blocks: list | None = None) -> str:
     head = f'<h1>{H.escape(TITLE["ka"])}</h1>' + (f'<h1>{H.escape(TITLE[second])}</h1>' if second else "") + \
         f'<div class="sub">{H.escape(SUBTITLE)} · № {H.escape(f["num"])} · {H.escape(f["date"])}</div>'
     body = "".join(section(items, i) for i, items in enumerate(sections) if items)
-    css = CSS.replace("{lang}", lang).replace("{num}", f["num"].replace('"', "")).replace("{edition}", EDITION)
+    css = CSS.replace("{lang}", lang).replace("{num}", f["num"].replace('"', "")).replace("{edition}", edition.replace('"', ""))
     return (f'<!doctype html><html lang="ka"><head><meta charset="utf-8"><title>{H.escape(SHORT["ka"])} · '
             f'{H.escape(f["name2"])}</title><style>{css}</style></head><body>{head}{body}</body></html>')
 
@@ -207,7 +209,7 @@ def out(db: Session, n: AgentNda, full: bool = False) -> dict:
          "created_by": {"id": by.id, "name": by.name} if by else None,
          "signed_at": n.signed_at.isoformat() if n.signed_at else None,
          "tg_username": n.tg_username, "has_pdf": bool(n.pdf_path), "in_drive": bool(n.drive_file_id),
-         "number": number(n), "details": n.details or {}, "user_id": n.user_id}
+         "number": number(n), "details": n.details or {}, "user_id": n.user_id, "edition": edition_of(n)}
     if full:
         d["html"] = n.html
     return d
@@ -232,17 +234,29 @@ def number(n: AgentNda) -> str:
     return f"{(n.created_at or now()).astimezone(TZ):%Y}-{n.id:04d}"
 
 
-def _page(n: AgentNda, blocks="own") -> str:
-    """The NDA's text from its fields and its own edited clauses (details.blocks; or the blocks given, None = the
-    standard text) — the date is the day it was made."""
+def edition_of(n: AgentNda) -> str:
+    """The common text's edition this NDA was made from (details.edition; older ones: from the page footer)."""
     d = n.details or {}
+    if d.get("edition"):
+        return d["edition"]
+    m = re.search(r'· ([\d.]+) · " counter\(page\)', n.html or "")
+    return m.group(1) if m else EDITION
+
+
+def _page(db: Session, n: AgentNda, blocks="own", details: dict | None = None) -> str:
+    """The NDA's text from its fields, its edition of the common text and its own edited clauses (details.blocks; or the
+    blocks given, None = its edition's text) — the date is the day it was made. details: instead of n.details (preview)."""
+    d = (n.details or {}) if details is None else details
+    ed = d.get("edition") or edition_of(n)
+    if ed != EDITION and not _setting(db, f"{TPL}:{ed}")[1]:
+        ed = EDITION  # made before editions were stored (e.g. 1.2): its text is gone, so it re-renders as the code text
     day = (n.created_at or now()).astimezone(TZ).strftime("%d.%m.%Y")
     return render(n.lang, {"num": number(n), "date": day, "name_ka": d.get("full_name_ka") or n.full_name,
                            "name2": n.full_name, "ie": d.get("ie"), "pid": n.personal_id, "address": d.get("address"),
                            "phone": n.phone, "email": d.get("email"), "telegram": f"@{n.telegram}" if n.telegram else "",
                            "role": d.get("role", ""), "level": d.get("level"), "access": d.get("access"),
                            "iban_gel": d.get("iban_gel"), "iban_usd": d.get("iban_usd")},
-                  d.get("blocks") if blocks == "own" else blocks)
+                  (d.get("blocks") if blocks == "own" else blocks) or edition_blocks(db, ed), ed)
 
 
 def create(db: Session, body: dict, user: User) -> AgentNda:
@@ -280,6 +294,7 @@ def create(db: Session, body: dict, user: User) -> AgentNda:
         d["supersedes"] = old.id
     if not d["ie"] and (u := member or _user_by_username(db, f["telegram"])):
         d["ie"] = u.ie_number or ""  # the profile's ИП number (users.ie_number)
+    d["edition"] = template(db)["edition"]
     comp = company_signature()
     if not comp:
         raise DomainError("no_company_signature", "Сначала Давид должен один раз расписаться за компанию (NDA → «Подпись компании»)", 409)
@@ -289,7 +304,7 @@ def create(db: Session, body: dict, user: User) -> AgentNda:
                  **{k: (v or None) for k, v in f.items()})
     db.add(n)
     db.flush()  # the id → the agreement's number
-    page = _page(n)
+    page = _page(db, n)
     n.html, n.doc_sha256 = page, doc_hash(page)
     log_event(db, "nda", n.id, "created", user, label=f["full_name"], lang=lang)
     db.commit()
@@ -333,7 +348,9 @@ MAX_BLOCKS, MAX_TEXT = 600, 6000
 def text(db: Session, nid: int, user: User) -> dict:
     n = get(db, nid, user)
     own = (n.details or {}).get("blocks")
-    return {"blocks": own or BLOCKS, "edited": bool(own), "edition": EDITION, "lang": n.lang, "status": n.status}
+    ed = edition_of(n)
+    return {"blocks": own or edition_blocks(db, ed), "edited": bool(own), "edition": ed, "current": template(db)["edition"],
+            "lang": n.lang, "status": n.status}
 
 
 def _cell(c) -> dict:
@@ -376,18 +393,160 @@ def set_text(db: Session, nid: int, body: dict, user: User, save: bool = True) -
     if n.status != "sent":
         raise DomainError("bad_status", f"NDA: {STATUS_LABEL[n.status]} — текст не меняется", 409)
     blocks = None if body.get("blocks") is None else _blocks(body["blocks"])
-    if blocks == BLOCKS:
+    d = dict(n.details or {})
+    d.setdefault("edition", edition_of(n))
+    if blocks is None:  # back to the common text: its current edition (an NDA made from an older one is re-generated)
+        d["edition"] = template(db)["edition"]
+    if blocks == edition_blocks(db, d.get("edition") or edition_of(n)):
         blocks = None
-    page = _page(n, blocks)
+    d.pop("blocks", None)
+    if blocks:
+        d["blocks"] = blocks
+    page = _page(db, n, blocks, d)
     if not save:
         return {"html": page}
-    n.details = {**{k: v for k, v in (n.details or {}).items() if k != "blocks"}, **({"blocks": blocks} if blocks else {})}
+    n.details = d
     if page != n.html:
         n.html, n.doc_sha256 = page, doc_hash(page)
-        log_event(db, "nda", n.id, "text_edited", user, label=n.full_name, edited=bool(blocks),
+        log_event(db, "nda", n.id, "text_edited", user, label=n.full_name, edited=bool(blocks), edition=d.get("edition"),
                   doc_sha256=n.doc_sha256)
     db.commit()
     return out(db, n, full=True)
+
+
+# ---------------------------------------------------------------- the common text (admins): every new NDA is made from
+# its current edition. settings: «nda_template» = the current edition, «nda_template:<edition>» = that edition's clauses +
+# who / when / which clauses changed. The code default (nda_text.BLOCKS, EDITION) is the edition with no row. Saving makes
+# a new edition; NDAs already sent keep theirs until an admin re-generates one, signed ones never change.
+
+TPL = "nda_template"
+EDITION_RE = re.compile(r"\d{1,3}(\.\d{1,3}){0,3}")
+
+
+def _setting(db: Session, key: str, lock: bool = False):
+    row = db.get(Setting, key, with_for_update=lock)
+    try:
+        return row, (json.loads(row.value) if row else None)
+    except ValueError:
+        return row, None
+
+
+def template(db: Session) -> dict:
+    """The current common text: {edition, blocks, at, by_name, changes}."""
+    _, ed = _setting(db, TPL)
+    if ed:
+        _, d = _setting(db, f"{TPL}:{ed}")
+        if d:
+            return {**d, "edition": ed}
+    return {"edition": EDITION, "blocks": BLOCKS, "at": None, "by_name": None, "changes": [], "default": True}
+
+
+def edition_blocks(db: Session, edition: str) -> list:
+    """That edition's clauses (an unknown / the code edition: the code text)."""
+    if edition != EDITION:
+        _, d = _setting(db, f"{TPL}:{edition}")
+        if d:
+            return d["blocks"]
+    return BLOCKS
+
+
+def _label(b: dict) -> str:
+    return b.get("n") or KIND_LABEL.get(b["k"], b["k"])
+
+
+KIND_LABEL = {"p": "абзац", "h": "глава", "n": "пункт", "li": "пункт", "app": "приложение", "sub": "раздел", "t": "таблица"}
+
+
+def changes(old: list, new: list) -> list[str]:
+    """Which clauses differ: «3.2» changed, «+3.9» added, «−4.1» removed."""
+    key = lambda b: json.dumps({k: v for k, v in b.items() if k != "todo"}, ensure_ascii=False, sort_keys=True)  # noqa: E731
+    out: list[str] = []
+    sm = difflib.SequenceMatcher(None, [key(b) for b in old], [key(b) for b in new], autojunk=False)
+    for op, i1, i2, j1, j2 in sm.get_opcodes():
+        if op == "equal":
+            continue
+        a, b = old[i1:i2], new[j1:j2]
+        for k in range(max(len(a), len(b))):
+            if k < len(a) and k < len(b):
+                out.append(_label(b[k]))
+            elif k < len(b):
+                out.append("+" + _label(b[k]))
+            else:
+                out.append("−" + _label(a[k]))
+    return out[:200]
+
+
+def _next(ed: str) -> str:
+    p = ed.split(".")
+    return ".".join(p[:-1] + [str(int(p[-1]) + 1)]) if p[-1].isdigit() else ed + ".1"
+
+
+def _admin(user: User) -> None:
+    if user.role not in ADMINS:
+        raise forbidden("only an admin changes the common agreement text")
+
+
+def template_out(db: Session, user: User) -> dict:
+    _staff(user)
+    cur = template(db)
+    hist = [{"edition": EDITION, "at": None, "by_name": None, "changes": [], "note": "", "default": True}]
+    for row in db.scalars(select(Setting).where(Setting.key.like(f"{TPL}:%"))):
+        try:
+            d = json.loads(row.value)
+        except ValueError:
+            continue
+        hist.append({"edition": row.key.split(":", 1)[1], "at": d.get("at"), "by_name": d.get("by_name"),
+                     "changes": d.get("changes") or [], "note": d.get("note") or "", "from": d.get("from")})
+    hist.sort(key=lambda h: (h["at"] or ""), reverse=True)
+    return {"edition": cur["edition"], "blocks": cur["blocks"], "default": bool(cur.get("default")),
+            "next": _next(cur["edition"]), "code_edition": EDITION, "history": hist}
+
+
+def save_template(db: Session, body: dict, user: User) -> dict:
+    """{blocks, edition?, base, note?} → a new edition of the common text (blocks null = the code text; from_edition =
+    that older edition's text). base: the edition the editor was opened on — someone saved since → 409."""
+    _admin(user)
+    pointer, _ = _setting(db, TPL, lock=True)
+    cur = template(db)
+    if body.get("base") and body["base"] != cur["edition"]:
+        raise DomainError("edition_changed", f"Общий текст уже изменили (ред. {cur['edition']}): откройте заново", 409)
+    if body.get("from_edition"):
+        blocks = edition_blocks(db, str(body["from_edition"]))
+        src = str(body["from_edition"])
+    elif body.get("blocks") is None:
+        blocks, src = BLOCKS, EDITION
+    else:
+        blocks, src = _blocks(body["blocks"]), None
+    if blocks == cur["blocks"]:
+        raise DomainError("no_changes", "Текст не изменился", 400)
+    ed = str(body.get("edition") or _next(cur["edition"])).strip()
+    if not EDITION_RE.fullmatch(ed) or ed == EDITION or db.get(Setting, f"{TPL}:{ed}"):
+        raise DomainError("bad_edition", f"Редакция «{ed}» уже есть или номер неверный (например {_next(cur['edition'])})")
+    d = {"blocks": blocks, "at": now().isoformat(), "by": user.id, "by_name": user.name,
+         "changes": changes(cur["blocks"], blocks), "note": _clean(body.get("note"), 300), "from": src}
+    db.add(Setting(key=f"{TPL}:{ed}", value=json.dumps(d, ensure_ascii=False)))
+    if pointer:
+        pointer.value = json.dumps(ed)
+    else:
+        db.add(Setting(key=TPL, value=json.dumps(ed)))
+    log_event(db, "nda_template", ed, "saved", user, previous=cur["edition"], changes=d["changes"], source=src)
+    db.commit()
+    return template_out(db, user)
+
+
+SAMPLE = {**{k: "" for k in ("name_ka", "name2", "ie", "pid", "address", "phone", "email", "telegram", "access", "iban_gel",
+                              "iban_usd")}, "num": "2026-0000", "date": "—", "role": "agent", "level": "50"}
+
+
+def preview_template(db: Session, body: dict, user: User) -> dict:
+    _admin(user)
+    lang = body.get("lang") if body.get("lang") in LANGS else "KA-RU"
+    blocks = _blocks(body["blocks"]) if body.get("blocks") is not None else None
+    return {"html": render(lang, dict(SAMPLE), blocks, str(body.get("edition") or template(db)["edition"])[:20])}
+
+
+def pdf_bytes(n: AgentNda) -> bytes:
+    data = storage.read(n.pdf_path) if n.pdf_path else None
 
 
 def pdf_bytes(n: AgentNda, amended: bool = False) -> bytes:
@@ -452,7 +611,7 @@ def set_details(db: Session, token: str, data: dict) -> dict:
     d = dict(n.details or {})
     if any(d.get(k, "") != v for k, v in new.items()):
         n.details = {**d, **new}
-        page = _page(n)
+        page = _page(db, n)
         n.html, n.doc_sha256 = page, doc_hash(page)
         log_event(db, "nda", n.id, "details", None, label=n.full_name, doc_sha256=n.doc_sha256, **new)
         db.commit()
@@ -583,7 +742,7 @@ def _record(n: AgentNda, by: User | None) -> str:
     e = lambda v: H.escape(str(v)) if v else "—"  # noqa: E731
     row = lambda k, v, cls="": f'<tr><td>{t(k)}</td><td{cls}>{v}</td></tr>'  # noqa: E731
     tg = f'@{e(n.tg_username)} · id {e(n.tg_id)}' + (f' · {e(n.tg_name)}' if n.tg_name else "")
-    return (f'<section class="rec"><h2>{t("title")}</h2><table>{row("doc", f"{e(SHORT[second])} № {number(n)} · {e(n.lang)} · {EDITION}")}'
+    return (f'<section class="rec"><h2>{t("title")}</h2><table>{row("doc", f"{e(SHORT[second])} № {number(n)} · {e(n.lang)} · {e(edition_of(n))}")}'
             f'{row("hash", n.doc_sha256, " class=mono")}</table>'
             f'<table><tr><td colspan="2"><b>{t("rec")}</b></td></tr>{row("name", e(n.full_name))}{row("pid", e(n.personal_id))}'
             f'{row("phone", e(n.phone))}{row("tg", tg)}{row("code", e(n.tg_hash), " class=mono")}'
@@ -689,7 +848,7 @@ def _addendum(n: AgentNda, ie: str, at) -> str:
     ie_l = {"ka": "ი/მ ნომერი", "ru": "Номер ИП", "en": "IE number"}
     e = H.escape
     return (f'<section class="rec"><h2>{e(title["ka"])} / {e(title[second])}</h2><table>'
-            f'<tr><td>{e(SHORT["ka"])} / {e(SHORT[second])}</td><td>№ {number(n)} · {e(n.lang)} · {EDITION}</td></tr>'
+            f'<tr><td>{e(SHORT["ka"])} / {e(SHORT[second])}</td><td>№ {number(n)} · {e(n.lang)} · {e(edition_of(n))}</td></tr>'
             f'<tr><td>{e(ie_l["ka"])} / {e(ie_l[second])}</td><td><b>{e(ie)}</b></td></tr>'
             f'<tr><td>SHA-256</td><td class="mono">{n.doc_sha256}</td></tr></table>'
             f'<p>{e(note["ka"])}</p><p>{e(note[second])}</p></section>')
@@ -706,7 +865,7 @@ def apply_ie(db: Session, u: User, actor: User | None) -> None:
         d = dict(n.details or {})
         if n.status == "sent" and d.get("ie") != ie:
             n.details = {**d, "ie": ie}
-            page = _page(n)
+            page = _page(db, n)
             n.html, n.doc_sha256 = page, doc_hash(page)
             log_event(db, "nda", n.id, "ie_added", actor, label=n.full_name, ie=ie, doc_sha256=n.doc_sha256)
         elif n.status == "signed" and n.pdf_path and not d.get("ie") and (d.get("ie_amended") or {}).get("ie") != ie:

@@ -1,4 +1,4 @@
-// /ndas (staff; no menu item — Управление → Пользователи → «Соглашение (NDA)»): the agreement (edition 1.1) for new agents (backend services/nda.py, docs/NDA.md). David draws the company's signature once;
+// /ndas (staff; no menu item — Управление → Пользователи → «Соглашение (NDA)»): the agreement for new agents (its common text: editions, NdaTextEditor below) (backend services/nda.py, docs/NDA.md). David draws the company's signature once;
 // staff fill in the agent and send him the personal link /nda/<token>; he confirms himself with Telegram and signs.
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
@@ -16,7 +16,7 @@ interface Nda {
   id: number; status: 'sent' | 'signed' | 'cancelled'; status_label: string; lang: 'KA' | 'KA-RU' | 'KA-EN';
   full_name: string; personal_id: string; phone: string | null; telegram: string | null; role: string | null;
   path: string | null; created_at: string; created_by: { id: number; name: string } | null; signed_at: string | null;
-  tg_username: string | null; has_pdf: boolean; number: string;
+  tg_username: string | null; has_pdf: boolean; number: string; edition: string;
   details: { ie?: string; ie_amended?: { ie: string; at: string }; supersedes?: number; superseded_by?: number } & Partial<Record<'full_name_ka' | 'address' | 'email' | 'level' | 'iban_gel' | 'iban_usd', string>>;
   user_id?: number | null;
 }
@@ -102,6 +102,7 @@ function LinkActions({ n }: { n: Nda }) {
 const today = () => new Date().toLocaleDateString('sv-SE');  // YYYY-MM-DD
 
 function NewNda({ onMade, preset, onReset }: { onMade: (n: Nda) => void; preset?: Preset | null; onReset?: () => void }) {
+  const tpl = useQuery({ queryKey: ['nda-template'], queryFn: () => http.get<Tpl>('/ndas/template') });
   const toast = useToast();
   const blank = { full_name: '', full_name_ka: '', personal_id: '', ie: '', address: '', phone: '', email: '', telegram: '', iban_gel: '', iban_usd: '' };
   const [f, setF] = useState<Form>({ ...blank, role: 'agent', level: '50', access: today(), lang: 'KA-RU' });
@@ -122,7 +123,7 @@ function NewNda({ onMade, preset, onReset }: { onMade: (n: Nda) => void; preset?
   const sig = useQuery({ queryKey: ['nda-company-sig'], queryFn: () => http.get<CompanySig>('/ndas/company-signature') });
   const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => setF({ ...f, [k]: e.target.value });
   return (
-    <Card label={preset?.supersedes ? t('Исправление соглашения № {num}: {name}', { num: preset.supersedes.number, name: preset.name }) : preset ? t('Участнику команды: {name}', { name: preset.name }) : 'Новому агенту'} title={t('Соглашение о подключении к платформе (ред. {ed})', { ed: sig.data?.edition ?? '…' })}>
+    <Card label={preset?.supersedes ? t('Исправление соглашения № {num}: {name}', { num: preset.supersedes.number, name: preset.name }) : preset ? t('Участнику команды: {name}', { name: preset.name }) : 'Новому агенту'} title={t('Соглашение о подключении к платформе (ред. {ed})', { ed: tpl.data?.edition ?? sig.data?.edition ?? '…' })}>
       {preset && <div className="alert alert-info" style={{ marginBottom: 12 }}>{preset.supersedes ? t('Заполнено из подписанного соглашения — исправьте, что нужно') : t('Заполнено из профиля — проверьте и дополните пустые поля')} · <button type="button" className="link-btn" onClick={() => { setF({ ...f, ...blank, access: today() }); onReset?.(); }}>{t('Очистить')}</button></div>}
       <div className="form-grid">
         <Field label="ФИО агента *" hint={t('Имя и фамилия латиницей или кириллицей, как в паспорте')}><Input value={f.full_name} onChange={set('full_name')} placeholder="Nino Beridze" /></Field>
@@ -145,67 +146,124 @@ function NewNda({ onMade, preset, onReset }: { onMade: (n: Nda) => void; preset?
 }
 
 
-// ---------------------------------------------------------------- this NDA's own text (like a client contract's text
-// edited in the wizard's preview): an admin changes / adds / removes clauses while it is not signed; the server
-// re-renders and re-hashes it, an open signing page then asks the agent to reload. Georgian is the leading text: an
-// edit in one language marks the others «не переведено» until they are edited too (or marked translated).
+// ---------------------------------------------------------------- the agreement's text editor. Two uses:
+// · the common text (admins): every new NDA is made from its current edition; saving makes a new edition (1.3 → 1.4)
+//   with who / when / which clauses; NDAs already sent keep theirs until re-generated, signed ones never change;
+// · one NDA's own text (special cases): clauses changed / added / removed for this agent while it is not signed; the
+//   server re-renders and re-hashes it, an open signing page then asks the agent to reload.
+// Georgian is the leading text: an edit in one language marks the others «не переведено» until they are edited too
+// (or marked translated). Tables (appendices) are edited cell by cell in each language.
 type Ln = 'ka' | 'ru' | 'en';
 type Cell = Record<Ln, string>;
 interface Block extends Partial<Cell> { k: string; n?: string; only?: string; todo?: Ln[]; head?: Cell[]; rows?: Cell[][]; _id?: number; _ch?: Ln[] }
-interface NdaText { blocks: Block[]; edited: boolean; edition: string; lang: Nda['lang']; status: Nda['status'] }
+interface NdaText { blocks: Block[]; edited: boolean; edition: string; current: string; lang: Nda['lang']; status: Nda['status'] }
+interface TplEdition { edition: string; at: string | null; by_name: string | null; changes: string[]; note: string; default?: boolean; from?: string | null }
+interface Tpl { edition: string; blocks: Block[]; default: boolean; next: string; code_edition: string; history: TplEdition[] }
+type Mode = { kind: 'nda'; n: Nda } | { kind: 'template' };
 const ALL: Ln[] = ['ka', 'ru', 'en'];
+const LN_LABEL: Record<Ln, string> = { ka: 'Грузинский (главный)', ru: 'Русский', en: 'Английский' };
 const KIND: Record<string, string> = { p: 'Абзац', h: 'Глава', n: 'Пункт', li: 'Пункт списка', app: 'Приложение', sub: 'Раздел', t: 'Таблица' };
+const emptyCell = (): Cell => ({ ka: '', ru: '', en: '' });
 let uid = 0;
 /** Not translated: marked earlier, or another language changed in this edit and this one not (yet). */
 const missing = (b: Block): Ln[] => { const ch = b._ch || []; return ALL.filter((l) => !ch.includes(l) && (b.todo?.includes(l) || ch.length > 0)); };
 
-function NdaTextEditor({ n, onClose }: { n: Nda; onClose: () => void }) {
+function TableEdit({ b, langs, onCell, onRows }: { b: Block; langs: Ln[]; onCell: (r: number, c: number, l: Ln, v: string) => void; onRows: (rows: Cell[][]) => void }) {
+  const head = b.head || [];
+  const rows = b.rows || [];
+  const cell = (c: Cell, r: number, i: number) => (
+    <div className="col" style={{ gap: 4 }}>
+      {langs.map((l) => <Textarea key={l} rows={2} lang={l} placeholder={l.toUpperCase()} value={c[l] || ''} onChange={(e) => onCell(r, i, l, e.target.value)} style={{ minWidth: 150, fontSize: 12 }} />)}
+    </div>
+  );
+  return (
+    <div style={{ overflowX: 'auto' }}>
+      <table style={{ borderCollapse: 'collapse' }}>
+        <tbody>
+          <tr>{head.map((c, i) => <th key={i} style={{ padding: 3, verticalAlign: 'top' }}>{cell(c, -1, i)}</th>)}<th /></tr>
+          {rows.map((row, r) => (
+            <tr key={r}>
+              {row.map((c, i) => <td key={i} style={{ padding: 3, verticalAlign: 'top' }}>{cell(c, r, i)}</td>)}
+              <td style={{ verticalAlign: 'top' }}><Button size="sm" variant="ghost" title={t('Удалить строку')} onClick={() => onRows(rows.filter((_, j) => j !== r))}><Trash2 size={14} /></Button></td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <Button size="sm" variant="ghost" onClick={() => onRows([...rows, head.map(emptyCell)])}><Plus size={14} />{t('Строка')}</Button>
+    </div>
+  );
+}
+
+function NdaTextEditor({ mode, onClose }: { mode: Mode; onClose: () => void }) {
   const toast = useToast();
   const qc = useQueryClient();
-  const langs: Ln[] = n.lang === 'KA' ? ['ka'] : ['ka', n.lang === 'KA-RU' ? 'ru' : 'en'];
+  const n = mode.kind === 'nda' ? mode.n : null;
+  const langs: Ln[] = !n ? ALL : n.lang === 'KA' ? ['ka'] : ['ka', n.lang === 'KA-RU' ? 'ru' : 'en'];
+  const fits = (b: Block) => !n || !b.only || b.only.split(' ').includes(n.lang);
+  const url = n ? `/ndas/${n.id}/text` : '/ndas/template';
+  const key = n ? ['nda-text', n.id] : ['nda-template'];
   const [blocks, setBlocks] = useState<Block[] | null>(null);
-  const [edited, setEdited] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [find, setFind] = useState('');
+  const [edition, setEdition] = useState('');
+  const [note, setNote] = useState('');
+  const [pvLang, setPvLang] = useState<string>('KA-RU');
   const [preview, setPreview] = useState<string | null>(null);
-  const q = useQuery({ queryKey: ['nda-text', n.id], queryFn: () => http.get<NdaText>(`/ndas/${n.id}/text`) });
+  const q = useQuery({ queryKey: key, queryFn: () => http.get<Partial<NdaText & Tpl>>(url) });
+  const d = q.data;
   useEffect(() => {
-    if (q.data && !blocks) { setBlocks(q.data.blocks.map((b) => ({ ...b, _id: ++uid }))); setEdited(q.data.edited); }
-  }, [q.data, blocks]);
+    if (d && !blocks) { setBlocks(d.blocks!.map((b) => ({ ...b, _id: ++uid }))); setEdition(d.next || ''); }
+  }, [d, blocks]);
   const payload = () => ({ blocks: blocks!.map(({ _id, _ch, ...b }) => ({ ...b, todo: missing({ ...b, _ch }) })) });
-  const todo = (blocks || []).filter((b) => missing(b).some((l) => langs.includes(l)) && (!b.only || b.only.split(' ').includes(n.lang)));
-  const done = () => { qc.invalidateQueries({ queryKey: ['ndas'] }); qc.invalidateQueries({ queryKey: ['nda-text', n.id] }); };
+  const todo = (blocks || []).filter((b) => missing(b).some((l) => langs.includes(l)) && fits(b));
+  const done = () => { qc.invalidateQueries({ queryKey: ['ndas'] }); qc.invalidateQueries({ queryKey: ['nda-text'] }); qc.invalidateQueries({ queryKey: ['nda-template'] }); };
   const save = useMutation({
-    mutationFn: (reset: boolean) => http.put<Nda>(`/ndas/${n.id}/text`, reset ? { blocks: null } : payload()),
-    onSuccess: (_, reset) => { done(); toast(reset ? t('Вернули стандартный текст соглашения') : t('Текст соглашения сохранён: открытая ссылка попросит агента обновить страницу')); onClose(); },
+    mutationFn: (reset: boolean): Promise<Nda | Tpl> => n
+      ? http.put<Nda>(url, reset ? { blocks: null } : payload())
+      : http.put<Tpl>(url, { ...payload(), edition: edition.trim(), note, base: d?.edition }),
+    onSuccess: (r, reset) => {
+      done();
+      toast(!n ? t('Сохранена редакция {ed}: по ней пойдут новые соглашения', { ed: (r as Tpl).edition })
+        : reset ? t('Текст соглашения обновлён по общему тексту (ред. {ed})', { ed: d?.current ?? '' })
+          : t('Текст соглашения сохранён: открытая ссылка попросит агента обновить страницу'));
+      onClose();
+    },
     onError: (e) => toast(errText(e), true),
   });
   const show = useMutation({
-    mutationFn: () => http.post<{ html: string }>(`/ndas/${n.id}/text/preview`, payload()),
+    mutationFn: () => http.post<{ html: string }>(`${url}/preview`, n ? payload() : { ...payload(), lang: pvLang, edition: edition.trim() || d?.edition }),
     onSuccess: (r) => setPreview(r.html),
     onError: (e) => toast(errText(e), true),
   });
   const patch = (id: number, f: (b: Block) => Block) => { setDirty(true); setBlocks((bs) => bs!.map((b) => (b._id === id ? f(b) : b))); };
-  const write = (b: Block, l: Ln, v: string) => patch(b._id!, (x) => ({ ...x, [l]: v, _ch: x._ch?.includes(l) ? x._ch : [...(x._ch || []), l] }));
+  const touched = (x: Block, l: Ln) => (x._ch?.includes(l) ? x._ch : [...(x._ch || []), l]);
+  const write = (b: Block, l: Ln, v: string) => patch(b._id!, (x) => ({ ...x, [l]: v, _ch: touched(x, l) }));
+  const writeCell = (b: Block, r: number, c: number, l: Ln, v: string) => patch(b._id!, (x) => {
+    const set = (cells: Cell[]) => cells.map((cell, i) => (i === c ? { ...cell, [l]: v } : cell));
+    return r < 0 ? { ...x, head: set(x.head || []), _ch: touched(x, l) } : { ...x, rows: (x.rows || []).map((row, j) => (j === r ? set(row) : row)), _ch: touched(x, l) };
+  });
   // «Перевод готов»: the shown languages count as done (a typo fixed in one language needs no new translation)
   const translated = (b: Block) => patch(b._id!, (x) => ({ ...x, todo: (x.todo || []).filter((l) => !langs.includes(l)), _ch: x._ch?.length ? [...new Set([...x._ch, ...langs])] : x._ch }));
   const add = (after: Block) => { setDirty(true); setBlocks((bs) => { const i = bs!.findIndex((b) => b._id === after._id); const nb: Block = { k: after.k === 'h' ? 'n' : after.k === 't' ? 'p' : after.k, n: '', ka: '', ru: '', en: '', todo: [...ALL], _id: ++uid }; return [...bs!.slice(0, i + 1), nb, ...bs!.slice(i + 1)]; }); };
-  const remove = (b: Block) => { if (window.confirm(t('Удалить «{n}» из этого соглашения?', { n: b.n || (b.ka || '').slice(0, 40) }))) { setDirty(true); setBlocks((bs) => bs!.filter((x) => x._id !== b._id)); } };
+  const remove = (b: Block) => { if (window.confirm(t(n ? 'Удалить «{n}» из этого соглашения?' : 'Удалить «{n}» из общего текста?', { n: b.n || (b.ka || '').slice(0, 40) }))) { setDirty(true); setBlocks((bs) => bs!.filter((x) => x._id !== b._id)); } };
   const submit = () => {
     if (todo.length && !window.confirm(t('Не переведено пунктов: {n} ({list}). Всё равно сохранить?', { n: todo.length, list: todo.slice(0, 6).map((b) => b.n || KIND[b.k]).join(', ') }))) return;
     save.mutate(false);
   };
   const close = () => { if (!dirty || window.confirm(t('Закрыть без сохранения? Правки пропадут.'))) onClose(); };
   const needle = find.trim().toLowerCase();
-  const visible = (blocks || []).filter((b) => (!b.only || b.only.split(' ').includes(n.lang))
-    && (!needle || [b.n, ...ALL.map((l) => b[l])].some((x) => (x || '').toLowerCase().includes(needle))));
+  const text = (b: Block) => [b.n, ...ALL.map((l) => b[l]), ...[...(b.head || []), ...(b.rows || []).flat()].flatMap((c) => ALL.map((l) => c[l]))];
+  const visible = (blocks || []).filter((b) => fits(b) && (!needle || text(b).some((x) => (x || '').toLowerCase().includes(needle))));
+  const behind = !!n && !!d && d.current !== d.edition;
   return (
-    <Modal open wide onClose={close} title={t('Текст соглашения № {num} · {name}', { num: n.number, name: n.full_name })}>
+    <Modal open wide onClose={close} title={n ? t('Текст соглашения № {num} · {name}', { num: n.number, name: n.full_name }) : t('Общий текст соглашения · ред. {ed}', { ed: d?.edition ?? '' })}>
       {!blocks ? <Loading /> : (
         <div className="col gap">
           <div className="muted" style={{ fontSize: 13 }}>
-            {t('Правки только для этого агента; стандартный текст (ред. {ed}) не меняется. Грузинский текст — главный. Поля в фигурных скобках ({pid}, {name_ka} …) система заполняет сама.', { ed: q.data?.edition ?? '' })}
-            {edited && <> · <b>{t('Текст уже изменён')}</b></>}
+            {n ? t('Правки только для этого агента (ред. {ed}); общий текст не меняется. Грузинский текст — главный. Поля в фигурных скобках ({pid}, {name_ka} …) система заполняет сама.', { ed: d?.edition ?? '' })
+              : t('Из этого текста делаются все новые соглашения. Сохранение — новая редакция: уже отправленные соглашения остаются на своей (их можно обновить по одному), подписанные не меняются. Грузинский текст — главный. Поля в фигурных скобках ({pid}, {name_ka}, {edition} …) система заполняет сама.')}
+            {d?.edited && <> · <b>{t('Текст уже изменён')}</b></>}
+            {behind && <> · <b>{t('Общий текст уже новее: ред. {ed}', { ed: d!.current! })}</b></>}
           </div>
           {todo.length > 0 && <div className="alert alert-warn">{t('Не переведено: {list}', { list: todo.map((b) => b.n || KIND[b.k]).join(', ') })}</div>}
           <Input value={find} onChange={(e) => setFind(e.target.value)} placeholder={t('Найти пункт: номер или слово')} />
@@ -218,6 +276,7 @@ function NdaTextEditor({ n, onClose }: { n: Nda; onClose: () => void }) {
                     <span className="row gap-sm" style={{ alignItems: 'center' }}>
                       <small className="muted">{t(KIND[b.k] || b.k)}</small>
                       {b.k !== 't' && b.k !== 'p' && b.k !== 'sub' && <Input value={b.n || ''} onChange={(e) => patch(b._id!, (x) => ({ ...x, n: e.target.value }))} style={{ width: 80 }} aria-label={t('Номер')} />}
+                      {!n && b.only && <Badge tone="grey">{t('только {langs}', { langs: b.only })}</Badge>}
                       {miss.map((l) => <Badge key={l} tone="warn">{l.toUpperCase()}: {t('не переведено')}</Badge>)}
                     </span>
                     <span className="row gap-sm">
@@ -226,10 +285,10 @@ function NdaTextEditor({ n, onClose }: { n: Nda; onClose: () => void }) {
                       <Button size="sm" variant="ghost" onClick={() => remove(b)} title={t('Удалить')}><Trash2 size={14} /></Button>
                     </span>
                   </div>
-                  {b.k === 't' ? <small className="muted">{t('Таблица: {n} строк, здесь не редактируется', { n: b.rows?.length ?? 0 })}</small> : (
+                  {b.k === 't' ? <TableEdit b={b} langs={langs} onCell={(r, c, l, v) => writeCell(b, r, c, l, v)} onRows={(rows) => patch(b._id!, (x) => ({ ...x, rows }))} /> : (
                     <div className="form-grid">
                       {langs.map((l) => (
-                        <Field key={l} label={l === 'ka' ? t('Грузинский (главный)') : l === 'ru' ? t('Русский') : t('Английский')}>
+                        <Field key={l} label={t(LN_LABEL[l])}>
                           <Textarea rows={Math.min(8, Math.max(2, Math.ceil((b[l] || '').length / 70)))} value={b[l] || ''} lang={l} onChange={(e) => write(b, l, e.target.value)} />
                         </Field>
                       ))}
@@ -239,10 +298,17 @@ function NdaTextEditor({ n, onClose }: { n: Nda; onClose: () => void }) {
               );
             })}
           </div>
-          <div className="row row-wrap gap-sm" style={{ position: 'sticky', bottom: 0, background: 'var(--card, #fff)', padding: '8px 0' }}>
-            <Button loading={save.isPending && !save.variables} onClick={submit}><Save size={16} />{t('Сохранить текст')}</Button>
+          {!n && (
+            <div className="form-grid">
+              <Field label={t('Номер новой редакции')}><Input value={edition} onChange={(e) => setEdition(e.target.value)} placeholder={d?.next} /></Field>
+              <Field label={t('Что изменили (для истории)')}><Input value={note} onChange={(e) => setNote(e.target.value)} maxLength={300} /></Field>
+            </div>
+          )}
+          <div className="row row-wrap gap-sm" style={{ position: 'sticky', bottom: 0, background: 'var(--card, #fff)', padding: '8px 0', alignItems: 'center' }}>
+            <Button disabled={!n && !dirty} loading={save.isPending && !save.variables} onClick={submit}><Save size={16} />{n ? t('Сохранить текст') : t('Сохранить как новую редакцию')}</Button>
+            {!n && <Select value={pvLang} onChange={(e) => setPvLang(e.target.value)} options={LANGS} style={{ width: 'auto' }} aria-label={t('Язык предпросмотра')} />}
             <Button variant="secondary" loading={show.isPending} onClick={() => show.mutate()}><Eye size={16} />{t('Предпросмотр')}</Button>
-            {edited && <Button variant="ghost" loading={save.isPending && !!save.variables} onClick={() => { if (window.confirm(t('Вернуть стандартный текст? Все правки этого соглашения пропадут.'))) save.mutate(true); }}><RotateCcw size={16} />{t('Стандартный текст')}</Button>}
+            {n && (d?.edited || behind) && <Button variant="ghost" loading={save.isPending && !!save.variables} onClick={() => { if (window.confirm(t('Сделать текст заново по общему тексту (ред. {ed})? Правки этого соглашения пропадут, открытая ссылка попросит агента обновить страницу.', { ed: d?.current ?? '' }))) save.mutate(true); }}><RotateCcw size={16} />{t('По общему тексту (ред. {ed})', { ed: d?.current ?? '' })}</Button>}
             <Button variant="ghost" onClick={close}>{t('Закрыть')}</Button>
           </div>
         </div>
@@ -321,13 +387,59 @@ function Team({ onForm }: { onForm: (p: Preset) => void }) {
   );
 }
 
+function CommonText({ onEdit }: { onEdit: () => void }) {
+  const { user } = useAuth();
+  const toast = useToast();
+  const qc = useQueryClient();
+  const admin = !!user && ['superadmin', 'admin'].includes(user.role);
+  const [all, setAll] = useState(false);
+  const q = useQuery({ queryKey: ['nda-template'], queryFn: () => http.get<Tpl>('/ndas/template') });
+  const back = useMutation({
+    mutationFn: (h: TplEdition) => http.put<Tpl>('/ndas/template', h.default ? { blocks: null, base: q.data?.edition } : { from_edition: h.edition, base: q.data?.edition }),
+    onSuccess: (r) => { qc.invalidateQueries({ queryKey: ['nda-template'] }); toast(t('Сохранена редакция {ed}: по ней пойдут новые соглашения', { ed: r.edition })); },
+    onError: (e) => toast(errText(e), true),
+  });
+  const d = q.data;
+  const hist = d ? (all ? d.history : d.history.slice(0, 4)) : [];
+  return (
+    <Card label={t('Для всех новых соглашений')} title={t('Общий текст соглашения')}>
+      {!d ? <Loading /> : (
+        <div className="col gap-sm">
+          <div className="row row-wrap gap-sm" style={{ alignItems: 'center' }}>
+            <Badge tone="blue">{t('ред. {ed}', { ed: d.edition })}</Badge>
+            <span className="muted" style={{ fontSize: 13 }}>{d.default ? t('Исходный текст') : `${d.history.find((h) => h.edition === d.edition)?.by_name || '—'}, ${fmtDateTime(d.history.find((h) => h.edition === d.edition)?.at)}`}</span>
+            {admin && <Button size="sm" onClick={onEdit}><FileText size={14} />{t('Изменить общий текст')}</Button>}
+          </div>
+          {!admin && <span className="faint" style={{ fontSize: 12 }}>{t('Менять общий текст могут администраторы.')}</span>}
+          <div className="col" style={{ gap: 4 }}>
+            <small className="muted"><b>{t('История редакций')}</b></small>
+            {hist.map((h) => (
+              <div key={h.edition} className="row row-between row-wrap gap-sm" style={{ fontSize: 13 }}>
+                <span>
+                  <b>{t('ред. {ed}', { ed: h.edition })}</b>{h.edition === d.edition && <> · {t('текущая')}</>}
+                  {' · '}{h.default ? t('исходный текст') : `${h.by_name || '—'}, ${fmtDateTime(h.at)}`}
+                  {h.from && <> · {t('возврат к ред. {ed}', { ed: h.from })}</>}
+                  {h.changes.length > 0 && <span className="muted"> · {t('пункты: {list}', { list: h.changes.slice(0, 12).join(', ') + (h.changes.length > 12 ? ' …' : '') })}</span>}
+                  {h.note && <span className="muted"> · «{h.note}»</span>}
+                </span>
+                {admin && h.edition !== d.edition && <Button size="sm" variant="ghost" loading={back.isPending && back.variables?.edition === h.edition} onClick={() => { if (window.confirm(t('Вернуть текст редакции {ed}? Это будет новая редакция {next}; уже отправленные соглашения не изменятся.', { ed: h.edition, next: d.next }))) back.mutate(h); }}><RotateCcw size={14} />{h.default ? t('Вернуть исходный текст') : t('Вернуть')}</Button>}
+              </div>
+            ))}
+            {d.history.length > 4 && <div><Button size="sm" variant="ghost" onClick={() => setAll(!all)}>{all ? t('Свернуть') : t('Все редакции ({n})', { n: d.history.length })}</Button></div>}
+          </div>
+        </div>
+      )}
+    </Card>
+  );
+}
+
 const TABS = [{ value: 'sent', label: 'Ждут подписи' }, { value: 'signed', label: 'Подписаны' }, { value: 'all', label: 'Все' }] as const;
 
 export function NdasPage() {
   const toast = useToast();
   const { user } = useAuth();
   const admin = !!user && ['superadmin', 'admin'].includes(user.role);
-  const [editing, setEditing] = useState<Nda | null>(null);
+  const [editing, setEditing] = useState<Mode | null>(null);
   const qc = useQueryClient();
   const [tab, setTab] = useState<(typeof TABS)[number]['value']>('sent');
   const [made, setMade] = useState<Nda | null>(null);
@@ -349,6 +461,7 @@ export function NdasPage() {
       <div><Link to="/admin" className="muted" style={{ fontSize: 13 }}>← Управление · Пользователи</Link></div>
       <PageHead label="Новые агенты" title="Соглашения (NDA)" />
       <CompanySignature />
+      <CommonText onEdit={() => setEditing({ kind: 'template' })} />
       <Team onForm={setPreset} />
       <div id="nda-form" />
       <NewNda preset={preset} onReset={() => setPreset(null)} onMade={(n) => { setMade(n); setTab('sent'); qc.invalidateQueries({ queryKey: ['ndas'] }); qc.invalidateQueries({ queryKey: ['nda-team'] }); }} />
@@ -357,7 +470,7 @@ export function NdasPage() {
           <div className="col gap-sm">
             <a href={absolute(made.path)} target="_blank" rel="noreferrer" style={{ wordBreak: 'break-all' }}>{absolute(made.path)}</a>
             <div className="row row-wrap gap-sm"><TgSend n={made} /><LinkActions n={made} /></div>
-            {admin && <div><Button size="sm" variant="ghost" onClick={() => setEditing(made)}><FileText size={14} />{t('Изменить пункты для этого агента')}</Button></div>}
+            {admin && <div><Button size="sm" variant="ghost" onClick={() => setEditing({ kind: 'nda', n: made })}><FileText size={14} />{t('Изменить пункты для этого агента')}</Button></div>}
           </div>
         </Card>
       )}
@@ -370,7 +483,7 @@ export function NdasPage() {
                 <div className="row row-between row-wrap gap-sm">
                   <span className="col" style={{ gap: 2 }}>
                     <b>{n.full_name}</b>
-                    <small className="muted">№ {n.number} · {n.role || '—'} · {n.lang}{n.telegram ? ` · @${n.telegram}` : ''} · {n.created_by?.name || '—'}, {fmtDate(n.created_at)}</small>
+                    <small className="muted">№ {n.number} · {t('ред. {ed}', { ed: n.edition })} · {n.role || '—'} · {n.lang}{n.telegram ? ` · @${n.telegram}` : ''} · {n.created_by?.name || '—'}, {fmtDate(n.created_at)}</small>
                     {n.signed_at && <small className="muted">Подписал(а) {fmtDateTime(n.signed_at)}{n.tg_username ? ` · Telegram @${n.tg_username}` : ''}</small>}
                     {n.details?.supersedes && <small className="muted">{t('Исправление к № {num}', { num: rows.find((x) => x.id === n.details.supersedes)?.number ?? n.details.supersedes })}</small>}
                   </span>
@@ -379,7 +492,7 @@ export function NdasPage() {
                 <div className="row row-wrap gap-sm">
                   {n.status === 'sent' && <TgSend n={n} />}
                   {n.status === 'sent' && <LinkActions n={n} />}
-                  {n.status === 'sent' && admin && <Button size="sm" variant="ghost" onClick={() => setEditing(n)}><FileText size={14} />{t('Текст')}</Button>}
+                  {n.status === 'sent' && admin && <Button size="sm" variant="ghost" onClick={() => setEditing({ kind: 'nda', n })}><FileText size={14} />{t('Текст')}</Button>}
                   {n.status === 'sent' && <Button size="sm" variant="ghost" loading={cancel.isPending} onClick={() => { if (window.confirm(`Отменить соглашение для ${n.full_name}? Ссылка перестанет работать.`)) cancel.mutate(n.id); }}><XCircle size={14} />Отменить</Button>}
                   {n.status === 'signed' && !n.details?.superseded_by && <Button size="sm" variant="ghost" onClick={() => { setPreset(fromSigned(n)); document.getElementById('nda-form')?.scrollIntoView({ behavior: 'smooth' }); }}><FileText size={14} />{t('Исправить')}</Button>}
                   {n.has_pdf && <Button size="sm" variant="secondary" onClick={() => pdf(n).catch((e) => toast(errText(e), true))}><Download size={14} />PDF</Button>}
@@ -390,7 +503,7 @@ export function NdasPage() {
           </div>
         )}
       </Card>
-      {editing && <NdaTextEditor n={editing} onClose={() => setEditing(null)} />}
+      {editing && <NdaTextEditor mode={editing} onClose={() => setEditing(null)} />}
     </div>
   );
 }

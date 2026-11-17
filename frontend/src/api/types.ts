@@ -640,7 +640,7 @@ export interface SourceSchedule {
 
 export interface Source { id: number | string; name: string; key?: string; kind?: string | null; url?: string | null; enabled: boolean; last_run_at?: string | null; count?: number;
   /** competitor: «Конкурент» (its ads only in Объекты → База → Конкуренты); backfilled_at: its history loaded */
-  options?: { competitor?: boolean; backfilled_at?: string; [k: string]: unknown } }
+  options?: { competitor?: boolean; backfilled_at?: string; last_run?: string; last_error?: string | null; last_note?: string | null; [k: string]: unknown } }
 
 export interface AgentStat {
   first_name?: string | null;

@@ -99,7 +99,7 @@ def test_recommend_puts_owners_agent_first(db, client, sent):
 
 
 FULL = {"metro": "Delisi", "building": "OldBuilding", "design": "Mixed", "heating": "CentralHeating",
-        "amenities": ["#Stove", "Balcony", "Conditioner", "WiFi"], "pets": "ByAgreement", "periods": ["12Month", "6Month"],
+        "amenities": ["#Stove", "Balcony", "Conditioner", "WiFi", "WashingMachine"], "pets": "ByAgreement", "periods": ["12Month", "6Month"],
         "tenants": 3, "deposit": 500, "headline": "No one lived"}
 
 
@@ -112,7 +112,7 @@ def test_post_fields_validated_and_full_rent_post(db, client):
     assert client.patch(f"/api/properties/{pid}", json={"post_fields": {"pets": "Dogs"}}, headers=auth(zaza)).json()["code"] == "bad_post_fields"
     r = client.patch(f"/api/properties/{pid}", json={"total_floors": 12, "is_exclusive": True, "post_fields": FULL},
                      headers=auth(zaza)).json()
-    assert r["post_fields"]["amenities"] == ["Balcony", "WiFi", "Stove", "Conditioner"]  # canonical order, no '#'
+    assert r["post_fields"]["amenities"] == ["Balcony", "WiFi", "Stove", "WashingMachine", "Conditioner"]  # canonical order, no '#'
     assert r["post_fields"]["periods"] == ["6Month", "12Month"]
     text = client.get(f"/api/properties/{pid}/post", headers=auth(nino)).json()["text"]
     lines = text.split("\n")
@@ -122,6 +122,7 @@ def test_post_fields_validated_and_full_rent_post(db, client):
                  "✖️ #Elevator  ✖️ #Oven  ✖️ #ParkingPlace", "👬Tenants: 1-3", "🐕Pets: #ByAgreement",
                  "🕐 #6Month #12Month", "💰 500$ + Deposit 500$", "0% Commission", "#Price300to500", "+995 599 20 67 16 #David · Agent #Zaza"):
         assert line in lines, line
+    assert "WashingMachine" not in text  # kept on the card, never a post hashtag (Irakli 11-17)
     assert lines.index("👬Tenants: 1-3") < lines.index("💰 500$ + Deposit 500$")  # the generator's order
     html = post_html(text)
     assert '<a href="https://maps.google.com/?q=41.72,44.75">📍3 Ferdinand Tavadze St</a>' in html

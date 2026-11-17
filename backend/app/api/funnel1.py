@@ -29,9 +29,10 @@ def listings_new(q: str | None = None, source: list[str] | None = Query(None), f
                  district: list[str] | None = Query(None), metro: str | None = None, bedrooms: str | None = None,
                  price_min: int | None = Query(None, ge=0), price_max: int | None = Query(None, ge=0),
                  limit: int = Query(50, ge=0, le=500), offset: int = Query(0, ge=0), known: int = 0, competitor: int = 0,
+                 prop_type: Literal["apartment", "house", "commercial"] | None = None,
                  db: Session = Depends(get_db, scope="function"), user: User = Depends(current_user)):
     return P.new_listings(db, q, source, flag, limit, offset, district, metro, price_min, price_max, bedrooms, bool(known),
-                          bool(competitor))
+                          bool(competitor), prop_type)
 
 
 @router.get("/listings/new/facets")

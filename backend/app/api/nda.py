@@ -61,10 +61,11 @@ def ndas_create(body: NdaIn, db: Session = Depends(get_db, scope="function"), us
 
 
 @router.get("/ndas/company-signature")
-def ndas_company_signature(user: User = Depends(current_user)):
+def ndas_company_signature(db: Session = Depends(get_db, scope="function"), user: User = Depends(current_user)):
     N._staff(user)
     d = N.company_signature()
-    return {"signature": d and d["signature"], "at": d and d.get("at"), "by_name": d and d.get("by_name"), "edition": N.EDITION}
+    return {"signature": d and d["signature"], "at": d and d.get("at"), "by_name": d and d.get("by_name"),
+            "edition": N.template(db)["edition"]}
 
 
 @router.put("/ndas/company-signature")
@@ -88,6 +89,24 @@ def ndas_team_send_all(db: Session = Depends(get_db, scope="function"), user: Us
 def ndas_send(nid: int, db: Session = Depends(get_db, scope="function"), user: User = Depends(current_user)):
     """The signing link → the member's Telegram (CRM bot); {sent: false} → copy the link."""
     return N.send_link(db, nid, user)
+
+
+@router.get("/ndas/template")
+def ndas_template(db: Session = Depends(get_db, scope="function"), user: User = Depends(current_user)):
+    """The common agreement text every new NDA is made from: the current edition's clauses + the editions' history."""
+    return N.template_out(db, user)
+
+
+@router.put("/ndas/template")
+def ndas_save_template(body: dict, db: Session = Depends(get_db, scope="function"), user: User = Depends(current_user)):
+    """{"blocks": [...], "edition": "1.4", "base": "1.3", "note"} → a new edition; {"blocks": null} → the original
+    (code) text; {"from_edition": "1.4"} → that edition's text — each as a new edition."""
+    return N.save_template(db, body, user)
+
+
+@router.post("/ndas/template/preview")
+def ndas_preview_template(body: dict, db: Session = Depends(get_db, scope="function"), user: User = Depends(current_user)):
+    return N.preview_template(db, body, user)
 
 
 @router.get("/ndas/{nid}")

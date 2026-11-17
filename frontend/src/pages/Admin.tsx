@@ -332,6 +332,13 @@ function Sources() {
               <div className="row row-between"><h3>{s.name || (s as { key?: string }).key || s.kind}</h3><Switch checked={s.enabled} onChange={(v) => upd.mutate({ id: s.id, enabled: v })} /></div>
               <div className="muted ellipsis" style={{ fontSize: 13 }}>{s.url || s.kind}</div>
               <div className="row gap-sm">{s.count !== undefined && <Badge tone="grey">{t('{n} объявлений', { n: s.count })}</Badge>}{s.last_run_at && <Badge tone="grey">{ago(s.last_run_at)}</Badge>}</div>
+              {/* the Telegram fetcher's last run of this channel (bot/fetch_channel_web.py → options) */}
+              {s.options?.last_run && <div>
+                {s.options.last_error
+                  ? <Badge tone="red">{t('Ошибка {d}', { d: fmtDateTime(s.options.last_run) })}</Badge>
+                  : <Badge tone="grey">{t('обновлён {d}', { d: fmtDateTime(s.options.last_run) })}</Badge>}
+                {(s.options.last_error || s.options.last_note) && <div className="muted" style={{ fontSize: 13, marginTop: 4 }}>{s.options.last_error || s.options.last_note}</div>}
+              </div>}
               {/* our own agency channel can't be a competitor */}
               {s.kind !== 'tg_agency' && (
                 <div className="row row-between row-wrap gap-sm">

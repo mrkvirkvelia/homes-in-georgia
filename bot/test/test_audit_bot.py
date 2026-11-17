@@ -9,6 +9,8 @@ import unittest
 from types import SimpleNamespace
 from unittest import mock
 
+import numpy as np
+
 import pg  # noqa: F401
 import core
 import db
@@ -129,6 +131,33 @@ class Audit(Base):
         core.reset(cur)  # /start also moves the generation on
         core._finish(cur, [], "u", 0, 3, near=["late", None])
         self.assertIsNone(core.client("tg", 42)["state"]["near"])
+
+
+class EmbedPhotos(Base):
+    # 5: CRM photos (s3:<storage key>) reach the visual index
+    def test_storage_refs_are_encoded(self):
+        import embed
+        from PIL import Image
+        from app import storage
+        local = os.path.join(self.tmp.name, "local.jpg")
+        Image.new("RGB", (10, 10)).save(local)
+        seen = []
+
+        def enc(ps):
+            seen.extend(ps)
+            return np.ones((len(ps), 2), np.float32)
+        i = {"id": "obj1", "photos": ["s3:legacy/x/1.png", "s3:legacy/x/gone.jpg", local, "/nope.jpg"], "looks": "светлая"}
+        fp = embed.fingerprint(i)
+        with mock.patch.object(storage.env, "MEDIA_DIR", self.tmp.name), mock.patch.object(storage.env, "MEDIA_STORAGE", "local"), \
+                mock.patch.object(core, "OBJECT_MEDIA", os.path.join(self.tmp.name, "objects")):
+            f = storage.local_path("legacy/x/1.png")
+            f.parent.mkdir(parents=True)
+            Image.new("RGB", (20, 20), "white").save(f)
+            s = embed.build([i], None, enc, lambda ts: np.ones((len(ts), 2), np.float32))
+        self.assertEqual(len(seen), 2)  # the fetched storage photo and the local file; missing ones skipped
+        self.assertTrue(seen[0].startswith(os.path.join(self.tmp.name, "objects")) and seen[1] == local)
+        self.assertEqual((len(s["photo"]), s["keys"][0]), (2, fp))  # the fingerprint stays the refs'
+        self.assertGreater(float(np.abs(s["img"][0]).sum()), 0)
 
 
 if __name__ == "__main__":

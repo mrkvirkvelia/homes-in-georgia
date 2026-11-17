@@ -1,5 +1,6 @@
 """Audit fixes: a failed Telegram send in a worker job is retried / recorded (not «ok»), secrets stay out of the logs,
 the test suite refuses to wipe a database that is not a test one."""
+import json
 from datetime import datetime, timedelta, timezone
 
 import httpx
@@ -176,3 +177,55 @@ def test_owner_followup_retry_is_not_stale(db, client, http, real_notify):
     http.fail = lambda chat: None
     assert _rerun(db, job) == "ok"
     assert http.chats() == ["4242"]
+
+
+# --- access tokens stay out of the logs -------------------------------------------------------------------------------
+
+TOK = "Zx9_secretTOKEN-abcdefghij0123"
+
+
+def _lines(caplog, logger):
+    return [r for r in caplog.records if r.name == logger]
+
+
+@pytest.mark.parametrize("method,url,route", [
+    ("GET", f"/api/public/esign/{TOK}", "/api/public/esign/{token}"),
+    ("GET", f"/api/public/esign/{TOK}/pdf", "/api/public/esign/{token}/pdf"),
+    ("POST", f"/api/public/nda/{TOK}/details", "/api/public/nda/{token}/details"),
+    ("GET", f"/api/public/contracts/{TOK}/pdf", "/api/public/contracts/{token}/pdf"),
+    ("GET", f"/api/public/exclusive/{TOK}", "/api/public/exclusive/{token}"),
+    ("GET", f"/api/public/ics/{TOK}", "/api/public/ics/{token}"),
+    ("GET", f"/api/public/daily-rent/ical/{'ab' * 24}.ics", "/api/public/daily-rent/ical/{file}"),
+    ("GET", f"/api/auth/invite/{TOK}", "/api/auth/invite/{token}"),
+    ("GET", f"/api/no-such-route/{TOK}", None),  # no route: masked by shape
+])
+def test_request_log_never_has_the_token(client, caplog, method, url, route):
+    caplog.set_level("INFO", logger="app.request")
+    secret = url.rsplit("/", 1)[-1] if route and "{file}" in route else TOK
+    r = client.request(method, url, json={} if method == "POST" else None)
+    assert r.status_code >= 400
+    rec = _lines(caplog, "app.request")[-1]
+    assert secret not in rec.getMessage() and secret not in json.dumps(rec.fields, default=str)
+    assert rec.fields["route"] == route and "***" in rec.fields["path"] and rec.fields["method"] == method
+
+
+def test_request_log_keeps_ids(db, client, caplog):
+    caplog.set_level("INFO", logger="app.request")
+    u = make_user(db, "agent", "Ivy")
+    client.get("/api/leads/987654", headers=auth(u))
+    rec = _lines(caplog, "app.request")[-1]
+    assert rec.fields["path"] == "/api/leads/987654" and rec.fields["route"] == "/api/leads/{lead_id}"
+
+
+def test_client_log_masks_token_urls(client, caplog):
+    caplog.set_level("INFO", logger="app.client")
+    r = client.post("/api/client-log", json={
+        "kind": "onerror", "message": f"fetch https://admin.hge.ge/api/public/nda/{TOK}/pdf?x=1 failed",
+        "url": f"https://admin.hge.ge/esign/{TOK}?tgWebAppData=user%3D1#frag", "api_path": f"GET /public/esign/{TOK}/pdf",
+        "stack": f"Error\n    at https://admin.hge.ge/assets/index-abc.js:1:2 (/sign/{TOK})"})
+    assert r.json() == {"ok": True}
+    rec = _lines(caplog, "app.client")[-1]
+    dump = json.dumps(rec.fields, ensure_ascii=False) + rec.getMessage()
+    assert TOK not in dump and "tgWebAppData" not in dump and "frag" not in dump
+    assert rec.fields["url"] == "https://admin.hge.ge/esign/***" and rec.fields["api_path"] == "GET /public/esign/***/pdf"
+    assert "index-abc.js:1:2" in rec.fields["stack"]

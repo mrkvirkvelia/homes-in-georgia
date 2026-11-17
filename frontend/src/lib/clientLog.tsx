@@ -9,6 +9,13 @@ interface Report {
   api_path?: string; api_status?: number; api_rid?: string;
 }
 
+// The public pages carry their access token in the path (/sign|esign|nda|invite/<token>), and so do their API calls
+// (/api/public/esign/<token>/pdf …): masked before sending; query and hash dropped (Telegram init data, tokens).
+const SECRET_PATH = /^((?:[A-Z]+ )?(?:\/api)?\/(?:public\/(?:esign|nda|contracts|exclusive|ics|daily-rent\/ical)|auth\/invite|invite|sign|esign|nda)\/)[^/]+/;
+export function safePath(p: string): string {
+  return p.split(/[?#]/)[0].replace(SECRET_PATH, '$1***');
+}
+
 let sent = 0;
 const recent = new Map<string, number>();
 
@@ -24,7 +31,10 @@ export function reportError(r: Report) {
     void fetch('/api/client-log', {
       method: 'POST', keepalive: true,
       headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-      body: JSON.stringify({ ...r, stack: r.stack?.slice(0, 4000), url: window.location.href, version: APP_VERSION }),
+      body: JSON.stringify({
+        ...r, stack: r.stack?.slice(0, 4000), api_path: r.api_path && safePath(r.api_path),
+        url: window.location.origin + safePath(window.location.pathname), version: APP_VERSION,
+      }),
     }).catch(() => undefined);
   } catch { /* never throw from the reporter */ }
 }

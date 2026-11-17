@@ -14,11 +14,28 @@ TZ = ZoneInfo("Asia/Tbilisi")
 VERSION = os.environ.get("APP_VERSION", "")
 SECRET_KEYS = re.compile(r"pass|token|secret|key|signature|sign_data|authorization|cookie|init_?data|code|otp|hash", re.I)
 PHONE = re.compile(r"\+?\d[\d\s()-]{7,}\d")
+# The public links carry their access token in the path (/esign/<token>, /api/public/nda/<token>/pdf, the iCal feed
+# …/ical/<token>.ics, the staff invite); any other 20+ char token-like segment is masked too (a route added later).
+SECRET_PATH = re.compile(r"^((?:/api)?/(?:public/(?:esign|nda|contracts|exclusive|ics|daily-rent/ical)|auth/invite|invite|sign"
+                         r"|esign|nda)/)[^/]+")
+LONG_SEG = re.compile(r"(?<=/)[\w~.-]{20,}(?=/|$)")
+URL_IN_TEXT = re.compile(r"(https?://[^/\s\"'<>()]+|(?<![\w.~/:-]))(/[^\s\"'<>()]*)")
 
 
 def mask_phone(s: str) -> str:
     """+995 555 12 34 56 -> +995***56: enough to tell two numbers apart, not to call."""
     return PHONE.sub(lambda m: m.group()[:4] + "***" + m.group()[-2:], s)
+
+
+def mask_path(path: str) -> str:
+    """/api/public/esign/<token>/pdf -> /api/public/esign/***/pdf; query and fragment dropped (tokens, Telegram init data)."""
+    path = re.split(r"[?#]", path or "", maxsplit=1)[0]
+    return LONG_SEG.sub("***", SECRET_PATH.sub(r"\1***", path))
+
+
+def mask_urls(s: str) -> str:
+    """Every URL / absolute path in a text (a page URL, an error message, a stack) through mask_path."""
+    return URL_IN_TEXT.sub(lambda m: m[1] + mask_path(m[2]), s or "")
 
 
 def mask(v, key: str = ""):

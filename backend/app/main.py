@@ -1,5 +1,6 @@
 import json
 import logging
+import re
 import time
 import uuid
 from collections import defaultdict, deque
@@ -79,6 +80,20 @@ def _who(request: Request) -> dict:
 
 
 SKIP_LOG = ("/health", "/api/health", "/api/client-log")
+SECRET_PARAM = re.compile(logs.SECRET_KEYS.pattern + "|file", re.I)  # /public/esign/{token}, /daily-rent/ical/{file}
+
+
+def _log_path(request: Request, path: str) -> tuple[str, str | None]:
+    """(path for the log line, route template): the matched route's template with its params filled in, but the
+    secret ones (an access token in the path) as ***; no route matched (404 in the SPA catch-all) → masked by shape."""
+    tpl = getattr(request.scope.get("route"), "path", None)
+    params = request.scope.get("path_params") or {}
+    fill = lambda hide: re.sub(r"\{(\w+)(?::\w+)?\}", lambda m: "***" if hide and SECRET_PARAM.search(m[1])  # noqa: E731
+                               else str(params.get(m[1], m[0])), tpl)
+    if not tpl or tpl == "/{path:path}" or not path.endswith(fill(False)):
+        return logs.mask_path(path), None
+    prefix = path[:len(path) - len(fill(False))]  # an included router's route has its own path only ("/leads/{lead_id}")
+    return prefix + fill(True), prefix + tpl
 
 
 # One JSON line per API request (docs/DEPLOY.md «Логи»): who, what, status, ms; errors with code / masked body /
@@ -105,7 +120,8 @@ async def request_log(request: Request, call_next):
     status = response.status_code
     if path in SKIP_LOG or (not path.startswith("/api/") and status < 500):
         return response
-    f = {"rid": rid, **_who(request), "method": request.method, "path": path, "status": status,
+    path, route = _log_path(request, path)  # never the raw path: public links carry their access token in it
+    f = {"rid": rid, **_who(request), "method": request.method, "path": path, "route": route, "status": status,
          "ms": round((time.perf_counter() - t0) * 1000), "ip": _client_ip(request),
          "ua": (request.headers.get("user-agent") or "")[:120]}
     q = {k: v for k, v in request.query_params.items() if not logs.SECRET_KEYS.search(k)}
@@ -159,8 +175,8 @@ async def client_log(request: Request):
             pass
     f = {"rid": request.state.rid, **who, "ip": ip, "ua": (request.headers.get("user-agent") or "")[:200]}
     for k in ("kind", "message", "url", "version", "stack", "component", "api_path", "api_status", "api_rid"):
-        if d.get(k) is not None:
-            f[k] = logs.mask_phone(str(d[k])[:4000 if k == "stack" else 500])
+        if d.get(k) is not None:  # URLs masked here too: an old bundle (or any caller) may still send the page's token
+            f[k] = logs.mask_phone(logs.mask_urls(str(d[k])[:4000 if k == "stack" else 500]))
     logging.getLogger("app.client").error("client %s: %s", f.get("kind", "error"), f.get("message", "")[:200],
                                           extra={"fields": f})
     return {"ok": True}

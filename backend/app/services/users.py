@@ -75,6 +75,16 @@ def by_tg(db: Session, tg_id) -> User | None:
     return db.scalar(select(User).where(User.tg_id == int(tg_id))) if tg_id else None
 
 
+def by_free_username(db: Session, username: str | None) -> User | None:
+    """An active user the admin added by @username only (no tg_id yet): his first Telegram sign-in binds the account
+    (gio_s77 11-18). Case and a leading «@» don't matter."""
+    name = (username or "").strip().lstrip("@").lower()
+    if not name:
+        return None
+    return db.scalar(select(User).where(func.lower(func.ltrim(User.username, "@")) == name, User.tg_id.is_(None),
+                                        User.is_active, User.deleted_at.is_(None)))
+
+
 def by_login(db: Session, login: str) -> User | None:
     return db.scalar(select(User).where(func.lower(User.login) == (login or "").strip().lower()))
 
@@ -170,6 +180,8 @@ PROFILE_LABEL = {"ie_number": "номер ИП", "name": "имя и фамили
 
 
 def _check(data: dict):
+    if "username" in data:  # stored without «@», like Telegram gives it
+        data["username"] = (data["username"] or "").strip().lstrip("@") or None
     if "role" in data and data["role"] not in ROLES:
         raise DomainError("bad_role", f"role must be one of {ROLES}")
     if data.get("level") is not None and int(data["level"]) not in (50, 70, 90):

@@ -117,6 +117,29 @@ def test_webapp_auth(db, client):
     assert r.status_code == 403 and r.json()["code"] == "not_registered"
 
 
+def test_webapp_binds_by_username(db, client):
+    """gio_s77 11-18: the admin typed «@Gio_S77» on a record without tg_id; a removed duplicate held his Telegram."""
+    from datetime import datetime, timezone
+    old = make_user(db, "recruit", "GioSV", tg_id=869, is_active=False)
+    old.deleted_at = datetime.now(timezone.utc)
+    make_user(db, "recruit", "Giorgi", username="@Gio_S77")
+    db.commit()
+    r = client.post("/api/auth/telegram-webapp", json={"init_data": init_data({"id": 869, "username": "gio_s77"})})
+    assert r.status_code == 200, r.text
+    me = r.json()["user"]
+    assert me["name"] == "Giorgi" and me["tg_id"] == 869 and me["username"] == "gio_s77"
+    db.refresh(old)
+    assert old.tg_id is None
+    r = client.post("/api/auth/telegram-webapp", json={"init_data": init_data({"id": 870, "username": "nobody"})})
+    assert r.status_code == 403
+    # a deactivated (not removed) record keeps blocking its Telegram
+    make_user(db, "agent", "Off", tg_id=871, is_active=False)
+    make_user(db, "agent", "Free", username="off_user")
+    db.commit()
+    r = client.post("/api/auth/telegram-webapp", json={"init_data": init_data({"id": 871, "username": "off_user"})})
+    assert r.status_code == 403
+
+
 def test_login_widget_and_password_login(db, client):
     make_user(db, "operator", "Нино", tg_id=444, login="nino")
     data = {"id": 444, "first_name": "Нино", "auth_date": int(time.time())}

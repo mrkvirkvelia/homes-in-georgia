@@ -15,7 +15,7 @@ from datetime import date
 
 from app.models import User, at_least, is_field
 from app.services import invites, users
-from app.services.common import now
+from app.services.common import log_event, now
 from app.services.errors import DomainError
 from app.telegram import avatars
 
@@ -79,6 +79,13 @@ def _session(db: Session, u: User) -> dict:
 
 def _tg_user(db: Session, tg: dict) -> User:
     u = users.by_tg(db, tg["id"])
+    if (u is None or u.deleted_at) and (free := users.by_free_username(db, tg.get("username"))):
+        if u is not None:  # a removed duplicate still holds this Telegram: the live record takes it
+            u.tg_id = None
+            db.flush()
+        u = free
+        u.tg_id = int(tg["id"])
+        log_event(db, "user", u.id, "updated", None, "Telegram sign-in", tg_id=u.tg_id, via="username")
     if not u or not u.is_active:
         raise DomainError("not_registered", "Telegram account is not registered on the platform")
     if tg.get("username"):

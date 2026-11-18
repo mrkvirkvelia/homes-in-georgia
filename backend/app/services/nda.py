@@ -37,6 +37,7 @@ from app.services.nda_text import (APPENDIX, BLOCKS, COMPANY, EDITION, LEVELS, R
 log = logging.getLogger(__name__)
 LANGS = ("KA", "KA-RU", "KA-EN")
 SECOND = {"KA": None, "KA-RU": "ru", "KA-EN": "en"}
+COLS = {"KA": ["ka"], "KA-RU": ["ka", "ru"], "KA-EN": ["ka", "en"], "RU": ["ru"]}  # the page's language columns (RU: a document)
 COMPANY_SIG_KEY = "private/nda/company-signature.json"
 PNG_PREFIX = "data:image/png;base64,"
 MAX_SIGNATURE = 400_000
@@ -79,30 +80,47 @@ h2{font-size:12pt;color:#1D3560;margin:0 0 6px}h3{font-size:10.5pt;color:#2F5394
 @media screen and (max-width:700px){.cols>tbody>tr>td{display:block;width:auto;padding:0 0 8px}}"""
 
 
-def _sig_table(lang: str, f: dict) -> str:
-    """The parties' details and signatures (one table per language column): the Operator | the Participant."""
+REQ_ROWS = ("name", "ie", "pid", "address", "iban_gel", "iban_usd", "contacts")
+
+
+def parties_table(lang: str, cols: list[tuple[str, dict, str]]) -> str:
+    """«Details and Signatures of the Parties» in one language column: a column per party — (its heading, {REQ_ROWS key:
+    value}, its signature slot name: «<slot>-sig» / «<slot>-time», filled in when signed). The NDA's Operator |
+    Participant (_sig_table) and a «Документ на подпись»'s parties (services/sign_docs.py) both print through this."""
     t = lambda k: H.escape((REQUISITES.get(k) or SIGNATURES[k])[lang])  # noqa: E731
     e = lambda v: H.escape(v) if v else "—"  # noqa: E731
     slot = lambda name, text: f'<span class="slot" data-slot="{name}">{H.escape(text)}</span>'  # noqa: E731
+    return (f'<h3>{t("title")}</h3><table class="sig"><tr><th></th>' + "".join(f"<th>{H.escape(h)}</th>" for h, _, _ in cols) + "</tr>"
+            + "".join(f"<tr><td>{t(k)}</td>" + "".join(f"<td>{e(v.get(k))}</td>" for _, v, _ in cols) + "</tr>" for k in REQ_ROWS)
+            + f'<tr><td>{t("signature")}</td>' + "".join(f'<td>{slot(sl + "-sig", SIGNATURES["pending"][lang])}</td>' for _, _, sl in cols)
+            + f'</tr><tr><td>{t("time")}</td>' + "".join(f'<td>{slot(sl + "-time", SIGNATURES["auto"][lang])}</td>' for _, _, sl in cols)
+            + "</tr></table>")
+
+
+def company_cols(lang: str) -> dict:
+    """The Operator's (the company's) column of the parties' table."""
+    return {"name": COMPANY["name"][lang], "ie": COMPANY["ie"], "pid": COMPANY["pid"], "address": COMPANY["address"][lang],
+            "iban_gel": COMPANY["iban_gel"], "iban_usd": COMPANY["iban_usd"], "contacts": COMPANY["contacts"]}
+
+
+def _sig_table(lang: str, f: dict) -> str:
+    """The parties' details and signatures (one table per language column): the Operator | the Participant."""
     contacts = " · ".join(v for v in (f["phone"], f["email"], f["telegram"]) if v and v != "—") or "—"
-    name = f["name_ka"] if lang == "ka" else f["name2"]
-    rows = [("name", COMPANY["name"][lang], name), ("ie", COMPANY["ie"], f["ie"]), ("pid", COMPANY["pid"], f["pid"]),
-            ("address", COMPANY["address"][lang], f["address"]), ("iban_gel", COMPANY["iban_gel"], f["iban_gel"]),
-            ("iban_usd", COMPANY["iban_usd"], f["iban_usd"]), ("contacts", COMPANY["contacts"], contacts)]
-    return (f'<h3>{t("title")}</h3><table class="sig"><tr><th></th><th>{t("company")}</th><th>{t("recipient")}</th></tr>'
-            + "".join(f'<tr><td>{t(k)}</td><td>{e(a)}</td><td>{e(b)}</td></tr>' for k, a, b in rows)
-            + f'<tr><td>{t("signature")}</td><td>{slot("company-sig", SIGNATURES["pending"][lang])}</td>'
-            f'<td>{slot("recipient-sig", SIGNATURES["pending"][lang])}</td></tr>'
-            f'<tr><td>{t("time")}</td><td>{slot("company-time", SIGNATURES["auto"][lang])}</td>'
-            f'<td>{slot("recipient-time", SIGNATURES["auto"][lang])}</td></tr></table>')
+    return parties_table(lang, [
+        (SIGNATURES["company"][lang], company_cols(lang), "company"),
+        (SIGNATURES["recipient"][lang], {"name": f["name_ka"] if lang == "ka" else f["name2"], "ie": f["ie"], "pid": f["pid"],
+                                         "address": f["address"], "iban_gel": f["iban_gel"], "iban_usd": f["iban_usd"],
+                                         "contacts": contacts}, "recipient")])
 
 
-def render(lang: str, f: dict, blocks: list | None = None, edition: str = EDITION) -> str:
+def render(lang: str, f: dict, blocks: list | None = None, edition: str = EDITION, title: dict | None = None,
+           parties=None) -> str:
     """The agreement's HTML (A4 print CSS) for the participant's fields f (nda_text: {num} {date} {name_ka} {name2} …;
     role_ka / role2 come from f["role"], a ROLES key); blocks: the clauses (None = the code default), edition → {edition}
-    and the page footer."""
-    second = SECOND[lang]
-    langs = ["ka"] + ([second] if second else [])
+    and the page footer. A «Документ на подпись» (services/sign_docs.py) prints through the same function: its own
+    title ({ka, ru}), its parties' table (parties(lang) → html, parties_table) and no edition; lang may be RU."""
+    langs = COLS[lang]
+    second = langs[1] if len(langs) > 1 else None
     f = {k: (str(v).strip() if v else "—") for k, v in f.items()}
     role = ROLES.get(f.pop("role", ""), None)
     per = {ln: {**f, "role_ka": role["ka"] if role else "—", "role2": role[ln if ln != "ka" else "ru"] if role else "—"}
@@ -147,7 +165,7 @@ def render(lang: str, f: dict, blocks: list | None = None, edition: str = EDITIO
     def section(items, i) -> str:
         cls = ' class="page"' if i and not any(kind == "sig" for kind, _ in items) else ""
         if any(kind == "sig" for kind, _ in items):
-            cells = [_sig_table(ln, per[ln]) for ln in langs]
+            cells = [parties(ln) if parties else _sig_table(ln, per[ln]) for ln in langs]
             items = [("row", cells)]
         if second:
             trs = "".join(f'<tr><td colspan="2">{x}</td></tr>' if kind == "t" else f"<tr><td>{x[0]}</td><td>{x[1]}</td></tr>"
@@ -155,11 +173,12 @@ def render(lang: str, f: dict, blocks: list | None = None, edition: str = EDITIO
             return f'<div{cls}><table class="cols"><tbody>{trs}</tbody></table></div>'
         return f"<div{cls}>" + "".join(x if kind == "t" else x[0] for kind, x in items) + "</div>"
 
-    head = f'<h1>{H.escape(TITLE["ka"])}</h1>' + (f'<h1>{H.escape(TITLE[second])}</h1>' if second else "") + \
+    head = "".join(f'<h1>{H.escape((title or TITLE)[ln])}</h1>' for ln in langs) + \
         f'<div class="sub">{H.escape(SUBTITLE)} · № {H.escape(f["num"])} · {H.escape(f["date"])}</div>'
     body = "".join(section(items, i) for i, items in enumerate(sections) if items)
-    css = CSS.replace("{lang}", lang).replace("{num}", f["num"].replace('"', "")).replace("{edition}", edition.replace('"', ""))
-    return (f'<!doctype html><html lang="ka"><head><meta charset="utf-8"><title>{H.escape(SHORT["ka"])} · '
+    css = (CSS if edition else CSS.replace(" · {edition}", "")).replace("{lang}", lang).replace("{num}", f["num"].replace('"', "")) \
+        .replace("{edition}", edition.replace('"', ""))
+    return (f'<!doctype html><html lang="{langs[0]}"><head><meta charset="utf-8"><title>{H.escape((title or SHORT)[langs[0]])} · '
             f'{H.escape(f["name2"])}</title><style>{css}</style></head><body>{head}{body}</body></html>')
 
 
@@ -696,32 +715,43 @@ def _tbilisi(dt) -> str:
     return dt.astimezone(TZ).strftime("%d.%m.%Y %H:%M:%S") + " (Tbilisi)"
 
 
-def _record(n: AgentNda, by: User | None) -> str:
-    second = SECOND[n.lang] or "en"
-    L = {"title": ("ელექტრონული ხელმოწერის ოქმი", {"ru": "Протокол электронного подписания", "en": "Electronic signature record"}),
-         "doc": ("დოკუმენტი", {"ru": "Документ", "en": "Document"}), "hash": ("ტექსტის SHA-256", {"ru": "SHA-256 текста", "en": "Text SHA-256"}),
-         "rec": ("მონაწილე", {"ru": "Участник", "en": "Participant"}), "comp": ("ოპერატორი", {"ru": "Оператор", "en": "Operator"}),
-         "name": ("სახელი, გვარი", {"ru": "ФИО", "en": "Full name"}), "pid": ("პირადი ნომერი", {"ru": "Личный номер", "en": "Personal number"}),
-         "phone": ("ტელეფონი", {"ru": "Телефон", "en": "Phone"}), "tg": ("Telegram (დადასტურებული)", {"ru": "Telegram (подтверждён)", "en": "Telegram (confirmed)"}),
-         "code": ("დადასტურების კოდი", {"ru": "Код подтверждения", "en": "Confirmation code"}),
-         "conf": ("დადასტურების დრო", {"ru": "Время подтверждения", "en": "Confirmed at"}),
-         "at": ("ხელმოწერის დრო", {"ru": "Время подписи", "en": "Signed at"}), "ip": ("IP მისამართი", {"ru": "IP-адрес", "en": "IP address"}),
-         "ua": ("მოწყობილობა", {"ru": "Устройство", "en": "Device"}), "sig": ("ხელმოწერა", {"ru": "Подпись", "en": "Signature"}),
-         "sent": ("გაგზავნა", {"ru": "Отправил", "en": "Sent by"})}
-    t = lambda k: H.escape(f"{L[k][0]} / {L[k][1][second]}")  # noqa: E731
+REC = {"title": ("ელექტრონული ხელმოწერის ოქმი", {"ru": "Протокол электронного подписания", "en": "Electronic signature record"}),
+       "doc": ("დოკუმენტი", {"ru": "Документ", "en": "Document"}), "hash": ("ტექსტის SHA-256", {"ru": "SHA-256 текста", "en": "Text SHA-256"}),
+       "rec": ("მონაწილე", {"ru": "Участник", "en": "Participant"}), "comp": ("ოპერატორი", {"ru": "Оператор", "en": "Operator"}),
+       "side1": ("მხარე 1", {"ru": "Сторона 1", "en": "Party 1"}), "side2": ("მხარე 2", {"ru": "Сторона 2", "en": "Party 2"}),
+       "name": ("სახელი, გვარი", {"ru": "ФИО", "en": "Full name"}), "pid": ("პირადი ნომერი", {"ru": "Личный номер", "en": "Personal number"}),
+       "phone": ("ტელეფონი", {"ru": "Телефон", "en": "Phone"}), "tg": ("Telegram (დადასტურებული)", {"ru": "Telegram (подтверждён)", "en": "Telegram (confirmed)"}),
+       "code": ("დადასტურების კოდი", {"ru": "Код подтверждения", "en": "Confirmation code"}),
+       "conf": ("დადასტურების დრო", {"ru": "Время подтверждения", "en": "Confirmed at"}),
+       "at": ("ხელმოწერის დრო", {"ru": "Время подписи", "en": "Signed at"}), "ip": ("IP მისამართი", {"ru": "IP-адрес", "en": "IP address"}),
+       "ua": ("მოწყობილობა", {"ru": "Устройство", "en": "Device"}), "sig": ("ხელმოწერა", {"ru": "Подпись", "en": "Signature"}),
+       "sent": ("გაგზავნა", {"ru": "Отправил", "en": "Sent by"})}
+
+
+def record_page(second: str, doc: str, sha: str, signers: list, comp: tuple) -> str:
+    """The e-signing protocol page (the last page of a signed PDF): the document line (escaped html), the text's SHA-256,
+    a table per signer — (REC heading key, a row with full_name, personal_id, phone, tg_*, signed_at, ip, user_agent,
+    signature: an AgentNda or a SignDocSigner) — and the company's (heading key, signed at, sent by, signature)."""
+    t = lambda k: H.escape(f"{REC[k][0]} / {REC[k][1][second]}")  # noqa: E731
     e = lambda v: H.escape(str(v)) if v else "—"  # noqa: E731
     row = lambda k, v, cls="": f'<tr><td>{t(k)}</td><td{cls}>{v}</td></tr>'  # noqa: E731
-    tg = f'@{e(n.tg_username)} · id {e(n.tg_id)}' + (f' · {e(n.tg_name)}' if n.tg_name else "")
-    return (f'<section class="rec"><h2>{t("title")}</h2><table>{row("doc", f"{e(SHORT[second])} № {number(n)} · {e(n.lang)} · {e(edition_of(n))}")}'
-            f'{row("hash", n.doc_sha256, " class=mono")}</table>'
-            f'<table><tr><td colspan="2"><b>{t("rec")}</b></td></tr>{row("name", e(n.full_name))}{row("pid", e(n.personal_id))}'
-            f'{row("phone", e(n.phone))}{row("tg", tg)}{row("code", e(n.tg_hash), " class=mono")}'
-            f'{row("conf", _tbilisi(n.tg_auth_date) if n.tg_auth_date else "—")}{row("at", _tbilisi(n.signed_at))}'
-            f'{row("ip", e(n.ip))}{row("ua", e(n.user_agent), " class=mono")}'
-            f'{row("sig", f"<img src={chr(34)}{n.signature}{chr(34)} alt={chr(34)}{chr(34)}>")}</table>'
-            f'<table><tr><td colspan="2"><b>{t("comp")}</b></td></tr>{row("name", e(COMPANY["name"][second]) + " · IE " + COMPANY["ie"])}'
-            f'{row("at", _tbilisi(n.company_signed_at) if n.company_signed_at else "—")}{row("sent", e(by and by.name))}'
-            f'{row("sig", f"<img src={chr(34)}{n.company_signature}{chr(34)} alt={chr(34)}{chr(34)}>")}</table></section>')
+    img = lambda s: f"<img src={chr(34)}{s}{chr(34)} alt={chr(34)}{chr(34)}>"  # noqa: E731
+    out = f'<section class="rec"><h2>{t("title")}</h2><table>{row("doc", doc)}{row("hash", sha, " class=mono")}</table>'
+    for key, n in signers:
+        tg = (f'@{e(n.tg_username)} · id {e(n.tg_id)}' + (f' · {e(n.tg_name)}' if n.tg_name else "")) if n.tg_id else "—"
+        out += (f'<table><tr><td colspan="2"><b>{t(key)}</b></td></tr>{row("name", e(n.full_name))}{row("pid", e(n.personal_id))}'
+                f'{row("phone", e(n.phone))}{row("tg", tg)}{row("code", e(n.tg_hash), " class=mono")}'
+                f'{row("conf", _tbilisi(n.tg_auth_date) if n.tg_auth_date else "—")}{row("at", _tbilisi(n.signed_at) if n.signed_at else "—")}'
+                f'{row("ip", e(n.ip))}{row("ua", e(n.user_agent), " class=mono")}{row("sig", img(n.signature))}</table>')
+    key, at, by, sig = comp
+    return (out + f'<table><tr><td colspan="2"><b>{t(key)}</b></td></tr>{row("name", e(COMPANY["name"][second]) + " · IE " + COMPANY["ie"])}'
+            f'{row("at", _tbilisi(at) if at else "—")}{row("sent", e(by and by.name))}{row("sig", img(sig))}</table></section>')
+
+
+def _record(n: AgentNda, by: User | None) -> str:
+    second = SECOND[n.lang] or "en"
+    return record_page(second, f"{H.escape(SHORT[second])} № {number(n)} · {H.escape(n.lang)} · {H.escape(edition_of(n))}",
+                       n.doc_sha256, [("rec", n)], ("comp", n.company_signed_at, by, n.company_signature))
 
 
 def signed_html(n: AgentNda, by: User | None = None) -> str:
@@ -730,8 +760,12 @@ def signed_html(n: AgentNda, by: User | None = None) -> str:
     fill = {"company-sig": img(n.company_signature), "recipient-sig": img(n.signature),
             "company-time": _tbilisi(n.company_signed_at) if n.company_signed_at else "—",
             "recipient-time": _tbilisi(n.signed_at) if n.signed_at else "—"}
-    page = re.sub(r'<span class="slot" data-slot="([\w-]+)">[^<]*</span>', lambda m: fill.get(m.group(1), m.group(0)), n.html)
-    return page.replace("</body>", _record(n, by) + "</body>", 1)
+    return fill_slots(n.html, fill).replace("</body>", _record(n, by) + "</body>", 1)
+
+
+def fill_slots(page: str, fill: dict) -> str:
+    """The parties' table's «[e-signature]» / «[auto]» slots → the signatures and times (slot name → html)."""
+    return re.sub(r'<span class="slot" data-slot="([\w-]+)">[^<]*</span>', lambda m: fill.get(m.group(1), m.group(0)), page)
 
 
 def finalize(db: Session, nid: int) -> str:

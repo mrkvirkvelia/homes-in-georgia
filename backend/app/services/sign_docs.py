@@ -29,43 +29,19 @@ from app.models import SignDoc, SignDocSigner, User, at_least
 from app.services import contracts as C, jobs, nda as N, signing as S
 from app.services.common import TZ, log_event, now
 from app.services.errors import DomainError, forbidden
-from app.services.nda_text import COMPANY, SUBTITLE
 
 log = logging.getLogger(__name__)
 LANGS = ("KA", "RU", "KA-RU")
 STATUS_LABEL = {"draft": "Черновик", "sent": "Отправлен", "signed": "Подписан", "cancelled": "Отменён"}
 MAX_TITLE, MAX_BODY = 300, 100_000
 
-L = {  # the template's labels
-    "parties": {"ka": "მხარეები", "ru": "Стороны"},
-    "our": {"ka": "მხარე 1", "ru": "Сторона 1"}, "other": {"ka": "მხარე 2", "ru": "Сторона 2"},
-    "name": {"ka": "სახელი, გვარი / დასახელება", "ru": "Имя / наименование"},
-    "ie": {"ka": "ი/მ საიდენტიფიკაციო ნომერი", "ru": "Регистрационный номер ИП"},
-    "pid": {"ka": "პირადი ნომერი / პასპორტი", "ru": "Личный номер / паспорт"},
-    "address": {"ka": "მისამართი", "ru": "Адрес"}, "phone": {"ka": "ტელეფონი", "ru": "Телефон"},
-    "signatures": {"ka": "მხარეთა ხელმოწერები", "ru": "Подписи Сторон"},
-    "signer": {"ka": "ხელმომწერი", "ru": "Подписант"}, "signature": {"ka": "ხელმოწერა", "ru": "Подпись"},
-    "time": {"ka": "თარიღი და დრო", "ru": "Дата и время"},
-    "pending": {"ka": "[ელ. ხელმოწერა]", "ru": "[эл. подпись]"}, "auto": {"ka": "[ავტომატურად]", "ru": "[авто]"},
-    "record": {"ka": "ელექტრონული ხელმოწერის ოქმი", "ru": "Протокол электронного подписания"},
-    "doc": {"ka": "დოკუმენტი", "ru": "Документ"}, "hash": {"ka": "ტექსტის SHA-256", "ru": "SHA-256 текста"},
-    "tg": {"ka": "Telegram (დადასტურებული)", "ru": "Telegram (подтверждён)"},
-    "code": {"ka": "დადასტურების კოდი", "ru": "Код подтверждения"}, "conf": {"ka": "დადასტურების დრო", "ru": "Время подтверждения"},
-    "at": {"ka": "ხელმოწერის დრო", "ru": "Время подписи"}, "ip": {"ka": "IP მისამართი", "ru": "IP-адрес"},
-    "ua": {"ka": "მოწყობილობა", "ru": "Устройство"}, "sent": {"ka": "გაგზავნა", "ru": "Отправил"},
-}
+SIDE = {"side1": {"ka": "მხარე 1", "ru": "Сторона 1"}, "side1b": {"ka": "მხარე 1 — ხელმომწერი", "ru": "Сторона 1 — подписант"},
+        "side2": {"ka": "მხარე 2", "ru": "Сторона 2"}}  # the parties' table headings (the NDA's: Оператор | Участник)
 
 
 def _langs(lang: str) -> list[str]:
-    return {"KA": ["ka"], "RU": ["ru"], "KA-RU": ["ka", "ru"]}[lang]
+    return N.COLS[lang]
 
-
-def _l(doc_lang: str, k: str) -> str:
-    """A label in the document's language(s): «ხელმოწერა / Подпись» for KA-RU."""
-    return H.escape(" / ".join(L[k][ln] for ln in _langs(doc_lang)))
-
-
-# ---------------------------------------------------------------- the page
 
 def number(d: SignDoc) -> str:
     return f"D-{(d.created_at or now()).astimezone(TZ):%Y}-{d.id:04d}"
@@ -76,13 +52,50 @@ def _day(d: SignDoc) -> str:
 
 
 def paragraphs(text: str) -> list[str]:
-    """Plain text → paragraphs (a blank line between them); a single line break stays inside the paragraph."""
+    """Plain text → paragraphs (a blank line between them)."""
     text = (text or "").replace("\r\n", "\n").replace("\r", "\n").strip()
     return [p.strip() for p in re.split(r"\n\s*\n", text) if p.strip()]
 
 
-def _p(s: str) -> str:
-    return "<p>" + N._md(s).replace("\n", "<br>") + "</p>" if s else ""
+NUM_RE = re.compile(r"(\d{1,2}\.\d{1,2})\.?\s+(.*)|(\d{1,2})\.\s*(.*)")  # «1.1.» / «1.1» first, then «1.»
+
+
+def _short(x: str) -> bool:
+    """A heading's text: short, not a sentence."""
+    return len(x) <= 80 and not re.search(r"[.,;:]$", x)
+
+
+def blocks(text: str) -> list[dict]:
+    """The pasted text → the NDA's blocks (nda_text: h = clause heading «N. Title», n = numbered clause, sub = heading
+    without a number, p = text): «N.» / «N.N.» + a short title → a heading, «N.N.» + a sentence → a numbered clause, a
+    short line alone before a blank line → a heading, every other line → a paragraph. «**…**» stays bold."""
+    lines = [x.strip() for x in (text or "").replace("\r\n", "\n").replace("\r", "\n").split("\n")]
+    out = []
+    for i, x in enumerate(lines):
+        if not x:
+            continue
+        m = NUM_RE.fullmatch(x)
+        alone = (i + 1 == len(lines) or not lines[i + 1]) and (i == 0 or not lines[i - 1])
+        if m:
+            n, rest = (m.group(1), m.group(2)) if m.group(1) else (m.group(3), m.group(4))
+            out.append({"k": "h" if _short(rest.replace("**", "")) else "n", "n": n, "t": rest})
+        elif alone and _short(x.replace("**", "")) and out:  # not the first line: a document starts with its text
+            out.append({"k": "sub", "n": "", "t": x})
+        else:
+            out.append({"k": "p", "n": "", "t": x})
+    return out
+
+
+def _rows(d: SignDoc) -> list[dict]:
+    """The languages' blocks side by side (KA-RU: Georgian | Russian, paired in order, like the NDA's two columns)."""
+    langs = _langs(d.lang)
+    cols = [blocks((d.body or {}).get(ln) or "") for ln in langs]
+    rows = []
+    for pair in zip_longest(*cols):
+        first = next(b for b in pair if b)
+        rows.append({"k": first["k"], "n": first["n"], "ka": "", "ru": "", "en": "",
+                     **{ln: (b["t"] if b else "") for ln, b in zip(langs, pair)}})
+    return rows
 
 
 def _company(signers) -> SignDocSigner | None:
@@ -93,42 +106,25 @@ def _party(signers) -> SignDocSigner | None:
     return next((s for s in signers if s.side == "party"), None)
 
 
-def _slot(name: str, text: str) -> str:
-    return f'<span class="slot" data-slot="{name}">{H.escape(text)}</span>'
+def _person_col(s: SignDocSigner) -> dict:
+    return {"name": s.full_name, "pid": s.personal_id, "contacts": " · ".join(x for x in (s.phone, s.telegram and f"@{s.telegram}") if x)}
 
 
 def render(d: SignDoc) -> str:
-    """The document's HTML (the NDA's A4 print CSS): header, № + date, the parties, the pasted text, the signatures."""
-    langs, lg = _langs(d.lang), d.lang
-    e = lambda v: H.escape(v) if v else "—"  # noqa: E731
-    pick = lambda m: " / ".join(m[ln] for ln in langs)  # noqa: E731
-    title, body = d.title or {}, d.body or {}
+    """The document's HTML: the NDA's own page (nda.render, its CSS, header, two columns, clause styles, the parties'
+    table) with the pasted text as the clauses and this document's title and parties."""
     party, co = _party(d.signers), _company(d.signers)
-    head = "".join(f"<h1>{H.escape(title.get(ln) or '')}</h1>" for ln in langs) + \
-        f'<div class="sub">{H.escape(SUBTITLE)} · № {H.escape(number(d))} · {_day(d)}</div>'
-    our = f"{pick(COMPANY['name'])}" + (f" · {co.full_name}" if co else "")
-    parties = (f'<h3>{_l(lg, "parties")}</h3><table class="sig"><tr><th></th><th>{_l(lg, "our")}</th><th>{_l(lg, "other")}</th></tr>'
-               f'<tr><td>{_l(lg, "name")}</td><td>{e(our)}</td><td>{e(party and party.full_name)}</td></tr>'
-               f'<tr><td>{_l(lg, "ie")} / {_l(lg, "pid")}</td><td>{e(COMPANY["ie"])}</td><td>{e(party and party.personal_id)}</td></tr>'
-               f'<tr><td>{_l(lg, "address")}</td><td>{e(pick(COMPANY["address"]))}</td><td>—</td></tr>'
-               f'<tr><td>{_l(lg, "phone")}</td><td>—</td><td>{e(party and party.phone)}</td></tr></table>')
-    cols = [paragraphs(body.get(ln) or "") for ln in langs]
-    if len(langs) == 2:  # Georgian | Russian side by side, paragraph by paragraph (the NDA's two columns)
-        text = '<table class="cols"><tbody>' + "".join(f"<tr><td>{_p(a or '')}</td><td>{_p(b or '')}</td></tr>"
-                                                       for a, b in zip_longest(*cols)) + "</tbody></table>"
-    else:
-        text = "".join(_p(x) for x in cols[0])
-    rows = [(pick(COMPANY["name"]), _l(lg, "our"), "company")] + \
-        ([(co.full_name, _l(lg, "our"), f"s{co.id}")] if co else []) + \
-        ([(party.full_name, _l(lg, "other"), f"s{party.id}")] if party else [])
-    sigs = (f'<h3>{_l(lg, "signatures")}</h3><table class="sig"><tr><th>{_l(lg, "signer")}</th><th>{_l(lg, "signature")}</th>'
-            f'<th>{_l(lg, "time")}</th></tr>'
-            + "".join(f'<tr><td>{e(name)}<br><span class="slot">{side}</span></td><td>{_slot(k + "-sig", pick(L["pending"]))}</td>'
-                      f'<td>{_slot(k + "-time", pick(L["auto"]))}</td></tr>' for name, side, k in rows) + "</table>")
-    css = N.CSS.replace(" · {edition}", "").replace("{lang}", lg).replace("{num}", number(d))
-    t = H.escape(title.get(langs[0]) or "")
-    return (f'<!doctype html><html lang="{langs[0]}"><head><meta charset="utf-8"><title>{t}</title><style>{css}</style></head>'
-            f'<body>{head}{parties}<div style="margin-top:10px">{text}</div>{sigs}</body></html>')
+
+    def parties(ln: str) -> str:
+        cols = [(SIDE["side1"][ln], N.company_cols(ln), "company")]
+        if co:
+            cols.append((SIDE["side1b"][ln], _person_col(co), f"s{co.id}"))
+        if party:
+            cols.append((SIDE["side2"][ln], _person_col(party), f"s{party.id}"))
+        return N.parties_table(ln, cols)
+
+    return N.render(d.lang, {"num": number(d), "date": _day(d), "name2": party.full_name if party else ""}, _rows(d),
+                    edition="", title={ln: (d.title or {}).get(ln) or "" for ln in ("ka", "ru", "en")}, parties=parties)
 
 
 def _rerender(d: SignDoc) -> None:
@@ -446,34 +442,20 @@ def sign(db: Session, token: str, data: dict, ip: str | None, user_agent: str | 
 # ---------------------------------------------------------------- the signed PDF
 
 def _record(d: SignDoc, by: User | None) -> str:
-    lg = d.lang
-    e = lambda v: H.escape(str(v)) if v else "—"  # noqa: E731
-    row = lambda k, v, cls="": f'<tr><td>{_l(lg, k)}</td><td{cls}>{v}</td></tr>'  # noqa: E731
-    img = lambda sig: f'<img src="{sig}" alt="">' if sig else "—"  # noqa: E731
-    t = lambda dt: N._tbilisi(dt) if dt else "—"  # noqa: E731
-    parts = [f'<section class="rec"><h2>{_l(lg, "record")}</h2><table>{row("doc", f"{e(_label(d))} № {number(d)} · {lg}")}'
-             f'{row("hash", d.doc_sha256, " class=mono")}</table>']
-    for s in d.signers:
-        tg = f"@{e(s.tg_username)} · id {e(s.tg_id)}" + (f" · {e(s.tg_name)}" if s.tg_name else "") if s.tg_id else "—"
-        parts.append(f'<table><tr><td colspan="2"><b>{_l(lg, "other" if s.side == "party" else "our")}</b></td></tr>'
-                     f'{row("name", e(s.full_name))}{row("pid", e(s.personal_id))}{row("phone", e(s.phone))}{row("tg", tg)}'
-                     f'{row("code", e(s.tg_hash), " class=mono")}{row("conf", t(s.tg_auth_date))}{row("at", t(s.signed_at))}'
-                     f'{row("ip", e(s.ip))}{row("ua", e(s.user_agent), " class=mono")}{row("signature", img(s.signature))}</table>')
-    name = " / ".join(COMPANY["name"][ln] for ln in _langs(lg))
-    parts.append(f'<table><tr><td colspan="2"><b>{_l(lg, "our")}</b></td></tr>{row("name", e(name) + " · IE " + COMPANY["ie"])}'
-                 f'{row("at", t(d.company_signed_at))}{row("sent", e(by and by.name))}'
-                 f'{row("signature", img(d.company_signature))}</table></section>')
-    return "".join(parts)
+    """The NDA's e-signing protocol page (nda.record_page) with this document's signers."""
+    second = "ru" if "ru" in _langs(d.lang) else "en"
+    return N.record_page(second, f"{H.escape(_label(d))} № {number(d)} · {d.lang}", d.doc_sha256,
+                         [("side2" if s.side == "party" else "side1", s) for s in d.signers],
+                         ("side1", d.company_signed_at, by, d.company_signature))
 
 
 def signed_html(d: SignDoc, by: User | None = None) -> str:
-    """The frozen text with every signature and time in the «Signatures» table, plus the signing record page."""
+    """The frozen text with every signature and time in the parties' table, plus the NDA's signing record page."""
     img = lambda sig: f'<img src="{sig}" alt="">' if sig else "—"  # noqa: E731
     fill = {"company-sig": img(d.company_signature), "company-time": N._tbilisi(d.company_signed_at) if d.company_signed_at else "—"}
     for s in d.signers:
         fill[f"s{s.id}-sig"], fill[f"s{s.id}-time"] = img(s.signature), N._tbilisi(s.signed_at) if s.signed_at else "—"
-    page = re.sub(r'<span class="slot" data-slot="([\w-]+)">[^<]*</span>', lambda m: fill.get(m.group(1), m.group(0)), d.html)
-    return page.replace("</body>", _record(d, by) + "</body>", 1)
+    return N.fill_slots(d.html, fill).replace("</body>", _record(d, by) + "</body>", 1)
 
 
 def finalize(db: Session, did: int) -> str:

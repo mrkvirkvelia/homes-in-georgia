@@ -313,6 +313,9 @@ export const sources: Source[] = [
 /** ads of the «Конкурент» sources (Объекты → База → Конкуренты); L1002 is the same flat as R1 (its «У конкурента» chip) */
 export const rivalListings: Listing[] = listings.slice(2, 5).map((l, i) => ({ ...l, id: `R${i + 1}`, property_id: null, source: i < 2 ? 'tg:rival_flats' : 'fb:1234567890', url: `https://t.me/rival_flats/${100 + i}` }));
 listings[2].at_competitor = ['tg:rival_flats'];
+// David 11-18: the owner of the flat behind L1005 said no (its ad on another site, linked to #15478), of L1006 rented it out himself
+Object.assign(listings[5], { known_object: { id: 15478, address: listings[5].address }, refused: { by: 'Давид', at: iso(-3 * 60 * min), comment: 'не хочет работать', reason: 'owner_refused', property_id: 15478 } });
+listings[6].refused = { by: 'Нино', at: iso(-2 * day), comment: 'сдано за $900 · до весны', reason: 'rented_by_owner', property_id: 15480 };
 
 export const moderation: Listing[] = [
   { ...listings[1], id: 'M1', ai_flags: { agent_suspect: true, reasons: ['Номер встречается в 9 объявлениях'] } },

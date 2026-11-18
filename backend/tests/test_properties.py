@@ -268,3 +268,29 @@ def test_owner_thinking_reminds_then_rented_self_closes(db, client, sent):
     assert r["status"] == "archived" and r["next_call_at"] is None
     assert db.get(Listing, "lv16").status_reason == "сдал сам"
     assert "lv16" not in {i["id"] for i in client.get("/api/listings/new", headers=auth(david)).json()["items"]}
+
+
+def test_dont_call_note_on_every_ad_of_the_flat(db, client):
+    """David 11-18: «Собственник отказался» on #15478 — the same flat's ad on another site (and its window) says who
+    called and when, not just «Уже в базе»; «Сдал сам» too; a re-taken object has no note."""
+    from app.models import PropertyListing
+    david, nino = make_user(db, "agent", "Давид"), make_user(db, "agent", "Нино")
+    make_listing(db, "mh15")
+    make_listing(db, "ss15")
+    pid = client.post("/api/properties", json={"listing_id": "mh15"}, headers=auth(david)).json()["id"]
+    db.add(PropertyListing(property_id=pid, listing_id="ss15", source="ss"))
+    db.commit()
+    client.post(f"/api/properties/{pid}/refused", json={"comment": "не хочет работать"}, headers=auth(david))
+    for lid in ("mh15", "ss15"):
+        note = client.get(f"/api/listings/{lid}", headers=auth(nino)).json()["refused"]
+        assert note["by"] == "Давид" and note["comment"] == "не хочет работать" and note["reason"] == "owner_refused"
+        assert note["property_id"] == pid
+    feed = {i["id"]: i for i in client.get("/api/listings/new?known=1", headers=auth(nino)).json()["items"]}
+    assert feed["ss15"]["refused"]["by"] == "Давид" and feed["mh15"]["refused"]["by"] == "Давид"
+
+    client.post("/api/properties", json={"listing_id": "mh15"}, headers=auth(nino))  # re-taken: no stale note
+    assert client.get("/api/listings/ss15", headers=auth(nino)).json()["refused"] is None
+    client.post(f"/api/properties/{pid}/rented-self", json={"comment": "сдал своим", "rent_from": "2026-11-01", "rent_to": "2027-11-01"},
+                headers=auth(nino))
+    note = client.get("/api/listings/ss15", headers=auth(david)).json()["refused"]
+    assert note["by"] == "Нино" and note["reason"] == "rented_by_owner" and "сдал своим" in note["comment"]

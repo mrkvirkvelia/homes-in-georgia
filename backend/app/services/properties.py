@@ -849,14 +849,31 @@ def owner_rented_self(db: Session, pid: int, agent: User, comment: str | None = 
     return p
 
 
+DONT_CALL_REASONS = ("owner_refused", "rented_by_owner")  # the owner was reached and said no: «Не хочет работать», «Сдал сам»
+
+
 def refusals_for(db: Session, listing_ids: list[str]) -> dict[str, dict]:
-    """listing id → the latest "owner won't work" note of its released object."""
-    props = dict(db.execute(select(Property.id, Property.listing_id).where(
-        Property.listing_id.in_(listing_ids), Property.status == "archived")).all()) if listing_ids else {}
-    out = {}
+    """listing id → the latest «don't call again» note (DONT_CALL_REASONS) of an archived object the ad belongs to: its
+    origin ad and every ad of that flat on other sites (property_listings), so nobody calls the owner twice (David 11-18)."""
+    if not listing_ids:
+        return {}
+    pairs = db.execute(select(Property.listing_id, Property.id).where(Property.listing_id.in_(listing_ids)).union(
+        select(PropertyListing.listing_id, PropertyListing.property_id).where(PropertyListing.listing_id.in_(listing_ids)))).all()
+    props = {p.id: p for p in db.scalars(select(Property).where(Property.id.in_({pid for _, pid in pairs}),
+                                                                 Property.status == "archived",
+                                                                 Property.archive_reason.in_(DONT_CALL_REASONS)))}
+    who = {}  # the agent who archived it (the latest archiving event); legacy objects have none
     for e in db.scalars(select(Event).where(Event.entity == "property", Event.entity_id.in_([str(i) for i in props]),
-                                            Event.action == "owner_refused").order_by(Event.at)):
-        out[props[int(e.entity_id)]] = {"by": e.actor_label, "at": e.at.isoformat(), "comment": (e.data or {}).get("comment")}
+                                            Event.action.in_(("owner_refused", "owner_rented_self", "archived")))
+                        .order_by(Event.at)):
+        who[int(e.entity_id)] = e.actor_label
+    out = {}
+    for lid, pid in pairs:
+        p = props.get(pid)
+        if p is None or p.archived_at is None or (lid in out and out[lid]["at"] >= p.archived_at.isoformat()):
+            continue
+        out[lid] = {"by": who.get(pid), "at": p.archived_at.isoformat(), "comment": p.archive_comment,
+                    "reason": p.archive_reason, "property_id": pid}
     return out
 
 

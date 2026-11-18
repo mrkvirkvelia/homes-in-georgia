@@ -94,7 +94,8 @@ export interface Listing {
   lat?: number | null;
   lng?: number | null;
   /** the previous agent reached the owner, who won't work with the agency */
-  refused?: { by?: string | null; at: string; comment?: string | null } | null;
+  /** the latest «don't call again» note of the flat's archived object (owner refused / rented it out himself) */
+  refused?: { by?: string | null; at: string; comment?: string | null; reason?: 'owner_refused' | 'rented_by_owner'; property_id?: number } | null;
   /** the matcher linked this ad to an object already in the base */
   known_object?: { id: number; address?: string | null } | null;
   /** sources marked «Конкурент» that posted the same flat (ingest dedupe) */

@@ -3,7 +3,7 @@ import { useState } from 'react';
 import type { ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link, useLocation, useSearchParams } from 'react-router-dom';
-import { Bot, Clock, Copy, ExternalLink, Lock, MapPin, User as UserIcon } from 'lucide-react';
+import { Bot, Clock, Copy, ExternalLink, Lock, MapPin, PhoneOff, User as UserIcon } from 'lucide-react';
 import { api } from '../api';
 import type { AiFlags, EventItem, Lead, LeadStatus, Listing, Property, PropertyStatus, SimilarFlat } from '../api/types';
 import { thumbUrl } from '../api/client';
@@ -122,6 +122,7 @@ export function ListingModal({ id, onClose, actions }: { id: string; onClose: ()
               <PhotoStrip photos={l.photos} />
             </div>
           )}
+          <DontCallNote note={l.refused} />
           <div className="row row-wrap gap-sm"><AiFlagBadges flags={l.ai_flags} /></div>
           <KV items={[
             [t('Цена'), money(l.price, l.currency || 'USD')], [t('Район'), l.district || '—'], [t('Спальни'), bedroomsLabel(l.bedrooms) || '—'],
@@ -168,6 +169,19 @@ export function ListingModal({ id, onClose, actions }: { id: string; onClose: ()
         </div>
       )}
     </Modal>
+  );
+}
+
+/** «18.11 14:05 Давид звонил — собственник отказался: не хочет работать» on every ad of a flat whose owner said no
+ * (refusals_for: «Не хочет работать», «Сдал сам»), so the next agent doesn't call him again (David 11-18). */
+export function DontCallNote({ note }: { note?: Listing['refused'] }) {
+  if (!note) return null;
+  const p = { at: fmtDateTime(note.at), who: note.by || t('агент'), c: note.comment ? `: ${note.comment}` : '' };
+  return (
+    <div className="alert alert-warn" style={{ fontSize: 13 }}>
+      <PhoneOff size={16} style={{ flex: 'none', marginTop: 1 }} />
+      <span>{note.reason === 'rented_by_owner' ? t('{at} {who} звонил — собственник сдал сам{c}', p) : t('{at} {who} звонил — собственник отказался{c}', p)}</span>
+    </div>
   );
 }
 
@@ -280,11 +294,7 @@ export function ListingCard({ listing, locked, footer, chips, onOpen }: { listin
             {chips}
           </div>
         )}
-        {listing.refused && (
-          <div className="alert alert-info" style={{ fontSize: 12 }}>
-            {t('Звонил {who} {at}: собственник не хочет работать{c}. Попробуйте вы.', { who: listing.refused.by || t('агент'), at: fmtDateTime(listing.refused.at), c: listing.refused.comment ? ` («${listing.refused.comment}»)` : '' })}
-          </div>
-        )}
+        <DontCallNote note={listing.refused} />
         {locked && <div className="row gap-sm muted" style={{ fontSize: 12, fontWeight: 600 }}><Lock size={14} />{locked}</div>}
         <div style={{ marginTop: 'auto' }}>{footer}</div>
       </div>

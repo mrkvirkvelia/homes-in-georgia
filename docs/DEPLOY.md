@@ -215,3 +215,8 @@ grep -h 'a1b2c3d4e5' $L/*.log*                                        # по к�
 
 Выкатка с версией: `GIT_COMMIT=$(git rev-parse --short HEAD) docker compose ... up -d --build` — коммит попадает в
 строку «api started, version …» и в `version` ошибок фронта (без него там время сборки).
+
+## «Договор между сторонами» (18.11.2026, миграция 0033)
+
+**Миграция 0033** (`alembic upgrade head`, идёт с обычным деплоем): одна nullable-колонка `sign_doc_signers.role`
+(«Собственник», «Клиент»). Старые документы не меняются, ручных шагов нет. Откат — `alembic downgrade 0032`.

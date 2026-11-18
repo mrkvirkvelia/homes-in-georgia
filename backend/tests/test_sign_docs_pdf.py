@@ -86,3 +86,59 @@ def test_password_and_size_limits(db, client, monkeypatch):
     assert r.status_code == 400 and "паролем" in r.text
     monkeypatch.setattr(D, "MAX_PDF", 100)
     assert client.post("/api/sign-docs", json=_doc(pdf=_url(_pdf(1))), headers=auth(op)).status_code == 400
+
+
+def _parties(**kw):
+    return {"lang": "KA-RU", "mode": "parties", "title": {"ka": "ხელშეკრულება", "ru": "Договор аренды"},
+            "signers": [{"role": "Собственник", "full_name": "Test Owner", "phone": "+995 555 111 111"},
+                        {"role": "Клиент", "full_name": "Test Client", "phone": "+995 555 222 222", "personal_id": "01000000001"}], **kw}
+
+
+def test_parties_two_outside_signers(db, client, fakes, monkeypatch):
+    """«Договор между сторонами» (Irakli 11-18): no company signature (none is set here), a link per signer, the
+    signed PDF = the original + a record page with both, sent to the author in Telegram."""
+    sent = []
+    monkeypatch.setattr(N, "_bg", lambda fn, *a: sent.append(a))
+    irakli = make_user(db, "admin", tg_id=333)
+    src = _pdf(3)
+    r = client.post("/api/sign-docs", json=_parties(pdf=_url(src), pdf_name="lease.pdf"), headers=auth(irakli))
+    assert r.status_code == 200, r.text
+    d = client.post(f"/api/sign-docs/{r.json()['id']}/send", headers=auth(irakli)).json()
+    assert d["parties"] and d["status"] == "sent", d
+    assert [s["role"] for s in d["signers"]] == ["Собственник", "Клиент"]
+    toks = [s["path"].split("/")[-1] for s in d["signers"]]
+    assert len(set(toks)) == 2
+    for i, tok in enumerate(toks):
+        v = client.get(f"/api/public/doc/{tok}").json()
+        assert not v["need_tg"]
+        r = client.post(f"/api/public/doc/{tok}", json={"signature": SIG, "consent": True, "doc_sha256": v["doc_sha256"]})
+        assert r.status_code == 200 and r.json()["status"] == ("signed" if i else "sent"), r.text
+    out = client.get(f"/api/sign-docs/{d['id']}/pdf", headers=auth(irakli)).content
+    assert out[:len(src)] == src and len(PdfReader(io.BytesIO(out)).pages) == 4
+    rec = fakes[-1]
+    assert "Test Owner" in rec and "Test Client" in rec and "Собственник" in rec and "Оператор" not in rec
+    assert any(a[1] == 333 and a[4] == out for a in sent)  # the signed PDF → the author's Telegram
+
+
+def test_parties_signer_needs_contact(db, client):
+    op = make_user(db, "operator")
+    body = _parties(pdf=_url(_pdf(1)))
+    body["signers"][1] = {"role": "Клиент", "full_name": "No Contact"}
+    r = client.post("/api/sign-docs", json=body, headers=auth(op))
+    assert r.status_code == 400 and "Telegram или телефон" in r.text
+    body["signers"][1] = {"role": "Клиент", "telegram": "@client"}
+    assert client.post("/api/sign-docs", json=body, headers=auth(op)).status_code == 400  # no name
+
+
+def test_agent_only_own_parties_docs(db, client):
+    """From «Договоры» an agent sends «Договор между сторонами»; he sees only his own, not the company's documents."""
+    ag, other, op = make_user(db, "agent"), make_user(db, "agent"), make_user(db, "operator")
+    assert client.post("/api/sign-docs", json=_doc(pdf=_url(_pdf(1))), headers=auth(ag)).status_code == 403
+    r = client.post("/api/sign-docs", json=_parties(pdf=_url(_pdf(1))), headers=auth(ag))
+    assert r.status_code == 200, r.text
+    mine = client.post("/api/sign-docs", json=_doc(pdf=_url(_pdf(1))), headers=auth(op)).json()
+    assert [x["id"] for x in client.get("/api/sign-docs", headers=auth(ag)).json()["items"]] == [r.json()["id"]]
+    assert client.get(f"/api/sign-docs/{mine['id']}", headers=auth(ag)).status_code == 404
+    assert client.get(f"/api/sign-docs/{r.json()['id']}", headers=auth(other)).status_code == 404
+    assert client.post(f"/api/sign-docs/{r.json()['id']}/send", headers=auth(ag)).json()["status"] == "sent"
+    assert client.get("/api/sign-docs", headers=auth(make_user(db, "recruit"))).status_code == 403

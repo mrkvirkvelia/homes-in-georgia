@@ -17,7 +17,11 @@ to Google Drive; a signed document never changes. «Отменить» (draft / 
 Or a ready PDF (Irakli 11-18: a lease made elsewhere, «nothing in the contract changes»): instead of the text staff upload
 the file (body = {"pdf": {path, name, pages, size, sha256}}, no text, no template), doc_sha256 is the file's hash, the
 signer reads the file itself, and the signed PDF is the uploaded file byte-for-byte with the signing record page (who,
-when, signatures, Telegram, IP) added as a PDF incremental update after it (pypdf): its pages and bytes stay as they were."""
+when, signatures, Telegram, IP) added as a PDF incremental update after it (pypdf): its pages and bytes stay as they were.
+
+«Договор между сторонами» (Irakli 11-18: owner ↔ client, body.parties): a ready PDF with no company signature and no staff
+signer — only outside signers (a role label, a name, Telegram @username or a WhatsApp phone, an optional ID), each with
+his own link that staff send themselves; when all signed, the same signed PDF goes to the author in Telegram."""
 import base64
 import hashlib
 import html as H
@@ -43,6 +47,7 @@ LANGS = ("KA", "RU", "KA-RU")
 STATUS_LABEL = {"draft": "Черновик", "sent": "Отправлен", "signed": "Подписан", "cancelled": "Отменён"}
 MAX_TITLE, MAX_BODY = 300, 100_000
 MAX_PDF = 15 * 1024 * 1024
+MAX_SIGNERS = 10
 
 SIDE = {"side1": {"ka": "მხარე 1", "ru": "Сторона 1"}, "side1b": {"ka": "მხარე 1 — ხელმომწერი", "ru": "Сторона 1 — подписант"},
         "side2": {"ka": "მხარე 2", "ru": "Сторона 2"}}  # the parties' table headings (the NDA's: Оператор | Участник)
@@ -141,6 +146,11 @@ def _src(d: SignDoc) -> dict | None:
     return (d.body or {}).get("pdf")
 
 
+def _parties(d: SignDoc) -> bool:
+    """«Договор между сторонами»: outside signers only, no company signature."""
+    return bool((d.body or {}).get("parties"))
+
+
 def _rerender(d: SignDoc) -> None:
     if src := _src(d):
         d.html, d.doc_sha256 = "", src["sha256"]
@@ -153,8 +163,13 @@ def _rerender(d: SignDoc) -> None:
 # ---------------------------------------------------------------- staff
 
 def _staff(user: User) -> None:
-    if not at_least(user, "operator"):
+    """Operators and up: every document; an agent (Stanislav 11-18, from «Договоры»): his own «между сторонами» only."""
+    if not at_least(user, "agent"):
         raise forbidden("only staff send documents for signing")
+
+
+def _mine(d: SignDoc, user: User) -> bool:
+    return at_least(user, "operator") or (_parties(d) and d.created_by == user.id)
 
 
 def path(token: str) -> str:
@@ -167,7 +182,7 @@ def _need_tg(db: Session, s: SignDocSigner) -> bool:
 
 
 def _signer_out(db: Session, d: SignDoc, s: SignDocSigner) -> dict:
-    return {"id": s.id, "side": s.side, "user_id": s.user_id, "full_name": s.full_name, "personal_id": s.personal_id,
+    return {"id": s.id, "side": s.side, "role": s.role, "user_id": s.user_id, "full_name": s.full_name, "personal_id": s.personal_id,
             "phone": s.phone, "telegram": s.telegram, "need_tg": _need_tg(db, s), "tg_username": s.tg_username,
             "signed_at": s.signed_at.isoformat() if s.signed_at else None,
             "path": path(s.token) if d.status == "sent" and not s.signed_at else None}
@@ -180,7 +195,7 @@ def out(db: Session, d: SignDoc, full: bool = False) -> dict:
          "created_by": {"id": by.id, "name": by.name} if by else None,
          "sent_at": d.sent_at.isoformat() if d.sent_at else None, "signed_at": d.signed_at.isoformat() if d.signed_at else None,
          "has_pdf": bool(d.pdf_path), "signers": [_signer_out(db, d, s) for s in d.signers],
-         "editable": editable(d), "pdf": _pdf_out(d)}
+         "editable": editable(d), "pdf": _pdf_out(d), "parties": _parties(d)}
     if full:
         r["body"], r["html"] = d.body or {}, d.html
     return r
@@ -253,6 +268,35 @@ def _set_signer(d: SignDoc, side: str, f: dict | None) -> None:
         setattr(s, k, v)
 
 
+def _outside(p: dict) -> dict:
+    """A «Договор между сторонами» signer: a name and Telegram or a WhatsApp phone (one of them), the ID optional."""
+    f = {k: _clean(p.get(k)) for k in ("role", "full_name", "personal_id", "phone", "telegram")}
+    f["role"], f["telegram"] = f["role"][:60], f["telegram"].lstrip("@").split("/")[-1]
+    who = f["role"] or f["full_name"] or "подписант"
+    if not f["full_name"]:
+        raise DomainError("missing_fields", f"Укажите имя: {who}")
+    if not f["phone"] and not f["telegram"]:
+        raise DomainError("missing_fields", f"Укажите Telegram или телефон WhatsApp: {who}")
+    return {"user_id": None, **{k: (v or None) for k, v in f.items()}}
+
+
+def _set_parties(d: SignDoc, rows: list) -> None:
+    """The signers' rows: a row with its id is updated in place (the link stays), new rows get links, the rest go."""
+    if not 1 <= len(rows) <= MAX_SIGNERS:
+        raise DomainError("missing_fields", f"Добавьте подписантов (от 1 до {MAX_SIGNERS})")
+    old, keep = {s.id: s for s in d.signers if s.side == "party"}, []
+    for p in rows:
+        f, s = _outside(p or {}), old.pop((p or {}).get("id"), None)
+        if not s:
+            s = SignDocSigner(side="party", token=secrets.token_urlsafe(24), **f)
+        elif s.telegram != f["telegram"]:
+            s.tg_id = s.tg_username = s.tg_name = s.tg_auth_date = s.tg_hash = None
+        for k, v in f.items():
+            setattr(s, k, v)
+        keep.append(s)
+    d.signers[:] = keep  # removed rows and our side go: their links die
+
+
 def _read_pdf(data_url, name) -> tuple[bytes, dict]:
     """The uploaded file (a data: URL from the form): a real PDF, ≤ 15 MB, not password-protected, at least one page."""
     bad = DomainError("bad_input", "Загрузите файл PDF")
@@ -286,8 +330,26 @@ def _fill(db: Session, d: SignDoc, body: dict) -> None:
         raise DomainError("bad_input", "Язык: KA, RU или KA-RU")
     new = _read_pdf(body["pdf"], body.get("pdf_name")) if body.get("pdf") else None
     src = new[1] if new else _src(d)  # an uploaded document stays a PDF; a new file replaces the old one
+    parties = body.get("mode") == "parties"
+    if d.id and parties != _parties(d):
+        raise DomainError("bad_input", "Тип документа не меняется: создайте новый")
+    if parties and not src:
+        raise DomainError("missing_fields", "Загрузите файл PDF договора")
     d.lang = lang
     d.title, d.body = _texts(body, lang, pdf=bool(src))
+    if parties:
+        _set_parties(d, body.get("signers") or [])
+    else:
+        _fill_ours(db, d, body)
+    if new:  # stored last: a form error above leaves no file behind
+        src["path"] = f"private/sign-docs/src/{secrets.token_hex(12)}.pdf"
+        storage.put(src["path"], new[0])
+    if src:
+        d.body = {"pdf": src, **({"parties": True} if parties else {})}
+
+
+def _fill_ours(db: Session, d: SignDoc, body: dict) -> None:
+    """The company + optional staff signer + Сторона 2."""
     party = _person(db, body.get("party"), "party")
     co = _person(db, body["cosigner"], "company") if (body.get("cosigner") or {}).get("user_id") or \
         _clean((body.get("cosigner") or {}).get("full_name")) else None
@@ -295,15 +357,12 @@ def _fill(db: Session, d: SignDoc, body: dict) -> None:
         raise DomainError("bad_input", "Второй подписант и другая сторона — разные люди")
     _set_signer(d, "party", party)
     _set_signer(d, "company", co)
-    if new:  # stored last: a form error above leaves no file behind
-        src["path"] = f"private/sign-docs/src/{secrets.token_hex(12)}.pdf"
-        storage.put(src["path"], new[0])
-    if src:
-        d.body = {"pdf": src}
 
 
 def create(db: Session, body: dict, user: User) -> SignDoc:
     _staff(user)
+    if not at_least(user, "operator") and body.get("mode") != "parties":
+        raise forbidden("an agent sends only «Договор между сторонами»")
     d = SignDoc(status="draft", created_by=user.id, lang="KA-RU")
     _fill(db, d, body)
     db.add(d)
@@ -317,7 +376,7 @@ def create(db: Session, body: dict, user: User) -> SignDoc:
 def get(db: Session, did: int, user: User, lock: bool = False) -> SignDoc:
     _staff(user)
     d = db.get(SignDoc, int(did), with_for_update=lock, populate_existing=lock) if str(did).isdigit() else None
-    if not d:
+    if not d or not _mine(d, user):
         raise DomainError("not_found", "Документ не найден")
     return d
 
@@ -344,6 +403,8 @@ def _label(d: SignDoc) -> str:
 def query(user: User, status: str | None = None, q: str | None = None):
     _staff(user)
     stmt = select(SignDoc)
+    if not at_least(user, "operator"):
+        stmt = stmt.where(SignDoc.created_by == user.id, SignDoc.body["parties"].as_boolean().is_(True))
     if status and status != "all":
         stmt = stmt.where(SignDoc.status == status)
     if q and q.strip():
@@ -369,11 +430,12 @@ def send(db: Session, did: int, user: User) -> dict:
     from app.telegram import client as tg
     d = get(db, did, user, lock=True)
     if d.status == "draft":
-        comp = N.company_signature()
-        if not comp:
-            raise DomainError("no_company_signature", "Сначала Давид должен один раз расписаться за компанию (NDA → «Подпись компании»)", 409)
+        if not _parties(d):  # «между сторонами»: no company signature
+            comp = N.company_signature()
+            if not comp:
+                raise DomainError("no_company_signature", "Сначала Давид должен один раз расписаться за компанию (NDA → «Подпись компании»)", 409)
+            d.company_signature, d.company_signed_at = comp["signature"], now()
         d.status, d.sent_at = "sent", now()
-        d.company_signature, d.company_signed_at = comp["signature"], now()
         _rerender(d)  # the date of sending
         log_event(db, "sign_doc", d.id, "sent", user, label=_label(d), doc_sha256=d.doc_sha256)
     elif d.status != "sent":
@@ -441,7 +503,7 @@ def view(db: Session, token: str) -> dict:
             "confirmed": S.confirmed(s) or bool(s.signed_at), "tg_username": s.tg_username, "tg_name": s.tg_name,
             "signed": bool(s.signed_at), "signed_at": (s.signed_at or d.signed_at) and (s.signed_at or d.signed_at).isoformat(),
             "has_pdf": bool(d.pdf_path), "test_mode": S.test_mode(),
-            "signers": [{"full_name": x.full_name, "signed": bool(x.signed_at)} for x in d.signers],
+            "signers": [{"full_name": x.full_name, "role": x.role, "signed": bool(x.signed_at)} for x in d.signers],
             "html": d.html if d.status == "sent" else None, "pdf": _pdf_out(d)}
 
 
@@ -510,8 +572,8 @@ def _record(d: SignDoc, by: User | None) -> str:
     src = _src(d)
     file = f" · PDF «{H.escape(src['name'])}», {src['pages']} стр." if src else ""
     return N.record_page(second, f"{H.escape(_label(d))} № {number(d)} · {d.lang}{file}", d.doc_sha256,
-                         [("side2" if s.side == "party" else "side1", s) for s in d.signers],
-                         ("side1", d.company_signed_at, by, d.company_signature))
+                         [(s.role or ("side2" if s.side == "party" else "side1"), s) for s in d.signers],
+                         None if _parties(d) else ("side1", d.company_signed_at, by, d.company_signature))
 
 
 def signed_html(d: SignDoc, by: User | None = None) -> str:

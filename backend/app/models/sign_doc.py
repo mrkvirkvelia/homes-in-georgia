@@ -46,6 +46,7 @@ class SignDocSigner(Base):
     personal_id = Column(Text)
     phone = Column(Text)
     telegram = Column(Text)  # @username without «@»: only this account may sign
+    role = Column(Text)  # «Договор между сторонами»: the signer's label («Собственник», «Клиент»), 0033
     token = Column(Text, nullable=False, unique=True)
     tg_id = Column(Text)
     tg_username = Column(Text)

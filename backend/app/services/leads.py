@@ -7,8 +7,8 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from app.config import settings as env
-from app.models import (FIELD_SQL, Client, Event, Lead, LeadEvent, LeadSlot, Listing, Owner, Property, Reaction, User,
-                        at_least, is_field)
+from app.models import (FIELD_SQL, ChannelPost, Client, Event, Lead, LeadEvent, LeadSlot, Listing, Owner, Property,
+                        Reaction, User, at_least, is_field)
 from app.services import catalog, jobs, settings
 from app.services.common import aware, get_or_404, jload, log_event, now, now_text
 from app.services.dedup import extract_phones, owner_phones
@@ -164,10 +164,13 @@ def create_from_like(db: Session, client_id: int, listing_id: str, request: str 
 
 def _auto_assign(db: Session, lead: Lead) -> Lead:
     """A new lead on an object with a known agent goes straight to him: the object's agent, else the owner's
-    (owners.agent_id). No agent, or he can't take it (inactive) → the operator assigns as before."""
+    (owners.agent_id), else the agent of its agency-channel posts, newest first (the hge.ge-imported objects carry
+    their agent only there, Irakli 11-18). No agent, or he can't take it (inactive) → the operator assigns as before."""
     prop = db.get(Property, lead.property_id) if lead.property_id else None
     owner = db.get(Owner, prop.owner_id) if prop and prop.owner_id else None
-    for aid in dict.fromkeys(a for a in (prop and prop.agent_id, owner and owner.agent_id) if a):
+    posted = db.scalars(select(ChannelPost.agent_id).where(ChannelPost.property_id == prop.id)
+                        .order_by(ChannelPost.date.desc().nullslast(), ChannelPost.id.desc())) if prop else ()
+    for aid in dict.fromkeys(a for a in (prop and prop.agent_id, owner and owner.agent_id, *posted) if a):
         try:
             return assign_agent(db, lead.id, aid, None)
         except DomainError:

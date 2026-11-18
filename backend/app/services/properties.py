@@ -953,6 +953,10 @@ def _merge_duplicate(db: Session, p: Property, orig: int, actor: User | None) ->
         moved["is_exclusive"] = True
     if o.is_exclusive:
         schedule_dup_scan(db, o, "merged")
+    for k in ("agent_id", "owner_id"):  # the object that stays keeps the duplicate's agent / owner when it has none
+        if getattr(p, k) and not getattr(o, k):
+            setattr(o, k, getattr(p, k))
+            moved[k] = getattr(p, k)
     if p.sign_draft and not o.sign_draft and CONTRACT not in have:
         o.sign_draft = p.sign_draft
     if CONTRACT not in have and not contract_done(db, o) and (w := no_esign(db, p.id)) and w.status == "approved":

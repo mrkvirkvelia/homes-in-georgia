@@ -251,6 +251,33 @@ def test_like_auto_assigns_the_objects_agent(db, client, sent):
     assert plain.status == "new" and plain.agent_id is None
 
 
+def test_like_on_imported_object_goes_to_its_channel_post_agent(db, sent):
+    """Irakli 11-18 «агенту не приходят уведомления»: the hge.ge-imported objects (source channel) have no agent_id, the
+    agent is only on their channel posts → the ❤️ sat at the operator and the agent got nothing. Now the newest post's
+    active agent gets the lead (and its DM card); a «Дубль» merge also hands the duplicate's agent to the original."""
+    from app.models import ChannelPost
+    from app.services import properties
+    georgiy = make_user(db, "agent", "Георгий", is_active=True)
+    gone = make_user(db, "agent", "Ушедший", is_active=False)
+    listing = make_listing(db, "tg2001")
+    prop = db.query(Property).filter_by(listing_id=listing.id).one()
+    assert prop.agent_id is None
+    t = datetime.now(timezone.utc)
+    db.add_all([ChannelPost(message_id="m1", date=t - timedelta(days=9), agent_id=georgiy.id, property_id=prop.id),
+                ChannelPost(message_id="m2", date=t, agent_id=gone.id, property_id=prop.id)])  # newest, but inactive
+    db.commit()
+    lead = leads.create_from_like(db, make_client(db).id, listing.id)
+    assert lead.status == "agent_assigned" and lead.agent_id == georgiy.id
+    assert sent.of("lead_assigned_agent")[-1][0].id == lead.id
+
+    dup = Property(status="published", agent_id=georgiy.id)
+    orig = Property(status="published")
+    db.add_all([dup, orig])
+    db.commit()
+    properties.archive(db, dup.id, make_user(db, "admin"), "duplicate", duplicate_of=orig.id)
+    db.refresh(orig)
+    assert orig.agent_id == georgiy.id
+
 def test_agent_object_gone_closes_lead_and_object(db, sent):
     """❤️ → the object's agent; «🏠 Уже сдана» closes the lead, the object goes «Сдал сам», the operator is told."""
     from app.models import Property

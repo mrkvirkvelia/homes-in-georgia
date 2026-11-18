@@ -37,6 +37,10 @@ export const SOCIALS: { brand: string; accounts: { icon: BrandName; label: strin
     { icon: 'threads', label: 'soc.threads', name: 'Threads', handle: '@rent_in_tbilisi', href: 'https://www.threads.com/@rent_in_tbilisi' },
   ] },
 ];
+export const PORTALS = [
+  { name: 'Myhome.ge', href: 'https://www.myhome.ge/s/?users=4201800' },
+  { name: 'SS.ge', href: 'https://home.ss.ge/ka/udzravi-qoneba/userlist?userId=65aa7435-d32e-40bc-b86b-9d963efbbe77' },
+];
 
 export const phoneHref = (phone?: string) => 'tel:' + String(phone || CONTACT.phone).replace(/[^\d+]/g, '');
 export const whatsappHref = (phone?: string, text = '') =>

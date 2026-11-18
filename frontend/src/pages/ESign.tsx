@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { CheckCircle2, Download, FileText } from 'lucide-react';
-import { ApiError, http } from '../api/client';
+import { ApiError, SIGN_OPTS, http } from '../api/client';
 import type { ESignView } from '../api/types';
 import { Checkbox, Badge, Button, Field, Input, Loading, Seg } from '../components/ui';
 import { SignaturePad, signaturePng } from '../components/SignaturePad';
@@ -35,6 +35,7 @@ const UI: Record<Lang, {
       missing_fields: 'შეავსეთ სახელი და გვარი, პირადი ნომერი და ტელეფონი.',
       consent_required: 'საჭიროა თანხმობა ხელშეკრულების პირობებზე.',
       bad_signature: 'ხელმოწერა ვერ მივიღეთ, მოაწერეთ ხელი თავიდან.',
+      network: 'სერვერთან კავშირი ვერ დამყარდა. შეამოწმეთ ინტერნეტი და კიდევ ერთხელ დააჭირეთ „ხელმოწერა“.',
     },
     errDefault: 'რაღაც შეცდომა მოხდა. სცადეთ თავიდან.',
   },
@@ -55,6 +56,7 @@ const UI: Record<Lang, {
       missing_fields: 'Заполните ФИО, личный номер и телефон.',
       consent_required: 'Нужно согласие с условиями договора.',
       bad_signature: 'Подпись не получена, распишитесь ещё раз.',
+      network: 'Нет связи с сервером. Проверьте интернет и нажмите «Подписать» ещё раз.',
     },
     errDefault: 'Что-то пошло не так. Попробуйте ещё раз.',
   },
@@ -75,6 +77,7 @@ const UI: Record<Lang, {
       missing_fields: 'Please fill in your full name, personal ID number and phone.',
       consent_required: 'Please confirm that you agree to the terms of the contract.',
       bad_signature: 'We did not receive your signature, please sign again.',
+      network: 'No connection to the server. Check your internet and press «Sign» again.',
     },
     errDefault: 'Something went wrong. Please try again.',
   },
@@ -104,8 +107,10 @@ export function ESignPage() {
     mutationFn: () => http.post<ESignView>(`/public/esign/${token}`, {
       ...Object.fromEntries(Object.entries(f).map(([k, x]) => [k, x.trim()])), consent: true,
       signature: signaturePng(pad.current!), doc_sha256: v!.doc_sha256, lang: l,
-    }),
+    }, undefined, SIGN_OPTS),
     onSuccess: () => q.refetch(),
+    // the retry after a lost answer: the first one went through
+    onError: (e) => { if (e instanceof ApiError && e.code === 'already_signed') q.refetch(); },
   });
 
   const wrap = (body: React.ReactNode) => <div style={{ maxWidth: 820, margin: '0 auto', padding: '24px 16px' }}><div className="card card-pad col gap-lg">{body}</div></div>;

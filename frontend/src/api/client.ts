@@ -128,7 +128,12 @@ export function withKeepalive<T>(fn: () => T): T {
   try { return fn(); } finally { keepaliveNow = false; }
 }
 
-async function request<T>(method: string, path: string, body?: unknown, query?: Query, retried = false): Promise<T> {
+/** timeoutMs: abort a request that hangs (a stalled upload on mobile data spun the e-sign button forever, 11-18);
+ * retries: send it again that many times after a network error / timeout — only for calls the server makes idempotent
+ * (the signing POSTs answer a repeat with 409 already_signed). */
+type Opts = { timeoutMs?: number; retries?: number };
+
+async function request<T>(method: string, path: string, body?: unknown, query?: Query, retried = false, opts: Opts = {}): Promise<T> {
   const keepalive = keepaliveNow;  // read before the first await
   const url = path + qs(query);
   if (IS_MOCK) {
@@ -152,11 +157,16 @@ async function request<T>(method: string, path: string, body?: unknown, query?: 
     payload = JSON.stringify(body);
   }
   let res: Response;
+  const ctl = opts.timeoutMs ? new AbortController() : undefined;
+  const timer = ctl && setTimeout(() => ctl.abort(), opts.timeoutMs);
   try {
-    res = await fetch(`/api${url}`, { method, headers, body: payload, keepalive });
+    res = await fetch(`/api${url}`, { method, headers, body: payload, keepalive, signal: ctl?.signal });
   } catch (e) {
-    reportError({ kind: 'network', message: String(e), api_path: `${method} ${path}` });
+    reportError({ kind: 'network', message: `${ctl?.signal.aborted ? 'timeout: ' : ''}${e}`, api_path: `${method} ${path}` });
+    if (opts.retries) return request<T>(method, path, body, query, retried, { ...opts, retries: opts.retries - 1 });
     throw new ApiError(0, 'Нет связи с сервером. Проверьте интернет и повторите', 'network');
+  } finally {
+    clearTimeout(timer);
   }
   const rid = res.headers.get('X-Request-Id') || undefined;
   if (res.status === 401 && !path.startsWith('/auth/')) {
@@ -206,11 +216,14 @@ export async function fetchBlob(path: string): Promise<Blob> {
   return res.blob();
 }
 
+/** The signing POSTs (/esign, /nda, /doc, the company signature): a hung request gives up after 30 s and goes once more. */
+export const SIGN_OPTS: Opts = { timeoutMs: 30_000, retries: 1 };
+
 export const http = {
   get: <T>(p: string, q?: Query) => request<T>('GET', p, undefined, q),
-  post: <T>(p: string, b?: unknown, q?: Query) => request<T>('POST', p, b ?? {}, q),
+  post: <T>(p: string, b?: unknown, q?: Query, o?: Opts) => request<T>('POST', p, b ?? {}, q, false, o),
   patch: <T>(p: string, b?: unknown) => request<T>('PATCH', p, b ?? {}),
-  put: <T>(p: string, b?: unknown) => request<T>('PUT', p, b ?? {}),
+  put: <T>(p: string, b?: unknown, o?: Opts) => request<T>('PUT', p, b ?? {}, undefined, false, o),
   del: <T>(p: string) => request<T>('DELETE', p),
 };
 

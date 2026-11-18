@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { http } from '../api/client';
+import { ApiError, http } from '../api/client';
 import { errText } from '../components/toast';
 import { Checkbox, Button, ErrorBox, Field, Input, Loading, Seg } from '../components/ui';
 import { LANG_LABEL, buildExclusivePdf, confirmText, tbilisiNow, type Lang } from '../lib/exclusivePdf';
@@ -52,11 +52,11 @@ function FilePick({ label, hint, accept, file, busy, onFile, t }: { label: strin
   );
 }
 
-type UiT = { name: string; pid: string; phone: string; cad: string; cadBad: string; sign: string; clear: string; agree: string; send: string; done: string; saved: string; extractSaved: string; or: string };
+type UiT = { net: string; name: string; pid: string; phone: string; cad: string; cadBad: string; sign: string; clear: string; agree: string; send: string; done: string; saved: string; extractSaved: string; or: string };
 const UI: Record<Lang, UiT> = {
-  ru: { saved: 'Сохранено как черновик — можно закрыть страницу и вернуться по этой же ссылке', extractSaved: 'Выписка сохранена', or: 'Или загрузите скачанный PDF', name: 'ФИО', pid: 'Личный номер', phone: 'Телефон', cad: 'Кадастровый код', cadBad: 'Проверьте код: цифры через точку, например 01.14.12.003.045', sign: 'Подпишите пальцем', clear: 'Стереть', agree: 'С условиями согласен(на)', send: 'Подписать', done: 'Договор подписан. Спасибо!' },
-  ka: { saved: 'შენახულია მონახაზად — შეგიძლიათ დახუროთ გვერდი და დაბრუნდეთ იმავე ბმულით', extractSaved: 'ამონაწერი შენახულია', or: 'ან ატვირთეთ ჩამოტვირთული PDF', name: 'სახელი და გვარი', pid: 'პირადი ნომერი', phone: 'ტელეფონი', cad: 'საკადასტრო კოდი', cadBad: 'შეამოწმეთ კოდი: ციფრები წერტილით, მაგ. 01.14.12.003.045', sign: 'მოაწერეთ ხელი თითით', clear: 'წაშლა', agree: 'ვეთანხმები ზემოთ აღნიშნულ პირობებს', send: 'ხელმოწერა', done: 'ხელშეკრულება ხელმოწერილია. გმადლობთ!' },
-  en: { saved: 'Saved as a draft — you can close the page and come back by the same link', extractSaved: 'Extract saved', or: 'Or upload the downloaded PDF', name: 'Full name', pid: 'Personal ID number', phone: 'Phone', cad: 'Cadastral code', cadBad: 'Check the code: digits separated by dots, e.g. 01.14.12.003.045', sign: 'Sign with your finger', clear: 'Clear', agree: 'I agree to the above terms', send: 'Sign', done: 'Signed. Thank you!' },
+  ru: { net: 'Нет связи с сервером. Проверьте интернет и нажмите «Подписать» ещё раз.', saved: 'Сохранено как черновик — можно закрыть страницу и вернуться по этой же ссылке', extractSaved: 'Выписка сохранена', or: 'Или загрузите скачанный PDF', name: 'ФИО', pid: 'Личный номер', phone: 'Телефон', cad: 'Кадастровый код', cadBad: 'Проверьте код: цифры через точку, например 01.14.12.003.045', sign: 'Подпишите пальцем', clear: 'Стереть', agree: 'С условиями согласен(на)', send: 'Подписать', done: 'Договор подписан. Спасибо!' },
+  ka: { net: 'სერვერთან კავშირი ვერ დამყარდა. შეამოწმეთ ინტერნეტი და კიდევ ერთხელ დააჭირეთ „ხელმოწერა“.', saved: 'შენახულია მონახაზად — შეგიძლიათ დახუროთ გვერდი და დაბრუნდეთ იმავე ბმულით', extractSaved: 'ამონაწერი შენახულია', or: 'ან ატვირთეთ ჩამოტვირთული PDF', name: 'სახელი და გვარი', pid: 'პირადი ნომერი', phone: 'ტელეფონი', cad: 'საკადასტრო კოდი', cadBad: 'შეამოწმეთ კოდი: ციფრები წერტილით, მაგ. 01.14.12.003.045', sign: 'მოაწერეთ ხელი თითით', clear: 'წაშლა', agree: 'ვეთანხმები ზემოთ აღნიშნულ პირობებს', send: 'ხელმოწერა', done: 'ხელშეკრულება ხელმოწერილია. გმადლობთ!' },
+  en: { net: 'No connection to the server. Check your internet and press «Sign» again.', saved: 'Saved as a draft — you can close the page and come back by the same link', extractSaved: 'Extract saved', or: 'Or upload the downloaded PDF', name: 'Full name', pid: 'Personal ID number', phone: 'Phone', cad: 'Cadastral code', cadBad: 'Check the code: digits separated by dots, e.g. 01.14.12.003.045', sign: 'Sign with your finger', clear: 'Clear', agree: 'I agree to the above terms', send: 'Sign', done: 'Signed. Thank you!' },
 };
 
 export function ExclusiveSignPage() {
@@ -156,9 +156,11 @@ export function ExclusiveSignPage() {
       fd.append('consent', 'true');
       fd.append('file', new Blob([pdf], { type: 'application/pdf' }), `exclusive-${v.id}.pdf`);
       if (app) fd.append('registry_app', JSON.stringify(app));
-      return http.post<SignView>(base, fd);
+      // the PDF is a few hundred KB: more time than the other signing POSTs; a repeat is answered 409 already_signed
+      return http.post<SignView>(base, fd, undefined, { timeoutMs: 90_000, retries: 1 });
     },
     onSuccess: () => q.refetch(),
+    onError: (e) => { if (e instanceof ApiError && e.code === 'already_signed') q.refetch(); },
   });
 
   const wrap = (body: React.ReactNode) => <div style={{ maxWidth: 640, margin: '0 auto', padding: '24px 16px' }}><div className="card card-pad col gap-lg">{body}</div></div>;
@@ -199,7 +201,7 @@ export function ExclusiveSignPage() {
     </div>
     <div className="col gap-sm"><span className="label">{t.sign}</span><SignaturePad padRef={pad} onInk={setInk} clearLabel={t.clear} /></div>
     <Checkbox checked={agree} onChange={setAgree}>{t.agree}</Checkbox>
-    {sign.error && <div className="alert alert-warn">{errText(sign.error)}</div>}
+    {sign.error && <div className="alert alert-warn">{sign.error instanceof ApiError && sign.error.code === 'network' ? t.net : errText(sign.error)}</div>}
     {savedAt && <span className="faint" style={{ fontSize: 12 }}><CheckCircle2 size={12} style={{ verticalAlign: -1 }} /> {t.saved}</span>}
     <Button size="lg" variant="ok" disabled={!ready} loading={sign.isPending} onClick={() => sign.mutate()}>{t.send}</Button>
   </>);

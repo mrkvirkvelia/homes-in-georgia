@@ -64,7 +64,8 @@ export function SignaturePad({ onInk, padRef, clearLabel }: { onInk: (v: boolean
   );
 }
 
-/** The drawn signature cropped to its ink (+ a small margin), transparent PNG, at most 900 px wide. */
+/** The drawn signature cropped to its ink (+ a small margin), transparent PNG at 1x CSS scale, at most 600 px wide:
+ * a few KB. At the phone's devicePixelRatio (3 on Android) it was ~9x the pixels: a body that stalled on mobile data (11-18). */
 export function signaturePng(c: HTMLCanvasElement): string {
   const { width: w, height: h } = c;
   const px = c.getContext('2d')!.getImageData(0, 0, w, h).data;
@@ -73,11 +74,16 @@ export function signaturePng(c: HTMLCanvasElement): string {
     if (px[(y * w + x) * 4 + 3] > 0) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
   }
   if (x1 < 0) return c.toDataURL('image/png');
-  const m = Math.round(6 * (window.devicePixelRatio || 1));
+  const dpr = window.devicePixelRatio || 1, m = Math.round(6 * dpr);
   x0 = Math.max(0, x0 - m); y0 = Math.max(0, y0 - m); x1 = Math.min(w - 1, x1 + m); y1 = Math.min(h - 1, y1 + m);
-  const cw = x1 - x0 + 1, ch = y1 - y0 + 1, k = Math.min(1, 900 / cw);
+  const cw = x1 - x0 + 1, ch = y1 - y0 + 1, k = Math.min(1 / dpr, 600 / cw);
   const out = document.createElement('canvas');
   out.width = Math.max(1, Math.round(cw * k)); out.height = Math.max(1, Math.round(ch * k));
-  out.getContext('2d')!.drawImage(c, x0, y0, cw, ch, 0, 0, out.width, out.height);
+  const o = out.getContext('2d')!;
+  o.drawImage(c, x0, y0, cw, ch, 0, 0, out.width, out.height);
+  // the ink colour and 4 alpha levels: the downscale's antialiasing otherwise leaves hundreds of shades that PNG can't pack
+  const im = o.getImageData(0, 0, out.width, out.height), d = im.data;
+  for (let i = 0; i < d.length; i += 4) { d[i] = 0x1a; d[i + 1] = 0x1f; d[i + 2] = 0x2b; d[i + 3] = Math.round(d[i + 3] / 85) * 85; }
+  o.putImageData(im, 0, 0);
   return out.toDataURL('image/png');
 }

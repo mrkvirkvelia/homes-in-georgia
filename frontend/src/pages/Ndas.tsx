@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Copy, Download, Eye, FileText, Plus, RotateCcw, Save, Send, Share2, ShieldCheck, Trash2, XCircle } from 'lucide-react';
-import { fetchBlob, http, itemsOf } from '../api/client';
+import { fetchBlob, http, itemsOf, SIGN_OPTS } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import { errText, useToast } from '../components/toast';
 import { Badge, Button, Card, Empty, Field, Input, Loading, Modal, PageHead, Select, Tabs, Textarea } from '../components/ui';
@@ -49,7 +49,7 @@ function CompanySignature() {
   const [ink, setInk] = useState(false);
   const pad = useRef<HTMLCanvasElement>(null);
   const save = useMutation({
-    mutationFn: () => http.put<CompanySig>('/ndas/company-signature', { signature: signaturePng(pad.current!) }),
+    mutationFn: () => http.put<CompanySig>('/ndas/company-signature', { signature: signaturePng(pad.current!) }, SIGN_OPTS),
     onSuccess: () => { setEdit(false); qc.invalidateQueries({ queryKey: ['nda-company-sig'] }); toast('Подпись компании сохранена'); },
     onError: (e) => toast(errText(e), true),
   });

@@ -7,7 +7,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { CheckCircle2, Download, ShieldCheck } from 'lucide-react';
-import { http } from '../api/client';
+import { ApiError, SIGN_OPTS, http } from '../api/client';
 import { api } from '../api';
 import { errText } from '../components/toast';
 import { Checkbox, Button, ErrorBox, Field, Input, Loading, Seg } from '../components/ui';
@@ -37,21 +37,21 @@ const UI: Record<L, Record<string, string>> = {
     tgOnly: 'მხოლოდ ანგარიში', tgOk: 'დადასტურებულია', step2: '3. მოაწერეთ ხელი თითით', clear: 'წაშლა',
     agree: 'წავიკითხე შეთანხმება და ვეთანხმები მის პირობებს', send: 'ხელმოწერა', signing: 'ხელმოწერა…', signingHint: 'ვამზადებთ ხელმოწერილ PDF-ს — რამდენიმე წამი, ნუ დახურავთ გვერდს.', done: 'შეთანხმება ხელმოწერილია. გმადლობთ!',
     pdf: 'PDF-ის ჩამოტვირთვა', pdfWait: 'PDF მზადდება, განაახლეთ გვერდი ერთ წუთში.', sent: 'ხელმოწერილი PDF გამოგეგზავნათ Telegram-ში.',
-    you: 'მონაწილე', test: 'დადასტურება (სატესტო რეჟიმი)', noTg: 'Telegram-ის ჩატვირთვა ვერ მოხერხდა. განაახლეთ გვერდი.' },
+    you: 'მონაწილე', test: 'დადასტურება (სატესტო რეჟიმი)', noTg: 'Telegram-ის ჩატვირთვა ვერ მოხერხდა. განაახლეთ გვერდი.', net: 'სერვერთან კავშირი ვერ დამყარდა. შეამოწმეთ ინტერნეტი და კიდევ ერთხელ დააჭირეთ „ხელმოწერა“.' },
   ru: { title: 'Соглашение о подключении к платформе', read: 'Пожалуйста, внимательно прочитайте соглашение', toSign: 'К подписи ↓',
     step0: '1. Ваши реквизиты', iban: 'Укажите хотя бы один счёт — на него будут приходить выплаты.', ie: 'Номер ИП (ი/მ), необязательно', ieHint: 'Можно добавить позже в профиле', saveD: 'Внести в соглашение', savedD: 'Сохранено — текст соглашения обновлён', needIban: 'Укажите IBAN (шаг 1)', saveFirst: 'Исправьте реквизиты (шаг 1)', saving: 'Сохраняем…', badIban: 'IBAN: GE + 20 символов, например GE29TB0000000000000000', badIe: '9 или 11 цифр', needTg: 'Подтвердите себя через Telegram (шаг 2)',
     step1: '2. Подтвердите себя через Telegram', tgBtn: 'Telegram Login', tgBot: 'Подтвердить в Telegram-боте', tgBotHint: 'Откроется бот — нажмите «Start» и вернитесь сюда.', tgHint: 'Telegram попросит подтвердить вход в приложении.',
     tgOnly: 'Только аккаунт', tgOk: 'Подтверждено', step2: '3. Распишитесь пальцем', clear: 'Стереть',
     agree: 'Я прочитал(а) соглашение и согласен(на) с его условиями', send: 'Подписать', signing: 'Подписываем…', signingHint: 'Готовим подписанный PDF — несколько секунд, не закрывайте страницу.', done: 'Соглашение подписано. Спасибо!',
     pdf: 'Скачать PDF', pdfWait: 'PDF готовится, обновите страницу через минуту.', sent: 'Подписанный PDF отправлен вам в Telegram.',
-    you: 'Участник', test: 'Подтвердить (тестовый режим)', noTg: 'Не удалось загрузить Telegram. Обновите страницу.' },
+    you: 'Участник', test: 'Подтвердить (тестовый режим)', noTg: 'Не удалось загрузить Telegram. Обновите страницу.', net: 'Нет связи с сервером. Проверьте интернет и нажмите «Подписать» ещё раз.' },
   en: { title: 'Platform Agreement', read: 'Please read the agreement carefully', toSign: 'Go to signing ↓',
     step0: '1. Your details', iban: 'Enter at least one account — your payouts go there.', ie: 'IE number (ი/მ), optional', ieHint: 'You can add it later in your profile', saveD: 'Put into the agreement', savedD: 'Saved — the agreement text is updated', needIban: 'Enter an IBAN (step 1)', saveFirst: 'Fix the details (step 1)', saving: 'Saving…', badIban: 'IBAN: GE + 20 characters, e.g. GE29TB0000000000000000', badIe: '9 or 11 digits', needTg: 'Confirm yourself with Telegram (step 2)',
     step1: '2. Confirm yourself with Telegram', tgBtn: 'Telegram Login', tgBot: 'Confirm in the Telegram bot', tgBotHint: 'The bot opens — press «Start» and come back here.', tgHint: 'Telegram will ask you to confirm in the app.',
     tgOnly: 'Only the account', tgOk: 'Confirmed', step2: '3. Sign with your finger', clear: 'Clear',
     agree: 'I have read the agreement and agree to its terms', send: 'Sign', signing: 'Signing…', signingHint: 'Preparing the signed PDF — a few seconds, keep the page open.', done: 'Agreement signed. Thank you!',
     pdf: 'Download PDF', pdfWait: 'The PDF is being prepared, refresh in a minute.', sent: 'The signed PDF was sent to you in Telegram.',
-    you: 'Participant', test: 'Confirm (test mode)', noTg: 'Could not load Telegram. Refresh the page.' },
+    you: 'Participant', test: 'Confirm (test mode)', noTg: 'Could not load Telegram. Refresh the page.', net: 'No connection to the server. Check your internet and press «Sign» again.' },
 };
 
 // the document's wording where it differs from the agreement's (kind="doc")
@@ -133,9 +133,13 @@ export function NdaSignPage({ kind = 'nda' }: { kind?: Kind }) {
       () => setErr(t.noTg));
   };
   const sign = useMutation({
-    mutationFn: () => http.post<NdaView>(base, { signature: signaturePng(pad.current!), consent: true, doc_sha256: v!.doc_sha256 }),
+    mutationFn: () => http.post<NdaView>(base, { signature: signaturePng(pad.current!), consent: true, doc_sha256: v!.doc_sha256 }, undefined, SIGN_OPTS),
     onSuccess: () => { setErr(''); q.refetch(); },
-    onError: (e) => setErr(errText(e)),
+    onError: (e) => {
+      const code = e instanceof ApiError ? e.code : '';
+      if (code === 'already_signed') q.refetch();  // the retry after a lost answer: the first one went through
+      setErr(code === 'network' ? t.net : errText(e));
+    },
   });
 
   const wrap = (body: React.ReactNode) => <div style={{ maxWidth: 860, margin: '0 auto', padding: '24px 16px' }}><div className="card card-pad col gap-lg">{body}</div></div>;

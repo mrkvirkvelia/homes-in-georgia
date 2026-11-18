@@ -1,6 +1,8 @@
 // The object's address with an OSM check (Stanislav 11-11): typed or pasted (often from Google Maps) → suggestions from
 // GET /geo/search, a pick puts the point on a small map; the agent drags the marker (or taps the map) to correct it.
 // A pasted Google Maps link / «lat, lng» is the point itself; OSM only names the address there.
+// A tap / drag on the map names the address there (David 11-18): an empty field or the last tap's text is replaced, an
+// address the agent typed or picked is kept and «Подставить адрес точки» offered instead.
 import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { t } from '../lib/i18n';
@@ -13,8 +15,8 @@ import type { GeoHit } from '../api/types';
 import { Input } from './ui';
 
 export type Point = { lat: number; lng: number };
-/** GET /geo/point: what a point fills in — the CRM district and the nearest metro tag within 1.5 km (+ metres) */
-export type PointFacts = { district: string | null; metro: string | null; metro_m: number | null };
+/** GET /geo/point: what a point fills in — the CRM district, «Street house, City» there and the nearest metro tag (+ metres) */
+export type PointFacts = { district: string | null; address: string | null; metro: string | null; metro_m: number | null };
 const TBILISI: L.LatLngTuple = [41.7151, 44.8271];
 /** Brand drop pin, tip anchored on the point (the old 📍 emoji sat off the point and read as clutter, Stanislav 11-11). */
 const PIN = L.divIcon({
@@ -72,11 +74,33 @@ export function AddressField({ value, onChange, point, onPoint, onFacts, disable
   const { data, isFetching } = useQuery({ queryKey: ['geo', q], queryFn: () => api.geo.search(q), enabled: q.length >= 3 && !disabled, staleTime: Infinity });
   const items = data?.items || [];
   const asked = useRef(0);  // only the latest point's answer counts (a marker dragged twice)
-  const setPoint = (p: Point) => {
+  const val = useRef(value);
+  val.current = value;
+  const tapped = useRef('');  // the address the last tap wrote: the next tap may replace it
+  const wait = useRef(0);
+  const [naming, setNaming] = useState(false);
+  const [offer, setOffer] = useState<string | null>(null);  // the point's address when the field holds the agent's own
+  const fill = (a: string) => { picked.current = tapped.current = a; onChange(a); setOffer(null); };
+  const setPoint = (p: Point, fromMap = false) => {
     onPoint(p);
+    setOffer(null);
     const n = ++asked.current;
-    if (onFacts) api.geo.point(p).then((f) => { if (n === asked.current) onFacts(f); }).catch(() => undefined);
+    clearTimeout(wait.current);
+    setNaming(fromMap);
+    if (!onFacts && !fromMap) return;
+    if (fromMap) setOpen(false);  // the point is chosen on the map: the typed text's suggestions are moot
+    // taps in a row / a drag: ask OSM (≤1 req/s) only for where the pin settles
+    wait.current = window.setTimeout(() => api.geo.point(p).then((f) => {
+      if (n !== asked.current) return;
+      onFacts?.(f);
+      const cur = val.current.trim();
+      if (fromMap && f.address && cur !== f.address) {
+        if (!cur || cur === tapped.current) fill(f.address);
+        else setOffer(f.address);
+      }
+    }).catch(() => undefined).finally(() => { if (n === asked.current) setNaming(false); }), fromMap ? 400 : 0);
   };
+  useEffect(() => () => clearTimeout(wait.current), []);
   const pick = (h: GeoHit, keepText = false) => {
     setPoint({ lat: h.lat, lng: h.lng });
     if (!keepText) { picked.current = h.label; onChange(h.label); }
@@ -91,7 +115,7 @@ export function AddressField({ value, onChange, point, onPoint, onFacts, disable
   return (
     <div className="col" style={{ gap: 6 }}>
       <Input value={value} disabled={disabled} placeholder={t('Улица и дом, или ссылка Google Maps')}
-        onChange={(e) => onChange(e.target.value)} onFocus={() => setOpen(true)} />
+        onChange={(e) => { setOffer(null); onChange(e.target.value); }} onFocus={() => setOpen(true)} />
       {open && !data?.point && items.length > 0 && (
         <div className="card col" style={{ gap: 0, padding: 4 }}>
           <span className="faint" style={{ fontSize: 11, padding: '2px 8px' }}>{t('Это тот адрес? Выберите:')}</span>
@@ -109,7 +133,14 @@ export function AddressField({ value, onChange, point, onPoint, onFacts, disable
       {point ? <span className="addr-state ok"><MapPin size={14} />{t('Точка найдена — проверьте на карте')}</span>
         : notFound ? <span className="addr-state warn">{data?.error ? t('Поиск адресов сейчас недоступен') : t('Не нашли')} — {t('уточните адрес или поставьте точку на карте')}</span>
           : manual ? <span className="addr-state">{t('Нажмите на карте, где объект')}</span> : null}
-      {showMap && <PointMap point={point} onPoint={setPoint} disabled={disabled} />}
+      {naming && <span className="faint" style={{ fontSize: 12 }}>{t('Ищем адрес точки…')}</span>}
+      {offer && !disabled && (
+        <div className="row gap-sm" style={{ flexWrap: 'wrap', alignItems: 'center' }}>
+          <button type="button" className="chip" onClick={() => fill(offer)}>{t('Подставить адрес точки')}</button>
+          <span className="faint" style={{ fontSize: 13 }}>{offer}</span>
+        </div>
+      )}
+      {showMap && <PointMap point={point} onPoint={(p) => setPoint(p, true)} disabled={disabled} />}
       {point && !disabled && <span className="faint" style={{ fontSize: 12 }}>{t('Перетащите точку, если она стоит не там')}</span>}
     </div>
   );

@@ -990,7 +990,7 @@ on('POST', '/offers/:kind/:id/publish', (m, b) => {
   return offerOut(m[1], o);
 });
 on('GET', '/geo/search', (_m, _b, q) => ({ point: false, items: (q.get('q') || '').length < 3 ? [] : [{ label: `${q.get('q')}, Тбилиси`, lat: 41.7105, lng: 44.7612 }] }));
-on('GET', '/geo/point', () => ({ district: 'Ваке', metro: 'Rustaveli', metro_m: 640 }));
+on('GET', '/geo/point', (_m, _b, q) => ({ district: 'Ваке', address: `Ilia Chavchavadze Avenue ${Math.abs(Math.round(Number(q.get('lat')) * 10000)) % 90 + 1}, Tbilisi`, metro: 'Rustaveli', metro_m: 640 }));
 on('POST', '/properties/:id/site', (m, b) => { const u = currentUser(); const p = getProp(Number(m[1])); p.site_hidden = !b.on; return propOut(p, u); });
 
 async function formToBody(fd: FormData): Promise<Record<string, unknown>> {

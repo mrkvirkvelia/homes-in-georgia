@@ -68,6 +68,17 @@ def _hit(h: dict) -> dict:
             "district": _district(h.get("address") or {})}
 
 
+def _street(h: dict) -> str | None:
+    """«Street house, City» for a tapped point (David 11-18), in the same OSM English names the search returns; OSM's
+    full label when there is no street there (a park, a field)."""
+    a = h.get("address") or {}
+    road = a.get("road") or a.get("pedestrian") or a.get("footway")
+    if not road:
+        return _hit(h)["label"] if h.get("display_name") else None
+    city = a.get("city") or a.get("town") or a.get("village")
+    return ", ".join(x for x in (f"{road} {a['house_number']}" if a.get("house_number") else road, city) if x)
+
+
 @lru_cache(maxsize=2000)  # ponytail: per-process cache, enough for a handful of agents; a table if it grows
 def _nominatim(q: str) -> tuple:
     return tuple(_hit(h) for h in _get(NOMINATIM, {"q": q, "limit": 5, "countrycodes": "ge", "viewbox": TBILISI, "bounded": 0}))
@@ -76,7 +87,7 @@ def _nominatim(q: str) -> tuple:
 @lru_cache(maxsize=2000)
 def _reverse(lat: float, lng: float) -> dict | None:
     h = _get(NOMINATIM.replace("/search", "/reverse"), {"lat": lat, "lon": lng, "zoom": 18})
-    return _hit(h) if "lat" in h else None
+    return {**_hit(h), "street": _street(h)} if "lat" in h else None
 
 
 def search(q: str) -> dict:
@@ -100,13 +111,15 @@ def search(q: str) -> dict:
 
 
 def point_facts(lat: float, lng: float) -> dict:
-    """What a point fills in the card (Stanislav 11-11): the CRM district (OSM's suburb / city district there) and the
-    nearest metro at any distance up to METRO_RADIUS_M (a sanity cap: outside Tbilisi none), with its distance."""
+    """What a point fills in the card (Stanislav 11-11): the CRM district (OSM's suburb / city district there), the
+    street and house there (David 11-18: a tap on the map names the address) and the nearest metro at any distance up to
+    METRO_RADIUS_M (a sanity cap: outside Tbilisi none), with its distance."""
     from app.services.properties import METRO_RADIUS_M, nearest_metro_m
     try:
-        district = (_reverse(round(lat, 5), round(lng, 5)) or {}).get("district")  # ~1 m: a dragged marker reuses the cache
+        near_osm = _reverse(round(lat, 5), round(lng, 5)) or {}  # ~1 m: a dragged marker reuses the cache
     except (httpx.HTTPError, ValueError, KeyError):
-        district = None
+        near_osm = {}
     m, tag = nearest_metro_m(lat, lng)
     near = m <= METRO_RADIUS_M
-    return {"district": district, "metro": tag if near else None, "metro_m": round(m) if near else None}
+    return {"district": near_osm.get("district"), "address": near_osm.get("street"),
+            "metro": tag if near else None, "metro_m": round(m) if near else None}

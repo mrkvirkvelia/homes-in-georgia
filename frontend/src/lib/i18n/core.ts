@@ -163,6 +163,8 @@ export const D: Record<string, [ka: string, en: string]> = {
   'Не нашли': ['ვერ ვიპოვეთ', 'Not found'],
   'уточните адрес или поставьте точку на карте': ['დააზუსტეთ მისამართი ან დასვით წერტილი რუკაზე', 'refine the address or set a point on the map'],
   'Нажмите на карте, где объект': ['დააჭირეთ რუკაზე ობიექტის ადგილს', 'Tap the map where the property is'],
+  'Ищем адрес точки…': ['ვეძებთ წერტილის მისამართს…', 'Looking up the point\'s address…'],
+  'Подставить адрес точки': ['წერტილის მისამართის ჩასმა', 'Use the point\'s address'],
   'Перетащите точку, если она стоит не там': ['გადაიტანეთ წერტილი, თუ არასწორ ადგილასაა', 'Drag the point if it\'s in the wrong place'],
   // OwnerSuggest.tsx
   'Есть в базе собственников:': ['უკვე არის მესაკუთრეთა ბაზაში:', 'Already in the owner base:'],

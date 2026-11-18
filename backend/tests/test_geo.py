@@ -106,3 +106,26 @@ def test_point_facts_district_and_metro(client, db, monkeypatch):
     r = client.get("/api/geo/point", params={"lat": 41.85, "lng": 44.95}, headers=auth(ag)).json()
     assert (r["metro"], r["metro_m"]) == (None, None)
     assert client.get("/api/geo/point?lat=10&lng=10", headers=auth(ag)).status_code == 422
+
+
+def test_point_names_street_and_house(client, db, monkeypatch):
+    """David 11-18: a tap on the map fills the address — «Street house, City»; no street there → OSM's label; OSM down → None."""
+    answers = {41.7096: {**HIT, "address": {**HIT["address"], "road": "Ilia Chavchavadze Avenue", "house_number": "37", "city": "Tbilisi"}},
+               41.7001: {**HIT, "address": {"road": "Pekini Avenue", "city": "Tbilisi"}},
+               41.7201: {**HIT, "display_name": "Vake Park, Vake, Tbilisi, Georgia", "address": {"leisure": "Vake Park"}}}
+
+    def fake_get(url, params=None, **kw):
+        if params["lat"] == 41.7301:
+            raise httpx.ConnectError("down")
+        return httpx.Response(200, json=answers[params["lat"]], request=httpx.Request("GET", url))
+
+    monkeypatch.setattr(geo.httpx, "get", fake_get)
+    monkeypatch.setattr(geo.time, "sleep", lambda s: None)
+    geo._reverse.cache_clear()
+    ag = make_user(db, "agent")
+    got = lambda lat: client.get("/api/geo/point", params={"lat": lat, "lng": 44.76}, headers=auth(ag)).json()
+    assert got(41.7096)["address"] == "Ilia Chavchavadze Avenue 37, Tbilisi" and got(41.7096)["district"] == "Ваке"
+    assert got(41.7001)["address"] == "Pekini Avenue, Tbilisi"
+    assert got(41.7201)["address"] == "Vake Park, Vake, Tbilisi"
+    r = got(41.7301)
+    assert r["address"] is None and r["district"] is None and r["metro"]

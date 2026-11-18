@@ -271,7 +271,7 @@ def geo_search(q: str = Query("", max_length=500), user: User = Depends(current_
 
 @router.get("/geo/point")
 def geo_point(lat: float = Query(..., ge=40, le=44), lng: float = Query(..., ge=39, le=47), user: User = Depends(current_user)):
-    """District + nearest metro (≤1.5 km, with metres) for the address field's point; the agent can still change both."""
+    """District, street + house and nearest metro (with metres) for the address field's point; the agent can still change them."""
     return geo.point_facts(lat, lng)
 
 

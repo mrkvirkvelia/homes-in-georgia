@@ -216,7 +216,12 @@ on('GET', '/listings/new/facets', (_m, _b, q) => {
   const ls = q.get('competitor') ? F.rivalListings : F.listings.filter((l) => !l.property_id);
   return { sources: count(ls.map((l) => l.source)), districts: count(ls.map((l) => l.district)), metros: [] };
 });
-on('GET', '/listings/:id', (m) => F.listings.find((l) => l.id === m[1]));
+on('GET', '/listings/:id', (m) => {
+  const l = F.listings.find((x) => x.id === m[1]);
+  // backend listing_get: the object's owner with every number, for staff and the object's agent
+  const p = F.properties.find((x) => x.listing_id === m[1]); const u = currentUser();
+  return l && p?.owner && (isStaff(u) || p.agent_id === u.id) ? { ...l, contacts_visible: true, owner: { name: p.owner.name, phone: p.owner.phone, phones: p.owner.phones, is_agent: p.owner.is_agent } } : l;
+});
 on('GET', '/listings/:id/similar', () => ({ items: [] }));
 on('GET', '/properties/:id/similar', (m) => ({ items: getProp(Number(m[1])).duplicate_scan?.n ? DUPS : [] }));
 on('POST', '/similar/decide', (_m, b) => ({ ok: true, verdict: (b as { same?: boolean }).same ? 'same' : 'different', linked_to: null }));

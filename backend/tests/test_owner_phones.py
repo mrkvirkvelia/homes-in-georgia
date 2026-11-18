@@ -117,3 +117,20 @@ def test_after_verification_a_new_number_is_an_operator_request(db, client, sent
     client.post(f"/api/change-requests/{r['change_request']['id']}/decide", json={"approve": True}, headers=auth(nino))
     r = client.get(f"/api/properties/{pid}", headers=auth(georgiy)).json()
     assert [x["phone"] for x in r["owner"]["phones"]] == ["+995599112233", "+995577445566"]
+
+
+def test_ad_window_and_dedup_check_show_every_number_to_who_may_see_them(db, client, sent):
+    david, nika, nino = make_user(db, "agent", "Давид"), make_user(db, "agent", "Ника"), make_user(db, "operator", "Нино")
+    make_listing(db, "ss507")
+    pid = _take(client, david, "ss507")
+    client.post(f"/api/properties/{pid}/owner", headers=auth(david), json={
+        "is_owner": True, "owner_name": "Тамара", "owner_phones": [{"phone": AD}, {"phone": FOREIGN, "note": "сестра"}]})
+    for who in (david, nino):  # the object's agent and staff: the ad window lists every number with its note
+        owner = client.get("/api/listings/ss507", headers=auth(who)).json()["owner"]
+        assert [(x["phone"], x["note"]) for x in owner["phones"]] == [("+995599112233", None), ("+79161234567", "сестра")]
+    assert client.get("/api/listings/ss507", headers=auth(nika)).json().get("owner") is None
+    # «Проверить дубль»: staff see the matched owner's numbers, another agent none
+    body = {"phone": "+7 916 123 45 67"}
+    assert len(client.post("/api/properties/check-duplicate", json=body, headers=auth(nino)).json()["results"][0]["phones"]) == 2
+    hidden = client.post("/api/properties/check-duplicate", json=body, headers=auth(nika)).json()["results"][0]
+    assert hidden["phone_match"] and hidden["phone"] is None and hidden["phones"] is None

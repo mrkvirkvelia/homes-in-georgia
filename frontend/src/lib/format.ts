@@ -41,7 +41,7 @@ export const ARCHIVE_REASON: Record<string, string> = tmap({
 /** «Запрос оператору» (stage 6): kinds and field names (backend services/change_requests.py, properties.LOCKED_AFTER_VERIFY) */
 export const CR_KIND: Record<string, string> = tmap({ edit: 'Изменение полей', archive: 'В архив', transfer_owner: 'Передать собственника', delete: 'Удаление → архив', no_esign: 'Эксклюзив без электронной подписи' });
 export const CR_FIELD: Record<string, string> = tmap({
-  owner_name: 'Собственник', owner_phone: 'Телефон собственника', address: 'Адрес', cadastral_code: 'Кадастр', source_url: 'Ссылка на объявление',
+  owner_name: 'Собственник', owner_phone: 'Телефон собственника', owner_phones: 'Телефоны собственника', address: 'Адрес', cadastral_code: 'Кадастр', source_url: 'Ссылка на объявление',
   is_exclusive: 'Эксклюзив', price: 'Цена', currency: 'Валюта', deposit: 'Залог', sale_price: 'Цена продажи',
   archive_reason: 'Причина архива', archive_comment: 'Комментарий', duplicate_of: 'Дубль объекта', owner_agent: 'Агент собственника',
 });
@@ -204,6 +204,12 @@ export function pluralForm(n: number): 0 | 1 | 2 {
 
 /** two-digit prefixes of 3-digit country codes (+380, +374, +971, +998…); the rest are 2 digits, +1/+7 one */
 const CC3 = ['21', '22', '23', '24', '25', '26', '29', '35', '37', '38', '42', '50', '59', '67', '68', '69', '80', '85', '87', '88', '96', '97', '99'];
+
+/** An owner's numbers in one line: «+995 599 100 100 · +7 916 123 45 67 (сестра)» (backend owners.phones). */
+export function phonesLine(rows?: { phone: string; note?: string | null }[] | null, main?: string | null): string {
+  const list = rows?.length ? rows : main ? [{ phone: main }] : [];
+  return list.map((r) => formatPhone(r.phone) + (r.note ? ` (${r.note})` : '')).join(' · ');
+}
 
 /** «599206716» / «+995599206716» / «0599-20-67-16» → «+995 599 206 716»; foreign → «+7 916 123 45 67».
  *  Text with letters/commas or >15 digits (two numbers in one field) is returned untouched, so no digit is ever lost. */

@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { t } from '../lib/i18n';
+import { phonesLine } from '../lib/format';
 import { api } from '../api';
 import { itemsOf } from '../api/client';
 import type { Owner } from '../api/types';
@@ -25,7 +26,7 @@ export function OwnerSuggest({ query, onPick }: { query: string; onPick: (o: Own
       {items.map((o) => (
         <button key={o.id} type="button" className="list-row" style={{ textAlign: 'left', background: 'none', border: 0, cursor: 'pointer', padding: '6px 8px' }}
           onClick={() => { onPick(o); setHidden(true); }}>
-          <span className="grow"><b>{o.name || '—'}</b> <span className="muted num">{o.phone || (isStaff ? t('без телефона') : t('телефон скрыт'))}</span>
+          <span className="grow"><b>{o.name || '—'}</b> <span className="muted num">{phonesLine(o.phones, o.phone) || (isStaff ? t('без телефона') : t('телефон скрыт'))}</span>
             {o.address && <div className="faint" style={{ fontSize: 12 }}>{o.address}</div>}</span>
         </button>
       ))}

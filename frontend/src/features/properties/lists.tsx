@@ -17,6 +17,7 @@ import { ListingsMap } from './ListingsMap';
 import { Resume, metroLabel } from './PropertyDetail';
 import { usePageState } from '../../layout/back';
 import { ARCHIVE_REASON, PLATFORM, PROPERTY_BOARD, PROPERTY_STATUS, SOURCE_LABEL, ago, bedroomsLabel, demandLabel, districtLabel, fmtDate, fmtDateTime, formatPhone, money, phoneBlur, phoneFocus, phoneInput } from '../../lib/format';
+import { MorePhones } from '../../components/PhonesField';
 import { LOCALE, lx, t } from '../../lib/i18n';
 
 /** "fb:Some group" -> "Facebook · Some group"; site sources stay as they are. */
@@ -282,7 +283,7 @@ export function PropertyModal({ id, listing, reasons, base = '', onClose }: { id
       [t('Цена'), money(p.price, p.currency || 'USD')], [t('Район'), districtLabel(p.district) || '—'], [t('Спальни'), bedroomsLabel(p.bedrooms) || '—'],
       [t('Площадь'), p.area ? `${p.area} ${t('м²')}` : '—'], [t('Этаж'), p.floor ? `${p.floor}${p.total_floors ? t(' из {n}', { n: p.total_floors }) : ''}` : '—'],
       [t('Агент собственника'), (p.owner?.agent || p.agent)?.name || PLATFORM],
-      ...(p.owner ? [[t('Собственник'), <>{p.owner.name || '—'}{phone && <> · <a href={`tel:${phone.replace(/[^+\d]/g, '')}`}>{formatPhone(phone)}</a> <CopyPhone phone={phone} /></>}</>] as [string, React.ReactNode]] : []),
+      ...(p.owner ? [[t('Собственник'), <>{p.owner.name || '—'}{phone && <> · <a href={`tel:${phone.replace(/[^+\d]/g, '')}`}>{formatPhone(phone)}</a> <CopyPhone phone={phone} /></>}<MorePhones phones={p.owner.phones} /></>] as [string, React.ReactNode]] : []),
     ]}>
       <div className="row row-wrap gap-sm">
         <PropertyStatusBadge status={p.status} />

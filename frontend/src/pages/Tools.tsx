@@ -6,9 +6,10 @@ import { api } from '../api';
 import { cadastralInput } from '../lib/cadastral';
 import { errText, useToast } from '../components/toast';
 import { Badge, Button, Card, Field, Input } from '../components/ui';
-import { fmtDate, phoneInput } from '../lib/format';
+import { fmtDate, phoneInput, phonesLine } from '../lib/format';
+import type { PhoneRow } from '../api/types';
 
-type DupRow = { source?: string; owner?: string | null; phone?: string | null; address?: string | null; link?: string | null; status?: string; rent_to?: string | null;
+type DupRow = { source?: string; owner?: string | null; phone?: string | null; phones?: PhoneRow[] | null; address?: string | null; link?: string | null; status?: string; rent_to?: string | null;
   phone_match?: boolean; addr_match?: boolean; url_match?: boolean; cadastral_match?: boolean; property_id?: number; deal_id?: number; is_agent?: boolean };
 
 const LEVEL: Record<string, { tone: 'ok' | 'warn' | 'red'; title: string; sub: string }> = {
@@ -56,7 +57,7 @@ export function PropertyCheck() {
                   {r.is_agent && <Badge tone="warn">агент</Badge>}
                 </div>
                 {r.owner && <b>{r.owner}</b>}
-                <div className="muted" style={{ fontSize: 13 }}>{[r.phone, r.address].filter(Boolean).join(' · ') || '—'}</div>
+                <div className="muted" style={{ fontSize: 13 }}>{[phonesLine(r.phones, r.phone), r.address].filter(Boolean).join(' · ') || '—'}</div>
                 {r.rent_to && <div className="muted" style={{ fontSize: 12 }}>Сдан до {fmtDate(r.rent_to)}</div>}
                 <div className="row gap-sm">
                   {r.property_id && <a href={`/objects/${r.property_id}`}>Объект #{r.property_id}</a>}

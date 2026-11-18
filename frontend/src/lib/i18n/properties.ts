@@ -10,6 +10,7 @@ export const D: Record<string, [ka: string, en: string]> = {
       'The owner came in person: the property gets the «Owner» status right away, then the post generator opens — price, details and photos go there.'],
   'Имя собственника': ['მესაკუთრის სახელი', 'Owner name'],
   'Телефон собственника': ['მესაკუთრის ტელეფონი', 'Owner phone'],
+  'Телефоны собственника': ['მესაკუთრის ტელეფონები', 'Owner phones'],
   'Адрес (можно позже)': ['მისამართი (შეიძლება მოგვიანებით)', 'Address (can be added later)'],
   'метро не найдено (точка за городом)': ['მეტრო ვერ მოიძებნა (წერტილი ქალაქგარეთაა)', 'no metro found (point is outside the city)'],
   'Район': ['უბანი', 'District'],

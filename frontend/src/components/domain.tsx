@@ -5,7 +5,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Link, useLocation, useSearchParams } from 'react-router-dom';
 import { Bot, Clock, Copy, ExternalLink, Lock, MapPin, PhoneOff, User as UserIcon } from 'lucide-react';
 import { api } from '../api';
-import type { AiFlags, EventItem, Lead, LeadStatus, Listing, Property, PropertyStatus, SimilarFlat } from '../api/types';
+import type { AiFlags, EventItem, Lead, LeadStatus, Listing, PhoneRow, Property, PropertyStatus, SimilarFlat } from '../api/types';
 import { thumbUrl } from '../api/client';
 import { Badge, Button, ErrorBox, KV, Lightbox, Loading, Modal, useNow } from './ui';
 import { useToast } from './toast';
@@ -107,7 +107,7 @@ function ObjectLink({ to, text }: { to: string; text: string }) {
 export function ListingModal({ id, onClose, actions }: { id: string; onClose: () => void; actions?: ReactNode }) {
   const { data, isLoading, error } = useQuery({ queryKey: ['listing', id], queryFn: () => api.listings.get(id) });
   const loc = useLocation();
-  const l = data as (Listing & { property?: { id: number; status?: string } | null; urls?: string[]; dup_sources?: string[]; phones?: string[]; telegram_contacts?: string[]; floor?: number | null; description?: string | null; contacts_visible?: boolean; owner?: { name?: string | null; phone?: string | null; is_agent?: boolean } }) | undefined;
+  const l = data as (Listing & { property?: { id: number; status?: string } | null; urls?: string[]; dup_sources?: string[]; phones?: string[]; telegram_contacts?: string[]; floor?: number | null; description?: string | null; contacts_visible?: boolean; owner?: { name?: string | null; phone?: string | null; phones?: PhoneRow[] | null; is_agent?: boolean } }) | undefined;
   return (
     <Modal open onClose={onClose} title={l?.address || t('Объявление')}>
       {isLoading ? <Loading /> : error ? <ErrorBox error={error} /> : l && (
@@ -131,7 +131,11 @@ export function ListingModal({ id, onClose, actions }: { id: string; onClose: ()
           {l.owner && (
             <div className="col gap-sm">
               <span className="label">{l.owner.is_agent ? t('Контакт агента') : t('Собственник')}{l.owner.name ? ` · ${l.owner.name}` : ''}</span>
-              {l.owner.phone && <div className="row gap-sm"><a className="btn btn-secondary grow" href={`tel:${l.owner.phone.replace(/[^+\d]/g, '')}`}>{t('Позвонить')} · {formatPhone(l.owner.phone)}</a><CopyPhone phone={l.owner.phone} /></div>}
+              {/* every number of the owner, the main first (David 11-18: the ad's and the one given on the call) */}
+              {(l.owner.phones?.length ? l.owner.phones : l.owner.phone ? [{ phone: l.owner.phone }] : []).map((r: PhoneRow) => (
+                <div key={r.phone} className="row gap-sm"><a className="btn btn-secondary grow" style={{ minWidth: 0, whiteSpace: 'normal', flexWrap: 'wrap', rowGap: 0, height: 'auto', minHeight: 40, paddingBlock: 6 }} href={`tel:${r.phone.replace(/[^+\d]/g, '')}`}>
+                  <span>{t('Позвонить')} · <span style={{ whiteSpace: 'nowrap' }}>{formatPhone(r.phone)}</span></span>{r.note && <span className="muted" style={{ fontSize: 12, fontWeight: 500 }}>{r.note}</span>}</a><CopyPhone phone={r.phone} /></div>
+              ))}
             </div>
           )}
           {!!l.phones?.length && (

@@ -55,7 +55,7 @@ def listing_get(listing_id: str, db: Session = Depends(get_db, scope="function")
     if full and prop and prop.owner_id:
         owner = db.get(Owner, prop.owner_id)
         if owner:
-            d["owner"] = {"name": owner.name, "phone": owner.phone, "is_agent": owner.is_agent}
+            d["owner"] = {"name": owner.name, "phone": owner.phone, "phones": owner_phones(owner), "is_agent": owner.is_agent}
     d["property"] = {"id": prop.id, "status": prop.status, "agent_id": prop.agent_id} if prop else None
     d["similar"] = P.similar_for(db, [listing.id]).get(listing.id, [])
     d["refused"] = P.refusals_for(db, [listing.id]).get(listing.id)
@@ -243,7 +243,7 @@ def check_duplicate(body: DupIn, db: Session = Depends(get_db, scope="function")
         mine = set(db.scalars(select(Property.owner_id).where(Property.agent_id == user.id, Property.owner_id.isnot(None))))
         for r in res.get("results", []):
             if r.get("source") == "owners" and r.get("owner_id") not in mine:
-                r["phone"] = r["owner"] = None
+                r["phone"] = r["phones"] = r["owner"] = None
             if r.get("property_id") and not P.can_open(db, P._prop(db, r["property_id"]), user):
                 r["property_id"] = None  # no link to a card he can't open; the match itself still shows
     return res

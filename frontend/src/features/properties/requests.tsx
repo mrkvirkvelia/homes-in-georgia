@@ -10,7 +10,7 @@ import type { ChangeRequest } from '../../api/types';
 import { useAuth } from '../../auth/AuthContext';
 import { errText, useToast } from '../../components/toast';
 import { Badge, Button, Empty, ErrorBox, Input, Loading } from '../../components/ui';
-import { ARCHIVE_REASON, CR_FIELD, CR_KIND, ago, fmtDateTime, money } from '../../lib/format';
+import { ARCHIVE_REASON, CR_FIELD, CR_KIND, ago, fmtDateTime, money, phonesLine } from '../../lib/format';
 import { t } from '../../lib/i18n';
 
 function val(field: string, v: unknown) {
@@ -19,6 +19,7 @@ function val(field: string, v: unknown) {
   if (field === 'archive_reason') return ARCHIVE_REASON[String(v)] || String(v);
   if (['price', 'deposit', 'sale_price'].includes(field)) return money(Number(v));
   if (field === 'duplicate_of') return `#${v}`;
+  if (Array.isArray(v)) return phonesLine(v) || '—';  // owner_phones
   return String(v);
 }
 

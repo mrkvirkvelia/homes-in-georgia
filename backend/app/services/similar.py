@@ -112,7 +112,7 @@ def _listing_profile(l: Listing, competitors: set[str]) -> dict:
         "out": {"kind": "ad", "listing_id": l.id, "property_id": None, "where": _ad_source(l, competitors),
                 "competitor": l.source in competitors, "status": l.status, "address": l.address, "district": l.district,
                 "bedrooms": l.bedrooms, "area": l.area, "floor": l.floor, "price_usd": l.price_usd,
-                "photos": [f"/api/listing-photos/{l.id}/{i}" for i in range(min(n_photos, 6))],
+                "photos": [f"/api/listing-photos/{l.id}/{i}" for i in range(n_photos)],  # all: an agent judges «тот же?» by them (Stanislav 11-18)
                 "url": urls[0] if urls else None, "seen": l.last_seen},
     }
 
@@ -150,8 +150,9 @@ def _objects(db: Session, pids: list[int] | None = None) -> list[dict]:
         phones = [o.phone] if o and o.phone else []
         phones += [x for _, l in mine for x in extract_phones(l.text or "")]
         at = (p.lat, p.lng) if p.lat is not None else (origin.lat, origin.lng) if origin is not None else (None, None)
-        pics = [f"/api/media/{x}" for x in photos.get(p.id, [])[:6]] or \
-            ([f"/api/listing-photos/{origin.id}/{i}" for i in range(min(len(jload(origin.photos, []) or []), 6))] if origin else [])
+        # every photo (lazy previews, Lightbox on tap): with 6 the card showed the house and the terrace, not the flat (11-18)
+        pics = [f"/api/media/{x}" for x in photos.get(p.id, [])] or \
+            ([f"/api/listing-photos/{origin.id}/{i}" for i in range(len(jload(origin.photos, []) or []))] if origin else [])
         out.append({
             "key": key("p", p.id), "kind": "object", "listing_id": None, "property_id": p.id, "ad_ids": {l.id for _, l in mine},
             "urls": urls - {None, ""}, "phones": list(dict.fromkeys(phones)), "names": _name_tokens(o.name) if o else frozenset(),

@@ -87,6 +87,7 @@ export function PhotoStrip({ photos }: { photos: (string | null | undefined)[] }
   if (!shots.length) return <div className="faint" style={{ fontSize: 12 }}>{t('Без фото')}</div>;
   return (
     <>
+      {shots.length > 2 && <div className="faint" style={{ fontSize: 12 }}>{t('{n} фото · листайте вбок', { n: shots.length })}</div>}
       <div className="cmp-photos">{shots.map((p, i) => <img key={p} src={thumbUrl(p)} alt="" loading="lazy" style={{ cursor: 'zoom-in' }} onClick={() => setOpen(i)} />)}</div>
       {open !== null && <Lightbox items={shots.map((src) => ({ src }))} index={open} onIndex={setOpen} onClose={() => setOpen(null)} />}
     </>
@@ -119,7 +120,6 @@ export function ListingModal({ id, onClose, actions }: { id: string; onClose: ()
           {!!l.photos?.length && (
             <div className="col gap-sm">
               <PhotoStrip photos={l.photos} />
-              {l.photos.length > 2 && <div className="faint" style={{ fontSize: 12 }}>{t('{n} фото · листайте вбок', { n: l.photos.length })}</div>}
             </div>
           )}
           <div className="row row-wrap gap-sm"><AiFlagBadges flags={l.ai_flags} /></div>

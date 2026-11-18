@@ -3,6 +3,7 @@
 import json
 import os
 import sys
+import tempfile
 import unittest
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -126,7 +127,8 @@ class ParseTest(unittest.TestCase):
 class NotifyTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.fake = FakeTelegram(str(Path(__file__).parent / "_notify_tmp"))
+        cls.tmp = tempfile.mkdtemp(prefix="notify_")
+        cls.fake = FakeTelegram(cls.tmp)
         port = cls.fake.serve()
         cls.saved = {k: os.environ.get(k) for k in ("TG_API_BASE", "BOT_TOKEN", "PUBLIC_URL", "OPERATORS_CHAT_ID")}
         os.environ.update(TG_API_BASE=f"http://127.0.0.1:{port}", BOT_TOKEN="1:FAKE", PUBLIC_URL="https://crm.test", OPERATORS_CHAT_ID="-100777")
@@ -137,7 +139,7 @@ class NotifyTest(unittest.TestCase):
         for k, v in cls.saved.items():
             os.environ.pop(k, None) if v is None else os.environ.__setitem__(k, v)
         import shutil
-        shutil.rmtree(Path(__file__).parent / "_notify_tmp", ignore_errors=True)
+        shutil.rmtree(cls.tmp, ignore_errors=True)
 
     def setUp(self):
         pg.reset()

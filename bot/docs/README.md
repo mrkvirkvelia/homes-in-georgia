@@ -31,7 +31,7 @@
 .venv/bin/python -m bot.run             # бот (long polling): BOT_TOKEN, PUBLIC_URL, OPERATORS_CHAT_ID, AGENT_CODE
 bot/refresh.sh                          # одно обновление базы объявлений (fetchers → ingest → db.py sync → embed)
 bot/refresh_loop.sh                     # процесс refresh: тик раз в REFRESH_TICK_MIN, источники по расписанию из админки
-cd bot && ../.venv/bin/python -m unittest discover -s test   # тесты (TEST_DATABASE_URL, схема bot_test)
+cd bot && ../.venv/bin/python -m pytest -q -n 4 --dist loadfile test   # тесты (TEST_DATABASE_URL, схема bot_test_gwN на воркер)
 ```
 
 Тесты идут в отдельной схеме `bot_test` базы `TEST_DATABASE_URL` (схему создаёт `alembic upgrade head`, при смене

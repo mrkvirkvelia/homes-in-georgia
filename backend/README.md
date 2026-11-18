@@ -9,7 +9,7 @@ cd backend
 ../.venv/bin/python -m app.worker                      # scheduler loop (every 30 s); --once for a single pass
 ../.venv/bin/python -m app.importers.sheets_csv ../data/legacy-sheets   # Google Sheets CSV export → Postgres (idempotent)
 ../.venv/bin/python -m app.seed_demo                   # demo data (Нино / Георгий / Анна ...)
-../.venv/bin/python -m pytest -q                       # tests against TEST_DATABASE_URL
+../.venv/bin/python -m pytest -q -n 4                  # tests against TEST_DATABASE_URL (-n: a DB <name>_gwN per worker)
 ```
 
 Desk login after startup: `ADMIN_BOOTSTRAP_LOGIN` / `ADMIN_BOOTSTRAP_PASSWORD` (superadmin, created if none exists).

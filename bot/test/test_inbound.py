@@ -5,6 +5,7 @@ and also yields a listing, a forwarded #Rented becomes a pending deal, other cha
 import asyncio
 import os
 import sys
+import tempfile
 import threading
 import time
 import unittest
@@ -45,7 +46,7 @@ Date of Rent: 01.12.2026 - 01.12.2027"""
 class InboundE2E(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.tmp = Path(__file__).parent / "_inbound_tmp"
+        cls.tmp = Path(tempfile.mkdtemp(prefix="inbound_"))
         cls.fake = FakeTelegram(str(cls.tmp))
         port = cls.fake.serve()
         cls.env = {"TG_API_BASE": f"http://127.0.0.1:{port}", "BOT_TOKEN": "123456:INB-FAKE", "PUBLIC_URL": "",

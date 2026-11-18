@@ -9,6 +9,7 @@ import json
 import asyncio
 import os
 import sys
+import tempfile
 import threading
 import time
 import unittest
@@ -74,7 +75,7 @@ def listing(id, district, price, beds, **kw):
 class JourneyE2E(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.tmp = Path(__file__).parent / "_e2e_tmp"
+        cls.tmp = Path(tempfile.mkdtemp(prefix="e2e_"))  # its own dir: parallel runs (xdist workers, sessions) never share it
         cls.fake = FakeTelegram(str(cls.tmp))
         port = cls.fake.serve()
         from app.telegram import userbot

@@ -90,9 +90,22 @@ cd frontend && npm run dev                          # фронт с hot reload, 
 ## Тесты
 
 ```bash
-cd backend && ../.venv/bin/python -m pytest -q                      # 114 тестов (S3-тест: TEST_S3_* → локальный MinIO)
-cd bot && ../.venv/bin/python -m unittest discover -s test          # 105 тестов, e2e через fake Bot API
+cd backend && ../.venv/bin/python -m pytest -q -n 4                 # ~440 тестов (S3-тест: TEST_S3_* → локальный MinIO)
+cd bot && ../.venv/bin/python -m pytest -q -n 4 --dist loadfile test # ~140 тестов, e2e через fake Bot API
 cd frontend && npm run build                                        # проверка типов + сборка
+```
+
+`-n N` (pytest-xdist из `backend/requirements.txt`) — N процессов параллельно: у каждого воркера бэкенда своя база
+`<TEST_DATABASE_URL>_gwN` (создаётся сама на том же сервере), у бота — своя схема `bot_test_gwN`. Без `-n` всё идёт
+последовательно, как раньше (бот можно и `python -m unittest discover -s test`). Бот — только `--dist loadfile`:
+классы с `setUpClass` поднимают fake Telegram и бота, их тесты должны остаться в одном процессе. Автодеплой
+(`deploy/autodeploy.sh`) гоняет бэкенд и бота одновременно, по 2 воркера, в контейнере с `--cpus 3`.
+
+Тестовой базе не нужен fsync: каждый тест делает TRUNCATE всех таблиц, и с fsync это основная часть времени
+(бэкенд в ~3 раза быстрее без него). Одноразовая база для тестов:
+
+```bash
+docker run -d --rm --name homes-test-pg-fast -p 55433:5432 -e POSTGRES_USER=homes -e POSTGRES_PASSWORD=homes -e POSTGRES_DB=homes_test pgvector/pgvector:pg16 -c fsync=off -c synchronous_commit=off -c full_page_writes=off
 ```
 
 S3-тест против локального MinIO (без этих переменных он пропускается):

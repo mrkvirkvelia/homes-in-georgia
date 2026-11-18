@@ -232,7 +232,8 @@ def report(db: Session, days: int = 7, fresh: bool = False) -> dict:
     # ponytail: the period is aggregated in Python (fine for tens of thousands of events); move to SQL GROUP BY if it grows to millions
     end = datetime.now(timezone.utc)
     start, prev_start = end - timedelta(days=days), end - timedelta(days=2 * days)
-    rows = db.execute(select(SiteEvent).where(SiteEvent.at >= prev_start, SiteEvent.at <= end)).scalars().all()
+    # no upper bound: `at` is the DB clock (now()), `end` the app's; a DB clock a few ms ahead must not drop fresh events
+    rows = db.execute(select(SiteEvent).where(SiteEvent.at >= prev_start)).scalars().all()
     out = aggregate([e for e in rows if e.at >= start], [e for e in rows if e.at < start], start, end, days)
     with _lock:
         _cache[days] = (time.monotonic(), out)

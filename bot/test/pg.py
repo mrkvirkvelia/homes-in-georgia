@@ -1,6 +1,7 @@
-"""Test database for the bot: TEST_DATABASE_URL in its own schema (BOT_TEST_SCHEMA, default bot_test), so the backend's
-tests on the same database don't collide. The schema comes from backend/alembic (upgrade head); while that is missing,
-from test/schema_fallback.sql. A changed migration set rebuilds the schema. reset() empties every table."""
+"""Test database for the bot: TEST_DATABASE_URL in its own schema (BOT_TEST_SCHEMA, default bot_test; under pytest-xdist
+bot_test_gwN per worker), so the backend's tests on the same database don't collide. The schema comes from
+backend/alembic (upgrade head); while that is missing, from test/schema_fallback.sql. A changed migration set rebuilds the
+schema. reset() empties every table."""
 import hashlib
 import os
 import re
@@ -16,7 +17,8 @@ import db
 ROOT = Path(__file__).resolve().parents[2]
 ALEMBIC = ROOT / "backend" / "alembic"
 FALLBACK = Path(__file__).with_name("schema_fallback.sql")
-SCHEMA = os.environ.get("BOT_TEST_SCHEMA", "bot_test")
+_WORKER = os.environ.get("PYTEST_XDIST_WORKER")
+SCHEMA = os.environ.get("BOT_TEST_SCHEMA") or ("bot_test_" + _WORKER if _WORKER else "bot_test")
 _ready = []
 
 
@@ -83,10 +85,20 @@ def ensure():
         return
     check_test_db(base_url(), MAIN_URL, SCHEMA)
     fp = fingerprint()
+    # one schema build at a time per database: parallel workers' migrations would race on CREATE EXTENSION vector
+    lock = psycopg.connect(db.dsn(base_url()), autocommit=True)
+    lock.execute("SELECT pg_advisory_lock(hashtext('bot_test_schema'))")
+    try:
+        _build(fp)
+    finally:
+        lock.close()
+    _ready.append(fp)
+
+
+def _build(fp):
     with psycopg.connect(db.dsn(base_url()), autocommit=True) as c:
         cur = c.execute("SELECT obj_description(oid, 'pg_namespace') FROM pg_namespace WHERE nspname = %s", (SCHEMA,)).fetchone()
         if cur and cur[0] == fp:
-            _ready.append(fp)
             return
         c.execute(f'DROP SCHEMA IF EXISTS "{SCHEMA}" CASCADE')
         c.execute(f'CREATE SCHEMA "{SCHEMA}"')
@@ -101,7 +113,6 @@ def ensure():
             c.execute(FALLBACK.read_text())
     with psycopg.connect(db.dsn(base_url()), autocommit=True) as c:
         c.execute(f"COMMENT ON SCHEMA \"{SCHEMA}\" IS '{fp}'")
-    _ready.append(fp)
 
 
 def reset():

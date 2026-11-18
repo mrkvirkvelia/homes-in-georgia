@@ -15,20 +15,28 @@ src=/opt/homes-ci/src net=homes-ci
 rm -rf $src && mkdir -p $src && git archive "$new" | tar -x -C $src
 docker network create $net >/dev/null 2>&1
 docker rm -f homes-ci-db >/dev/null 2>&1
+# a throwaway DB: no fsync (every test's TRUNCATE rewrites all tables' files; with fsync that I/O was most of the run)
 docker run -d --rm --name homes-ci-db --network $net -e POSTGRES_USER=homes -e POSTGRES_PASSWORD=homes \
-  -e POSTGRES_DB=homes_test pgvector/pgvector:pg16 >/dev/null
-until docker exec homes-ci-db pg_isready -q -U homes -d homes_test; do sleep 1; done
-# nice: the tests share the box with prod
-nice -n 10 docker run --rm --network $net -v $src:/src -w /src -v homes-ci-pip:/root/.cache/pip \
+  -e POSTGRES_DB=homes_test pgvector/pgvector:pg16 -c fsync=off -c synchronous_commit=off -c full_page_writes=off >/dev/null
+# -h 127.0.0.1: the image's first-start init server listens on the socket only, so a socket check passes too early
+until docker exec homes-ci-db pg_isready -q -h 127.0.0.1 -U homes -d homes_test; do sleep 1; done
+# Backend and bot at the same time, 2 pytest-xdist workers each (backend: a database homes_test_gwN per worker, bot: a
+# schema bot_test_gwN); any failure of either blocks the deploy. The box is 4 vCPU / 8 GB with prod live: --cpus 3 keeps
+# one core free whatever the tests do, and nice inside the container yields the rest to prod (the outer nice only
+# lowers the docker client). The bot workers mostly wait on fake-Telegram round trips, so 2+2 fits in 3 cores.
+nice -n 10 docker run --rm --cpus 3 --network $net -v $src:/src -w /src -v homes-ci-pip:/root/.cache/pip \
   -e TEST_DATABASE_URL=postgresql+psycopg://homes:homes@homes-ci-db:5432/homes_test python:3.12-slim sh -c '
-    pip install -q --root-user-action=ignore -r bot/requirements.txt &&
-    (cd backend && python -m pytest -q -p no:cacheprovider) &&
-    (cd bot && python -m unittest discover -s test) > /src/bot-tests.log 2>&1
+    pip install -q --root-user-action=ignore -r bot/requirements.txt || exit 1
+    (cd bot && nice -n 10 python -m pytest -q -p no:cacheprovider -n 2 --dist loadfile test) > /src/bot-tests.log 2>&1 &
+    bot=$!
+    (cd backend && nice -n 10 python -m pytest -q -p no:cacheprovider -n 2); be=$?
+    wait $bot; bt=$?
+    echo "backend exit $be, bot exit $bt"; [ $be -eq 0 ] && [ $bt -eq 0 ]
     ' > /opt/homes-ci/tests.log 2>&1
 ok=$?
 docker rm -f homes-ci-db >/dev/null 2>&1
 grep -E "passed|failed" /opt/homes-ci/tests.log | tail -5
-grep -E "^(Ran|OK|FAILED)" $src/bot-tests.log 2>/dev/null; cp $src/bot-tests.log /opt/homes-ci/ 2>/dev/null
+grep -E "passed|failed|error" $src/bot-tests.log 2>/dev/null | tail -3; cp $src/bot-tests.log /opt/homes-ci/ 2>/dev/null
 if [ $ok -ne 0 ]; then
   echo "tests FAILED, not deploying (full output: /opt/homes-ci/tests.log)"; echo "$new" > /var/lib/homes-autodeploy.failed; exit 1
 fi

@@ -1,9 +1,10 @@
-"""Tests run against TEST_DATABASE_URL (schema built by `alembic upgrade head`, tables truncated between tests)."""
+"""Tests run against TEST_DATABASE_URL (schema built by `alembic upgrade head`, tables truncated between tests).
+Under pytest-xdist (`-n 3`) worker gwN uses its own database <name>_gwN on the same server, created on first use."""
 import os
 import re
 import sys
 from pathlib import Path
-from urllib.parse import parse_qs, unquote, urlsplit
+from urllib.parse import parse_qs, unquote, urlsplit, urlunsplit
 
 BACKEND = Path(__file__).resolve().parents[1]
 REPO = BACKEND.parent
@@ -39,6 +40,10 @@ def check_test_db(test_url, main_url):
 TEST_URL = os.environ.get("TEST_DATABASE_URL") or _env_file_value("TEST_DATABASE_URL")
 if not TEST_URL:
     raise RuntimeError("TEST_DATABASE_URL is not set")
+BASE_URL, WORKER = TEST_URL, os.environ.get("PYTEST_XDIST_WORKER")
+if WORKER:
+    _p = urlsplit(TEST_URL)
+    TEST_URL = urlunsplit(_p._replace(path=f"{_p.path}_{WORKER}"))
 check_test_db(TEST_URL, os.environ.get("DATABASE_URL") or _env_file_value("DATABASE_URL"))
 os.environ["DATABASE_URL"] = TEST_URL
 os.environ["BOT_TOKEN"] = "123456:TEST-TOKEN"
@@ -58,8 +63,17 @@ from app.services.common import jdump, now_text  # noqa: E402
 from app.telegram import notify  # noqa: E402
 
 
+def _create_db(base_url, name):
+    import psycopg
+    with psycopg.connect(re.sub(r"^postgres(?:ql)?(\+\w+)?://", "postgresql://", base_url), autocommit=True) as c:
+        if not c.execute("SELECT 1 FROM pg_database WHERE datname = %s", (name,)).fetchone():
+            c.execute(f'CREATE DATABASE "{name}"')
+
+
 @pytest.fixture(scope="session", autouse=True)
 def schema():
+    if WORKER:
+        _create_db(BASE_URL, _db_key(TEST_URL)[2])
     with engine.begin() as c:
         c.execute(text("DROP SCHEMA public CASCADE; CREATE SCHEMA public"))
     cfg = Config(str(BACKEND / "alembic.ini"))

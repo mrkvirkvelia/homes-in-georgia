@@ -30,6 +30,9 @@ LISTING_IMG = REPO_ROOT / "bot" / "raw" / "img"  # listings.photos entries are r
 PRESIGN_TTL = 3600
 PREVIEW_PX, PREVIEW_Q = 640, 70
 PREVIEW_OF = (".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif")  # what Pillow (+ pillow-heif) reads; videos / gif keep the original
+# python:3.12-slim has no /etc/mime.types and 3.12's own table lacks .webp: previews went out as application/octet-stream
+# (only a process that had imported telethon knew it). Process-wide, so api/site.py and api/content.py get it too.
+mimetypes.add_type("image/webp", ".webp")
 
 
 def is_s3() -> bool:

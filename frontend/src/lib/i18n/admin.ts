@@ -436,6 +436,13 @@ export const D: Record<string, [ka: string, en: string]> = {
   'По общему тексту (ред. {ed})': ['საერთო ტექსტით (რედ. {ed})', 'From the common text (ed. {ed})'],
   // «Документ на подпись» (pages/SignDocs.tsx, /sign-docs)
   'Документы на подпись': ['დოკუმენტები ხელმოწერისთვის', 'Documents for signing'],
+  'Вставить текст': ['ტექსტის ჩასმა', 'Paste text'],
+  'Готовый PDF': ['მზა PDF', 'Ready PDF'],
+  'Файл PDF *': ['PDF ფაილი *', 'PDF file *'],
+  'Документ подписывают как есть: страницы не меняются, в конце добавится страница с подписями. До 15 МБ': ['დოკუმენტს ხელს აწერენ როგორც არის: გვერდები არ იცვლება, ბოლოს დაემატება ხელმოწერების გვერდი. 15 მბ-მდე', 'Signed as is: the pages do not change, a signatures page is added at the end. Up to 15 MB'],
+  'Нужен файл PDF': ['საჭიროა PDF ფაილი', 'A PDF file is needed'],
+  'PDF больше 15 МБ': ['PDF 15 მბ-ზე მეტია', 'The PDF is over 15 MB'],
+  'стр.': ['გვ.', 'p.'],
   'Документ на подпись': ['დოკუმენტი ხელმოწერისთვის', 'Document for signing'],
   'Электронная подпись': ['ელექტრონული ხელმოწერა', 'E-signature'],
   'Соглашения (NDA)': ['შეთანხმებები (NDA)', 'Agreements (NDA)'],

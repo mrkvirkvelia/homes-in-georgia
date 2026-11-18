@@ -27,6 +27,8 @@ class DocIn(BaseModel):
     body: dict[str, str] = {}
     party: Person = Person()
     cosigner: Person | None = None
+    pdf: str | None = Field(None, max_length=21_000_000)  # a ready PDF instead of the text: data:…;base64 (≤ 15 MB)
+    pdf_name: str | None = Field(None, max_length=300)
 
 
 @router.get("/sign-docs")

@@ -167,6 +167,7 @@ export function DealForm({ leadId, propertyId, onDone }: { leadId?: number; prop
     onSuccess: (d) => {
       qc.invalidateQueries({ queryKey: ['deals'] });
       qc.invalidateQueries({ queryKey: ['leads'] });
+      qc.invalidateQueries({ queryKey: ['contracts'] });  // a signed contract shows its deal (11-18)
       if (leadId) qc.invalidateQueries({ queryKey: ['lead', leadId] });
       toast('Сделка отправлена оператору на подтверждение');
       onDone?.(d);

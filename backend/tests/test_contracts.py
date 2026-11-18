@@ -287,3 +287,72 @@ def test_contract_from_object_card(db, client):
     db.refresh(p)
     got = client.get(f"/api/contracts/{d['id']}", headers=h).json()
     assert p.status == "rented" and got["status"] == "deal" and got["deal_id"] == deal.id
+
+
+def _signed_from_card(db, client, ag, p, **kw):
+    """A contract from the object card (no lead), generated and signed by its agent."""
+    h = auth(ag)
+    d = client.post("/api/contracts/draft", json={"kind": "rent", "property_id": p.id, "data": {"x": "1"}}, headers=h).json()
+    client.put(f"/api/contracts/{d['id']}", json={"kind": "rent", "lang": "RU", "html": PAGE, "client_name": "Grishin Andrei",
+                                                  "data": {"price_usd": "1200", "start_rent": "2026-12-01", "end_rent": "2027-12-01"}, **kw},
+               headers=h)
+    assert client.post(f"/api/contracts/{d['id']}/sign", headers=h).json()["status"] == "signed"
+    return d["id"]
+
+
+def test_deal_from_signed_contract_without_lead(db, client):
+    """11-18 (Irakli): «Оформить сделку» on a signed contract made from the object card — there was no lead, so the
+    deal path was a dead end («Без заявки»). Now a client + lead come from the contract (the tenant's e-sign phone),
+    the deal form works on it, and the contract shows the deal. Another agent: not his contract (404)."""
+    from app.models import Client, ContractSigner
+    ag, other = make_user(db, "agent"), make_user(db, "agent")
+    p = Property(agent_id=ag.id, status="published", address="Paliashvili 10", price=1200, verified_at=now())
+    db.add(p)
+    db.commit()
+    cid = _signed_from_card(db, client, ag, p)
+    db.add(ContractSigner(contract_id=cid, role="tenant", token="t" * 30, doc_sha256="x", full_name="Grishin Andrei",
+                          phone="+995 599 12 34 56", signed_at=now()))
+    db.commit()
+    assert client.post(f"/api/contracts/{cid}/deal-lead", headers=auth(other)).status_code == 404
+    c = client.post(f"/api/contracts/{cid}/deal-lead", headers=auth(ag)).json()
+    lead = db.get(Lead, c["lead_id"])
+    cl = db.get(Client, lead.client_id)
+    assert (lead.property_id, lead.agent_id, lead.status, cl.name, cl.phone) == (p.id, ag.id, "contract", "Grishin Andrei", "+995 599 12 34 56")
+    assert c["lead_deal_id"] is None
+    # twice: the same lead
+    assert client.post(f"/api/contracts/{cid}/deal-lead", headers=auth(ag)).json()["lead_id"] == lead.id
+    # the deal form (lead_id): the contract's terms and the client come in; the agent files it himself
+    pre = client.get(f"/api/leads/{lead.id}/deal-prefill", headers=auth(ag)).json()["fields"]
+    assert (pre["price"], pre["rent_from"], pre["client_name"]) == (1200, "2026-12-01", "Grishin Andrei")
+    assert client.get(f"/api/leads/{lead.id}", headers=auth(ag)).json()["client"]["phone"] == "+995 599 12 34 56"
+    r = client.post("/api/deals", json={"lead_id": lead.id, "property_id": p.id, "price": 1200, "rent_from": "2026-12-01",
+                                        "rent_to": "2027-12-01", "client_name": "Grishin Andrei"}, headers=auth(ag))
+    assert r.status_code == 200, r.text
+    deal = r.json()
+    assert deal["lead_id"] == lead.id and deal["agent_id"] == ag.id
+    got = client.get(f"/api/contracts/{cid}", headers=auth(ag)).json()
+    assert got["lead_deal_id"] == deal["id"] and got["status"] == "signed"
+    assert client.get("/api/contracts?status=all", headers=auth(ag)).json()["items"][0]["lead_deal_id"] == deal["id"]
+
+
+def test_deal_from_contract_reuses_lead(db, client):
+    """The same client's live lead on the object is attached instead of a new one (moved to «Договор»); a contract
+    made on a lead keeps it. A draft gets no deal."""
+    ag = make_user(db, "agent")
+    p = Property(agent_id=ag.id, status="published", address="Vazha 5", price=900, verified_at=now())
+    db.add(p)
+    db.commit()
+    known = make_client(db, name="grishin andrei", external_id=777001)
+    old = Lead(client_id=known.id, property_id=p.id, agent_id=ag.id, status="agent_assigned", created_at=now_text(), updated_at=now_text())
+    db.add(old)
+    db.commit()
+    cid = _signed_from_card(db, client, ag, p)
+    c = client.post(f"/api/contracts/{cid}/deal-lead", headers=auth(ag)).json()
+    db.refresh(old)
+    assert c["lead_id"] == old.id and old.status == "contract" and old.contacts_shared_at is not None
+    # a contract with a lead: as is
+    lead = _lead(db, ag)
+    x = _new(client, ag, lead_id=lead.id)
+    assert client.post(f"/api/contracts/{x['id']}/deal-lead", headers=auth(ag)).status_code == 409  # a draft
+    client.post(f"/api/contracts/{x['id']}/sign", headers=auth(ag))
+    assert client.post(f"/api/contracts/{x['id']}/deal-lead", headers=auth(ag)).json()["lead_id"] == lead.id

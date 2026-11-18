@@ -236,6 +236,8 @@ export const api = {
     },
     /** «Привязать к заявке»: a contract created without a lead / deal (11-13) */
     link: (id: number, b: { lead_id?: number; deal_id?: number }) => http.post<Contract>(`/contracts/${id}/link`, b),
+    /** «Оформить сделку»: the contract's lead for the deal form, made from the contract when it has none (11-18) */
+    dealLead: (id: number) => http.post<Contract>(`/contracts/${id}/deal-lead`, {}),
     close: (id: number, reason: ContractCloseReason, comment?: string) => http.post<Contract>(`/contracts/${id}/close`, { reason, comment }),
     share: (id: number) => http.post<Contract>(`/contracts/${id}/share`),
     esign: (id: number) => http.post<Contract>(`/contracts/${id}/esign`),

@@ -2,9 +2,9 @@
 // PDF: open in the browser's viewer (Telegram: the expiring share link in the external browser), download.
 // No «Поделиться» (Irakli 11-13): the parties get the contract via the e-sign links or «Отправить клиенту в Telegram».
 import { useEffect, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { CheckCircle2, Copy, Download, ExternalLink, FileText, Pencil, PenLine, Send, Share2, Upload, XCircle } from 'lucide-react';
+import { CheckCircle2, Copy, Download, ExternalLink, FileText, Handshake, Pencil, PenLine, Send, Share2, Upload, XCircle } from 'lucide-react';
 import { api } from '../../api';
 import { itemsOf } from '../../api/client';
 import type { Contract, ContractCloseReason, ContractStatus } from '../../api/types';
@@ -244,8 +244,26 @@ function CloseModal({ c, open, onClose, onDone }: { c: Contract; open: boolean; 
   );
 }
 
-/** «Привязать к заявке»: a contract made without a lead / deal joins one later (11-13) */
-function LinkLead({ c, onChange }: { c: Contract; onChange: (c: Contract) => void }) {
+/** «Оформить сделку» on a signed contract (Irakli 11-18): the deal form on its lead; a contract from the object card
+ *  has none, so the backend finds the client's lead on the object or makes the client + lead from the contract. */
+function DealButton({ c, root, onChange }: { c: Contract; root: string; onChange: (c: Contract) => void }) {
+  const toast = useToast();
+  const navigate = useNavigate();
+  const m = useMutation({
+    mutationFn: () => api.contracts.dealLead(c.id),
+    onSuccess: (x) => { onChange(x); if (!x.lead_deal_id && x.lead_id) navigate(`${root}/deals/new?lead_id=${x.lead_id}`); },
+    onError: (e) => toast(errText(e), true),
+  });
+  return (
+    <div className="row row-wrap gap-sm mt" style={{ alignItems: 'center' }}>
+      <Button variant="ok" size="lg" loading={m.isPending} onClick={() => m.mutate()}><Handshake size={18} />{t('Оформить сделку')}</Button>
+      <span className="muted" style={{ fontSize: 13 }}>{c.lead_id ? t('Договор подписан: оформите сделку по заявке') : t('Договор подписан: оформите сделку — клиент и условия возьмутся из договора')}</span>
+    </div>
+  );
+}
+
+/** «Привязать к заявке»: a contract made without a lead / deal joins one later (11-13); quiet: nothing when no lead fits */
+function LinkLead({ c, onChange, quiet }: { c: Contract; onChange: (c: Contract) => void; quiet?: boolean }) {
   const toast = useToast();
   const qc = useQueryClient();
   const leads = useQuery({ queryKey: ['leads', 'list', 'contract'], queryFn: () => api.leads.list({ status: CONTRACT_STAGES.join(',') }) });
@@ -255,6 +273,7 @@ function LinkLead({ c, onChange }: { c: Contract; onChange: (c: Contract) => voi
     onError: (e) => toast(errText(e), true),
   });
   const items = itemsOf(leads.data);
+  if (!items.length && quiet) return null;
   if (!items.length) return <div className="muted mt" style={{ fontSize: 13 }}>{leads.isLoading ? t('Без заявки') : t('Без заявки: нет заявок после просмотра, чтобы привязать')}.</div>;
   return (
     <div className="mt" style={{ maxWidth: 520 }}>
@@ -283,6 +302,8 @@ export function ContractView({ id, base }: { id: number; base: string }) {
   if (q.isLoading) return <Loading />;
   if (q.error || !c) return <ErrorBox error={q.error} />;
   const set = (x: Contract) => qc.setQueryData(['contracts', 'one', id], x);
+  const root = base.replace(/\/contracts$/, '');
+  const deal = c.deal_id || c.lead_deal_id;  // a pending deal is the lead's until its confirm
   const items: [string, React.ReactNode][] = [
     [t('Статус'), <ContractStatusBadge c={c} />],
     [t('Тип'), kindLang(c)],
@@ -321,10 +342,11 @@ export function ContractView({ id, base }: { id: number; base: string }) {
         actions={<Link className="btn btn-sm btn-ghost" to={base}>{t('Все договоры')}</Link>}>
         <dl className="kv contract-kv">{items.map(([k, v]) => <div key={k} style={{ display: 'contents' }}><dt>{k}</dt><dd>{v}</dd></div>)}</dl>
         <div className="row row-wrap gap-sm mt" style={{ fontSize: 13 }}>
-          {c.lead_id && <Link to={`${base.replace(/\/contracts$/, '')}/leads/${c.lead_id}`}>{t('Заявка #{id}', { id: c.lead_id })}</Link>}
-          {c.deal_id && <Link to={`${base.replace(/\/contracts$/, '')}/deals/${c.deal_id}`}>{t('Сделка #{id}', { id: c.deal_id })}</Link>}
+          {c.lead_id && <Link to={`${root}/leads/${c.lead_id}`}>{t('Заявка #{id}', { id: c.lead_id })}</Link>}
+          {deal && <Link to={`${root}/deals/${deal}`}>{t('Сделка #{id}', { id: deal })}</Link>}
         </div>
-        {!c.lead_id && !c.deal_id && c.status !== 'closed_no_deal' && <LinkLead c={c} onChange={set} />}
+        {c.status === 'signed' && !deal && <DealButton c={c} root={root} onChange={set} />}
+        {!c.lead_id && !c.deal_id && c.status !== 'closed_no_deal' && <LinkLead c={c} onChange={set} quiet={c.status === 'signed'} />}
         {c.status === 'draft' && (
           <div className="row row-wrap gap-sm mt">
             <Link className={`btn ${c.has_pdf ? 'btn-secondary' : ''}`} to={editLink(base, c)}><Pencil size={16} />{c.has_pdf ? t('Изменить данные и перегенерировать') : t('Продолжить заполнение')}</Link>
@@ -383,7 +405,7 @@ export function ContractList({ base, agentId, label = t('История'), title
               <span className="col gap-sm" style={{ alignItems: 'flex-end' }}>
                 <ContractStatusBadge c={c} />
                 <span className="row gap-sm" style={{ fontSize: 12 }}>
-                  {c.deal_id ? <Link to={`${root}/deals/${c.deal_id}`}>{t('Сделка #{id}', { id: c.deal_id })}</Link>
+                  {c.deal_id || c.lead_deal_id ? <Link to={`${root}/deals/${c.deal_id || c.lead_deal_id}`}>{t('Сделка #{id}', { id: (c.deal_id || c.lead_deal_id)! })}</Link>
                     : c.lead_id ? <Link to={`${root}/leads/${c.lead_id}`}>{t('Заявка #{id}', { id: c.lead_id })}</Link> : null}
                   {c.status === 'draft' && c.has_pdf && <Link to={editLink(base, c)} title={t('Изменить данные и перегенерировать')}><Pencil size={13} /> {t('Изменить')}</Link>}
                 </span>

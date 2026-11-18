@@ -166,6 +166,12 @@ def contracts_link(cid: int, body: LinkIn, db: Session = Depends(get_db, scope="
     return C.out(db, C.link(db, cid, body.model_dump(), user), full=True)
 
 
+@router.post("/contracts/{cid}/deal-lead")
+def contracts_deal_lead(cid: int, db: Session = Depends(get_db, scope="function"), user: User = Depends(current_user)):
+    """«Оформить сделку» on a signed contract: its lead (found or made from the contract) for the deal form (11-18)."""
+    return C.out(db, C.deal_lead(db, cid, user), full=True)
+
+
 @router.post("/contracts/{cid}/esign")
 def contracts_esign(cid: int, db: Session = Depends(get_db, scope="function"), user: User = Depends(current_user)):
     """«Подписать электронно»: a signing link for the owner and one for the tenant (services/esign.py)."""

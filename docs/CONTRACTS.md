@@ -109,6 +109,12 @@ API `backend/app/api/contracts.py`, таблица `contracts` (миграция
 Заявка: `GET /leads/{id}` и `GET /leads/{id}/contract` отдают `contract: {id, status, status_label, signed_at,
 has_signed_pdf, close_reason, close_reason_label, closed_at}` (живой договор заявки, иначе последний закрытый) или null.
 
+«Оформить сделку» на подписанном договоре (11-18): `POST /contracts/{id}/deal-lead` отдаёт договор с заявкой, и
+кнопка открывает форму сделки этой заявки (`/deals/new?lead_id=`, условия — из договора). У договора без заявки (из
+карточки объекта) заявка находится — живая заявка того же клиента (телефон из e-sign арендатора или имя) на этом объекте,
+она переходит в «Договор» — или создаётся: клиент `channel=crm` + заявка «Договор» агента договора, контакты открыты.
+Только создатель договора или staff. Пока сделка ждёт подтверждения, договор показывает её как `lead_deal_id`.
+
 PDF: `GET /contracts/{id}/pdf` (inline, `?download=1` — файлом, `?signed=1` — подписанный скан, если есть).
 Mini App: `POST /contracts/{id}/send` — бот присылает PDF в чат. «Поделиться»: `POST /contracts/{id}/share` →
 `share.url` — ссылка без логина `/api/public/contracts/<токен>/pdf`, токен случайный (не перебирается), только чтение,

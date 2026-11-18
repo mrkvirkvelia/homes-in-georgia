@@ -408,6 +408,8 @@ export interface Contract extends ContractSummary {
   versions?: { n: number; at: string | null; by: UserRef | null }[];
   updated_at?: string | null;
   lead_status?: string | null;
+  /** the lead's deal while it is pending (deal_id comes with its confirm) */
+  lead_deal_id?: number | null;
   /** the wizard's CxData + _step/_dep/_end (full payloads) */
   data?: Record<string, string | number | boolean> | null;
   title?: string | null;

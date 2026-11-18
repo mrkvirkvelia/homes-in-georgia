@@ -1,7 +1,7 @@
 // VITE_MOCK=1 in-memory API. Mimics §7 shapes and the main state transitions so the UI can be exercised offline.
 import { ApiError, getToken } from '../client';
 import { scenarioRows, type DistRow, type Scenario } from '../../lib/scenarios';
-import type { ChangeRequest, Deal, EventItem, Lead, LeadStatus, Listing, PhoneRow, Property, PropertyStatus, Report, SimilarItem, User } from '../types';
+import type { ChangeRequest, Client, Deal, EventItem, Lead, LeadStatus, Listing, PhoneRow, Property, PropertyStatus, Report, SimilarItem, User } from '../types';
 import { STAFF_ROLES } from '../types';
 import * as F from './fixtures';
 import { registerDailyRent } from './dailyRent';
@@ -824,10 +824,17 @@ on('POST', '/ndas/:id/text/preview', (_m, b) => ({ html: `<h1>Preview</h1>${(b.b
 const contracts: Record<string, unknown>[] = [{ id: 9001, kind: 'rent', lang: 'EN', lead_id: null, deal_id: null, cadastral: '01.10.14.016.017.01.001',
   address: 'თბილისი, ტაბიძის ქ. 43', has_pdf: true, status_label: 'Сгенерирован', filename: 'contract.pdf', created_at: new Date().toISOString(),
   generated_at: new Date().toISOString(), data: { extract_file: 'private/registry-extracts/mock.pdf' } }];
-const cxOut = (c: Record<string, unknown>) => ({ status: 'draft', status_label: 'Черновик', has_pdf: false, versions: [], versions_count: 0, ...c });
+// a contract signed from the object card, no lead (Irakli 11-18: «Оформить сделку» on it)
+const cardProp = F.properties.find((p) => p.agent_id === 3 && p.status === 'published') || F.properties[0];
+contracts.push({ id: 9002, kind: 'rent', lang: 'RU', status: 'signed', status_label: 'Договор подписан', lead_id: null, deal_id: null, property_id: cardProp.id,
+  address: cardProp.address, client_name: 'Grishin Andrei', owner_name: cardProp.owner?.name || null, has_pdf: true, filename: 'contract.pdf',
+  created_by: F.ref(3), created_at: new Date().toISOString(), generated_at: new Date().toISOString(), signed_at: new Date().toISOString(), signed_by: F.ref(3),
+  data: { price_usd: String(cardProp.price || 1200), start_rent: '2026-12-01', end_rent: '2027-12-01', client_full_name: 'Grishin Andrei' } });
+const cxOut = (c: Record<string, unknown>) => ({ status: 'draft', status_label: 'Черновик', has_pdf: false, versions: [], versions_count: 0, ...c,
+  lead_deal_id: (c.lead_id && F.leads.find((l) => l.id === c.lead_id)?.deal_id) || null });
 on('GET', '/contracts', (_m, _b, q) => page(contracts.filter((c) => (!q.get('lead_id') || c.lead_id === Number(q.get('lead_id')))
   && (!q.get('deal_id') || c.deal_id === Number(q.get('deal_id'))) && (!q.get('property_id') || c.property_id === Number(q.get('property_id')))
-  && (!q.get('status') || q.get('status') === 'all' || String(q.get('status')).split(',').includes(String(c.status || 'draft')))).map(cxOut)));
+  && (!q.get('status') || q.get('status') === 'all' || String(q.get('status')).replace('active', 'draft,signed').split(',').includes(String(c.status || 'draft')))).map(cxOut)));
 on('POST', '/contracts/draft', (_m, b) => {
   let c = contracts.find((x) => x.id === b.id);
   if (!c) { c = { id: nextId(), lead_id: b.lead_id || null, deal_id: b.deal_id || null, property_id: b.property_id || null, created_at: new Date().toISOString() }; contracts.push(c); }
@@ -835,6 +842,27 @@ on('POST', '/contracts/draft', (_m, b) => {
   return cxOut(c);
 });
 on('GET', '/contracts/:id', (m) => { const c = contracts.find((x) => x.id === Number(m[1])); if (!c) throw new ApiError(404, 'Не найдено'); return cxOut(c); });
+// «Оформить сделку» on a signed contract without a lead: a client + lead from the contract (services/contracts.deal_lead)
+on('POST', '/contracts/:id/deal-lead', (m) => {
+  const c = contracts.find((x) => x.id === Number(m[1]))!;
+  if (c.lead_id) return cxOut(c);
+  const cl = { id: nextId(), name: String(c.client_name || ''), phone: '+995 599 12 34 56', lang: 'ru', profile_done: 0, created_at: new Date().toISOString(), profile: {} } as Client;
+  F.clients.push(cl);
+  const p = c.property_id ? getProp(Number(c.property_id)) : null;
+  const agent = (c.created_by as { id: number } | undefined)?.id ?? null;
+  const lead = { id: nextId(), client_id: cl.id, listing_id: null, property_id: p?.id ?? null, status: 'contract', agent: F.ref(agent), agent_id: agent,
+    contacts_shared_at: new Date().toISOString(), created_at: new Date().toISOString(), slots: [], deal_id: null,
+    listing: p ? { id: `obj${p.id}`, title: p.address, address: p.address, price: p.price, district: p.district } : null } as unknown as Lead;
+  F.leads.unshift(lead);
+  c.lead_id = lead.id;
+  return cxOut(c);
+});
+on('GET', '/leads/:id/deal-prefill', (m) => {
+  const c = contracts.find((x) => x.lead_id === Number(m[1]) && x.status === 'signed');
+  const d = (c?.data || {}) as Record<string, string>;
+  return c ? { contract: { id: c.id, status: c.status }, fields: { deal_type: 'rent', sub_type: 'long', price: Number(d.price_usd) || null, client_name: c.client_name,
+    address: c.address, rent_from: d.start_rent, rent_to: d.end_rent } } : { contract: null, fields: {} };
+});
 on('POST', '/contracts/:id/link', (m, b) => { const c = contracts.find((x) => x.id === Number(m[1]))!; c.lead_id = b.lead_id; return cxOut(c); });
 // «Сохранить PDF» / «Обновить PDF» and «Отправить клиенту в Telegram» (11-13): a lead's client is reachable, else the typed recipient
 const cxGen = (c: Record<string, unknown>, b: Record<string, unknown>) => Object.assign(c, { ...b, html: undefined, has_pdf: true, status_label: 'Сгенерирован',

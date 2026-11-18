@@ -17,14 +17,14 @@ from pathlib import Path
 
 import httpx
 import jwt
-from sqlalchemy import select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app import storage
 from app.config import REPO_ROOT, settings as env
-from app.models import CONTRACT_CLOSE_REASONS, Client, Contract, Deal, Event, Lead, Property, User, at_least
+from app.models import CONTRACT_CLOSE_REASONS, Client, Contract, ContractSigner, Deal, Event, Lead, Property, User, at_least
 from app.services import jobs
-from app.services.common import get_or_404, log_event, now
+from app.services.common import get_or_404, log_event, now, now_text
 from app.services.errors import DomainError
 
 log = logging.getLogger(__name__)
@@ -176,6 +176,7 @@ def out(db: Session, c: Contract, full: bool = False) -> dict:
     d = {"id": c.id, "status": c.status, "status_label": label(c), "kind": c.kind, "lang": c.lang,
          "has_pdf": bool(c.pdf_path), "generated_at": _iso(c.generated_at), "pdf_stale": stale(c),
          "versions_count": len(c.versions or []), "lead_status": lead.status if lead else None,
+         "lead_deal_id": lead.deal_id if lead else None,  # the lead's deal before its confirm sets deal_id (11-18)
          "title": c.title, "cadastral": c.cadastral, "address": c.address, "client_name": c.client_name,
          "owner_name": c.owner_name, "lead_id": c.lead_id, "deal_id": c.deal_id, "property_id": c.property_id,
          "created_by": _name(db, c.created_by), "created_at": _iso(c.created_at), "updated_at": _iso(c.updated_at),
@@ -449,6 +450,65 @@ def link(db: Session, cid: int, body: dict, user: User) -> Contract:
         c.status = "deal"
     c.updated_at = now()
     log_event(db, "contract", c.id, "linked", user, lead_id=c.lead_id, deal_id=c.deal_id)
+    db.commit()
+    return c
+
+
+LANG_CLIENT = {"RU": "ru", "EN": "en", "GEO": "ka"}
+
+
+def deal_lead(db: Session, cid: int, user: User) -> Contract:
+    """«Оформить сделку» on a signed contract (Irakli 11-18): the deal form works on a lead, so a contract without one
+    (made from the object card) gets it here — the same client's live lead on this object if there is one, else a new
+    client + lead from the contract (name, the tenant's e-sign phone) at «Договор», contacts open to its agent.
+    The contract's creator or staff only (get(): another agent's is 404); a contract with a lead returns as is."""
+    from app.services import leads
+    c = get(db, cid, user, lock=True)
+    if c.status not in ("signed", "deal"):
+        raise DomainError("bad_status", "Сделку оформляют после подписания договора", 409)
+    if c.lead_id or c.deal_id:
+        return c
+    if not at_least(user, "operator") and c.created_by != user.id:
+        raise DomainError("not_found", "contract not found")
+    creator = db.get(User, c.created_by) if c.created_by else None
+    prop = db.get(Property, c.property_id) if c.property_id else None
+    agent_id = creator.id if creator and not at_least(creator, "operator") else (prop.agent_id if prop else None)
+    signer = db.scalar(select(ContractSigner).where(ContractSigner.contract_id == c.id, ContractSigner.role == "tenant"))
+    name = (c.client_name or (signer.full_name if signer else None) or "").strip() or None
+    phone = ((signer.phone if signer else None) or "").strip() or None
+    digits = re.sub(r"\D", "", phone or "")[-9:]
+    same = []  # the same client: by the phone's last 9 digits, else by the name
+    if len(digits) == 9:
+        same.append(func.right(func.regexp_replace(Client.phone, r"\D", "", "g"), 9) == digits)
+    if name:
+        same.append(func.lower(Client.name) == name.lower())
+    lead = None
+    if prop and same:
+        lead = db.scalar(select(Lead).join(Client, Client.id == Lead.client_id)
+                         .where(Lead.property_id == prop.id, Lead.archived_at.is_(None), Lead.status.notin_(("rented", "refused")),
+                                or_(*same), *([Lead.agent_id == agent_id] if agent_id else []))
+                         .order_by(Lead.id.desc()).limit(1).with_for_update(of=Lead))
+    t = now_text()
+    if lead is None:
+        client = db.scalar(select(Client).where(Client.phone.isnot(None), same[0]).limit(1)) if len(digits) == 9 else None
+        if client is None:
+            client = Client(channel="crm", external_id=f"contract:{c.id}", name=name, phone=phone,
+                            lang=LANG_CLIENT.get(c.lang or "", "ru"), state="{}", profile="{}", created_at=t, updated_at=t)
+            db.add(client)
+            db.flush()
+        lead = Lead(client_id=client.id, property_id=c.property_id, agent_id=agent_id, status="contract",
+                    contacts_shared_at=now(), request=f"Договор #{c.id}", created_at=t, updated_at=t)
+        db.add(lead)
+        db.flush()
+        leads._event(db, lead, "created", user, label="contract", contract_id=c.id)
+    elif lead.status not in leads.DEAL_STAGES:  # an earlier stage: the signed contract moves it to «Договор»
+        leads._touch(lead, "contract")
+        leads._set_sla(db, lead, None)
+        leads._event(db, lead, "contract_started", user, contract_id=c.id)
+    if not lead.contacts_shared_at:
+        lead.contacts_shared_at = now()
+    c.lead_id, c.property_id, c.updated_at = lead.id, c.property_id or lead.property_id, now()
+    log_event(db, "contract", c.id, "linked", user, lead_id=lead.id, auto=True)
     db.commit()
     return c
 

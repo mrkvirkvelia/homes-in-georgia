@@ -39,7 +39,7 @@ export const ARCHIVE_REASON: Record<string, string> = tmap({
   idle_return: 'Возвращён: нет действий',
 });
 /** «Запрос оператору» (stage 6): kinds and field names (backend services/change_requests.py, properties.LOCKED_AFTER_VERIFY) */
-export const CR_KIND: Record<string, string> = tmap({ edit: 'Изменение полей', archive: 'В архив', transfer_owner: 'Передать собственника', delete: 'Удаление → архив' });
+export const CR_KIND: Record<string, string> = tmap({ edit: 'Изменение полей', archive: 'В архив', transfer_owner: 'Передать собственника', delete: 'Удаление → архив', no_esign: 'Эксклюзив без электронной подписи' });
 export const CR_FIELD: Record<string, string> = tmap({
   owner_name: 'Собственник', owner_phone: 'Телефон собственника', address: 'Адрес', cadastral_code: 'Кадастр', source_url: 'Ссылка на объявление',
   is_exclusive: 'Эксклюзив', price: 'Цена', currency: 'Валюта', deposit: 'Залог', sale_price: 'Цена продажи',

@@ -7,13 +7,15 @@ import logging
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import ChangeRequest, Owner, Property, User, at_least, is_field
+from app.models import ChangeRequest, Owner, Property, PropertyMedia, User, at_least, is_field
 from app.services import properties as P
 from app.services.common import get_or_404, log_event, now
 from app.services.errors import DomainError, forbidden
 
 log = logging.getLogger(__name__)
-KINDS = ("edit", "archive", "transfer_owner", "delete")  # delete is applied as an archive: objects are never deleted
+# delete is applied as an archive: objects are never deleted; no_esign: the exclusive contract step without the owner's
+# e-signature (Irakli 11-18), payload {"media_id": the scan / photo of a paper contract or None}
+KINDS = ("edit", "archive", "transfer_owner", "delete", "no_esign")
 
 
 def create(db: Session, entity: str, entity_id: int, kind: str, payload: dict, actor: User,
@@ -61,12 +63,40 @@ def request_transfer(db: Session, pid: int, to_agent_id: int, actor: User, reaso
     return cr
 
 
+def request_no_esign(db: Session, pid: int, reason: str | None, actor: User,
+                     scan: tuple[str, bytes] | None = None) -> ChangeRequest:
+    """«Без электронной подписи»: the owner can't sign by the link (abroad, no smartphone, signed on paper) → a request
+    to the operator with the reason and optionally a scan / photo of the paper contract. Approved, it stands for the
+    exclusive contract step (properties.contract_done); rejected, the step is back with the operator's comment."""
+    p = get_or_404(db, Property, int(pid), "property", lock=True)
+    P._require_owner(p, actor)
+    if not p.is_exclusive:
+        raise DomainError("bad_status", "Объект не эксклюзив")
+    if P.contract(db, p.id):
+        raise DomainError("already_signed", "Договор уже подписан")
+    w = P.no_esign(db, p.id)
+    if w is not None and w.status == "approved":
+        raise DomainError("bad_status", "Оператор уже подтвердил договор без электронной подписи")
+    reason = (reason or "").strip()
+    if not reason:
+        raise DomainError("reason_required", "Укажите, почему собственник не может подписать по ссылке")
+    m = P._store_owner_doc(db, p, P.PAPER_CONTRACT, *scan, actor.id) if scan and scan[1] else None
+    if m is not None:
+        db.flush()
+    cr = create(db, "property", p.id, "no_esign", {"media_id": m.id if m else None}, actor, reason[:500])
+    db.commit()
+    P._notify("change_request_new", cr)
+    return cr
+
+
 def decide(db: Session, rid: int, operator: User, approve: bool, comment: str | None = None) -> ChangeRequest:
     if not at_least(operator, "operator"):
         raise forbidden("only operators decide requests")
     cr = get_or_404(db, ChangeRequest, int(rid), "request", lock=True)
     if cr.status != "pending":
         raise DomainError("bad_status", "Запрос уже рассмотрен")
+    if cr.requested_by == operator.id:
+        raise forbidden("Свой запрос решает другой оператор")
     comment = (comment or "").strip() or None
     if not approve and not comment:
         raise DomainError("comment_required", "Напишите агенту, почему отказ")
@@ -105,6 +135,10 @@ def _apply(db: Session, cr: ChangeRequest, p: Property, operator: User) -> None:
             P.set_owner_lease(db, p, new("rent_from"), new("rent_to"), operator)
     elif cr.kind == "transfer_owner":
         P.transfer_owner(db, pl["owner_id"], pl["agent_id"], operator, cr.reason, commit=False)
+    elif cr.kind == "no_esign":  # the step counts as done from now (properties.contract_done reads the request)
+        log_event(db, "property", p.id, "exclusive_contract_waived", operator, request_id=cr.id, reason=cr.reason,
+                  requested_by=cr.requested_by, media_id=pl.get("media_id"))
+        P.schedule_dup_scan(db, p, "contract")
 
 
 def pending_for(db: Session, p: Property) -> list[ChangeRequest]:
@@ -118,7 +152,11 @@ def outs(db: Session, rows: list[ChangeRequest]) -> list[dict]:
     props = {x.id: x for x in db.scalars(select(Property).where(Property.id.in_({r.entity_id for r in rows})))} if rows else {}
     iso = lambda v: v.isoformat() if v else None  # noqa: E731
     name = lambda i: users[i].name if i in users else None  # noqa: E731
+    scans = {m.id: m for m in db.scalars(select(PropertyMedia).where(PropertyMedia.id.in_(
+        {(r.payload or {}).get("media_id") for r in rows if r.kind == "no_esign"} - {None})))} if rows else {}
+    scan = lambda r: f"/api/media/{scans[mid].path}" if (mid := (r.payload or {}).get("media_id")) in scans else None  # noqa: E731
     return [{"id": r.id, "entity": r.entity, "entity_id": r.entity_id, "kind": r.kind, "status": r.status, "reason": r.reason,
+             "scan_url": scan(r),
              "changes": [{"field": k, "old": v.get("old"), "new": v.get("new")} for k, v in (r.payload or {}).items()
                          if isinstance(v, dict)],
              "requested_by": {"id": r.requested_by, "name": name(r.requested_by)},

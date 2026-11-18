@@ -1,7 +1,7 @@
 // VITE_MOCK=1 in-memory API. Mimics §7 shapes and the main state transitions so the UI can be exercised offline.
 import { ApiError, getToken } from '../client';
 import { scenarioRows, type DistRow, type Scenario } from '../../lib/scenarios';
-import type { Deal, EventItem, Lead, LeadStatus, Listing, PhoneRow, Property, PropertyStatus, Report, User } from '../types';
+import type { ChangeRequest, Deal, EventItem, Lead, LeadStatus, Listing, PhoneRow, Property, PropertyStatus, Report, SimilarItem, User } from '../types';
 import { STAFF_ROLES } from '../types';
 import * as F from './fixtures';
 import { registerDailyRent } from './dailyRent';
@@ -218,7 +218,7 @@ on('GET', '/listings/new/facets', (_m, _b, q) => {
 });
 on('GET', '/listings/:id', (m) => F.listings.find((l) => l.id === m[1]));
 on('GET', '/listings/:id/similar', () => ({ items: [] }));
-on('GET', '/properties/:id/similar', () => ({ items: [] }));
+on('GET', '/properties/:id/similar', (m) => ({ items: getProp(Number(m[1])).duplicate_scan?.n ? DUPS : [] }));
 on('POST', '/similar/decide', (_m, b) => ({ ok: true, verdict: (b as { same?: boolean }).same ? 'same' : 'different', linked_to: null }));
 const dealOf = (p: Property) => (p.post_fields?.deal === 'Sale' ? 'sale' : 'rent');
 const dealOk = (q: URLSearchParams) => (p: Property) => !q.get('deal') || dealOf(p) === q.get('deal');
@@ -307,13 +307,72 @@ on('GET', '/properties/:id', (m) => propOut(getProp(Number(m[1])), currentUser()
 on('PATCH', '/properties/:id', (m, b) => {
   const p = getProp(Number(m[1]));
   const { owner_name, owner_phone, owner_phones, owner_id, owner_separate: _sep, reason: _r, ...rest } = b as Record<string, unknown>;
+  const becameExclusive = rest.is_exclusive === true && !p.is_exclusive;
   Object.assign(p, rest);
+  if (becameExclusive) dupScan(p, 'exclusive');
   if (owner_id || owner_name || owner_phone || owner_phones) {
     const phones = mockPhones(owner_phones, owner_phone, p.owner);
     p.owner = { ...(p.owner || { id: nextId(), is_agent: false }), ...(owner_id ? { id: Number(owner_id) } : {}),
       name: (owner_name as string) || p.owner?.name, phone: phones[0]?.phone ?? null, phones };
   }
   return propOut(p, currentUser());
+});
+// Irakli 11-18: an exclusive searches its duplicates everywhere (backend similar.scan_exclusive, a worker job):
+// mocked as done at once, with two strong candidates
+const DUPS: SimilarItem[] = [
+  { key: 'l:mh7001', kind: 'ad', property_id: null, listing_id: 'mh7001', where: 'myhome.ge', level: 'same', reasons: ['общих фото: 3', 'спальни совпадают', 'площадь близкая (70 / 74 м²)'],
+    address: 'Tsatskhvebi 4', district: 'Ваке', bedrooms: 2, area: 74, floor: 5, price_usd: 900, photos: [], url: 'https://myhome.ge/7001' },
+  { key: 'l:tg88', kind: 'ad', property_id: null, listing_id: 'tg88', where: 'конкурент · tbilisi_flats', competitor: true, level: 'maybe', reasons: ['тот же телефон собственника', 'спальни совпадают'],
+    address: null, district: 'Ваке', bedrooms: 2, area: 70, floor: 4, price_usd: 850, photos: [], url: 'https://t.me/tbilisi_flats/88' },
+  { key: 'p:104', kind: 'object', property_id: 104, listing_id: null, where: 'наша база', status: 'archived', level: 'maybe', reasons: ['тот же дом', 'этаж совпадает'],
+    address: 'ул. Палиашвили 10', district: 'Ваке', bedrooms: 2, area: 68, floor: 4, price_usd: 800, photos: [], can_open: true },
+];
+const STRONG = ['та же ссылка', 'тот же кадастровый код', 'общих фото', 'одно общее фото', 'тот же телефон собственника'];
+function dupScan(p: Property, trigger: string) {
+  const strong = DUPS.filter((x) => x.reasons.some((r) => STRONG.some((h) => r.startsWith(h))))
+    .map((x) => ({ key: x.key, where: x.where, property_id: x.property_id, listing_id: x.listing_id, url: x.url ?? null, address: x.address ?? null, reasons: x.reasons.filter((r) => STRONG.some((h) => r.startsWith(h))) }));
+  p.duplicate_scan = { n: DUPS.length, strong, trigger, at: new Date().toISOString(), pending: false };
+  propEvent(p.id, 'duplicate_scan', `Поиск дублей: ${DUPS.length}`);
+}
+// «Без электронной подписи» → «Запрос оператору» (backend change_requests.request_no_esign / decide)
+const CRS: ChangeRequest[] = [];
+function noEsignOut(r: ChangeRequest): NonNullable<Property['no_esign']> {
+  return { id: r.id, status: r.status, reason: r.reason ?? null, created_at: r.created_at, requested_by: r.requested_by, decided_by: r.decided_by ?? null,
+    decided_at: r.decided_at ?? null, comment: r.decision_comment ?? null, scan_url: r.scan_url ?? null };
+}
+on('POST', '/properties/:id/exclusive-no-esign', (m, b) => {
+  const u = currentUser(); const p = getProp(Number(m[1]));
+  if (!isStaff(u) && p.agent_id !== u.id) throw new ApiError(403, 'object is taken by another agent');
+  const reason = String(b.reason || '').trim();
+  if (!reason) throw new ApiError(422, 'Укажите, почему собственник не может подписать по ссылке');
+  const file = (b.__files as { name: string; url: string }[] | undefined)?.[0];
+  CRS.filter((r) => r.entity_id === p.id && r.kind === 'no_esign' && r.status === 'pending').forEach((r) => { r.status = 'rejected'; r.decision_comment = 'заменён новым запросом'; });
+  const r: ChangeRequest = { id: nextId(), entity: 'property', entity_id: p.id, kind: 'no_esign', status: 'pending', reason, changes: [], scan_url: file?.url ?? null,
+    requested_by: { id: u.id, name: u.name }, created_at: new Date().toISOString(), property: { id: p.id, address: p.address, status: p.status } };
+  CRS.push(r);
+  p.no_esign = noEsignOut(r);
+  p.change_requests = CRS.filter((x) => x.entity_id === p.id && x.status === 'pending');
+  propEvent(p.id, 'change_requested', `Запрос оператору: ${reason}`, u);
+  return propOut(p, u);
+});
+on('GET', '/change-requests', (_m, _b, q) => { const st = (q.get('status') || 'pending').split(','); return page(CRS.filter((r) => st.includes(r.status))); });
+on('POST', '/change-requests/:id/decide', (m, b) => {
+  const u = currentUser(); const r = CRS.find((x) => x.id === Number(m[1]));
+  if (!r) throw new ApiError(404, 'request not found');
+  if (!isStaff(u) || r.requested_by.id === u.id) throw new ApiError(403, 'Свой запрос решает другой оператор');
+  if (r.status !== 'pending') throw new ApiError(409, 'Запрос уже рассмотрен');
+  const comment = String(b.comment || '').trim() || null;
+  if (!b.approve && !comment) throw new ApiError(422, 'Напишите агенту, почему отказ');
+  Object.assign(r, { status: b.approve ? 'approved' : 'rejected', decided_by: { id: u.id, name: u.name }, decided_at: new Date().toISOString(), decision_comment: comment });
+  const p = getProp(r.entity_id);
+  if (r.kind === 'no_esign') {
+    p.no_esign = noEsignOut(r);
+    p.missing = (p.missing || []).filter((x) => !(b.approve && x === 'эксклюзивный договор (PDF)'));
+    if (b.approve) { propEvent(p.id, 'exclusive_contract_waived', `${r.reason}`, u); dupScan(p, 'contract'); }
+  }
+  p.change_requests = CRS.filter((x) => x.entity_id === p.id && x.status === 'pending');
+  propEvent(p.id, `change_request_${r.status}`, comment || '', u);
+  return r;
 });
 on('POST', '/properties/:id/call', (m, b) => {
   const u = currentUser(); const p = getProp(Number(m[1]));
@@ -1012,12 +1071,12 @@ on('POST', '/properties/:id/site', (m, b) => { const u = currentUser(); const p 
 
 async function formToBody(fd: FormData): Promise<Record<string, unknown>> {
   const files: { name: string; url: string }[] = [];
-  let room: string | undefined;
+  const fields: Record<string, string> = {};
   fd.forEach((v, k) => {
     if (v instanceof File) files.push({ name: v.name, url: URL.createObjectURL(v) });
-    else if (k === 'room') room = String(v);
+    else fields[k] = String(v);
   });
-  return { __files: files, room };
+  return { ...fields, __files: files };
 }
 
 export async function mockFetch(method: string, url: string, body?: unknown): Promise<unknown> {

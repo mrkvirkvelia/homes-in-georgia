@@ -235,6 +235,15 @@ def dup_purge(db: Session, job: Job):
     return properties.purge_duplicate(db, p)
 
 
+@handler("dup_scan")
+def dup_scan(db: Session, job: Job):
+    """An object became exclusive / got its contract / took a «Дубль» in, or new ads look like it: search its duplicates
+    everywhere (similar.scan_exclusive)."""
+    from app.services import similar
+    r = similar.scan_exclusive(db, _ref_id(job), (job.payload or {}).get("trigger") or "exclusive")
+    return "ok" if r is None else f"found {r['n']}, strong {len(r['strong'])}"
+
+
 @handler("tg_video")
 def tg_video(db: Session, job: Job):
     """A video just uploaded (ref = its storage key) -> its Telegram-ready copy, so publishing does not run ffmpeg."""

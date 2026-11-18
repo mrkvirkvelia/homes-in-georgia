@@ -384,6 +384,15 @@ async def properties_contract(pid: int, file: UploadFile = File(...), db: Sessio
     return P.out(db, get_or_404(db, Property, pid), user, full=True)
 
 
+@router.post("/properties/{pid}/exclusive-no-esign")
+async def properties_no_esign(pid: int, reason: str = Form(""), file: UploadFile | None = File(None),
+                              db: Session = Depends(get_db, scope="function"), user: User = Depends(current_user)):
+    """«Без электронной подписи»: a request to the operator (reason + an optional scan / photo of a paper contract)."""
+    scan = (file.filename or "scan", await file.read()) if file is not None else None
+    CR.request_no_esign(db, pid, reason, user, scan)
+    return P.out(db, get_or_404(db, Property, pid), user, full=True)
+
+
 @router.post("/properties/{pid}/owner-docs/{kind}")
 async def properties_owner_doc(pid: int, kind: str, file: UploadFile = File(...), db: Session = Depends(get_db, scope="function"),
                                user: User = Depends(current_user)):

@@ -17,6 +17,7 @@ price too). Loose on purpose: the agent decides «Дубль» /
 ponytail: the whole base and every live ad in memory per call (photos through a pigeonhole index, so ~10k ads stay
 well under a second); cache the profiles for a minute if it shows in the request log.
 """
+import hashlib
 import json
 import logging
 import math
@@ -428,3 +429,62 @@ def mark_different(db: Session, subject: str, others: list[str], actor: User) ->
         d = db.scalar(select(SimilarDecision).where(SimilarDecision.a == x, SimilarDecision.b == y))
         if d is None:
             db.add(SimilarDecision(a=x, b=y, verdict="different", decided_by=actor.id, decided_at=now()))
+
+
+# ---------------------------------------------------------------- an exclusive's duplicates (Irakli 11-18)
+
+# what makes a candidate worth a message to the agent and the operators: a shared photo, the owner's phone, the
+# cadastral code, the same link
+STRONG_HINTS = ("та же ссылка", "тот же кадастровый код", "общих фото", "одно общее фото", "тот же телефон собственника")
+
+
+def _strong(reasons: list[str]) -> list[str]:
+    return [r for r in reasons if r.startswith(STRONG_HINTS)]
+
+
+def scan_exclusive(db: Session, pid: int, trigger: str = "exclusive") -> dict | None:
+    """«При эксклюзиве — сразу поиск дублей везде»: find() over the whole base (any status) and every live outside ad,
+    competitors' channels too. Stored as a «duplicate_scan» event (the card shows «Найдены возможные дубли: N»);
+    candidates with a strong signal not seen by the previous scan go to the object's agent and the operators.
+    A re-scan after new ads (trigger «new_ads») is logged only when the candidates changed. Commits."""
+    p = db.get(Property, pid)
+    if p is None or not p.is_exclusive:
+        return None
+    items = find(db, key("p", pid), None, limit=500)
+    strong = [{"key": x["key"], "where": x["where"], "property_id": x["property_id"], "listing_id": x["listing_id"],
+               "url": x["url"], "address": x["address"], "reasons": _strong(x["reasons"])[:3]}
+              for x in items if _strong(x["reasons"]) and x["decided"] != "same"]
+    prev = P.dup_scan(db, pid) or {}
+    prev_keys = {s["key"] for s in prev.get("strong") or []}
+    sig = hashlib.sha1(" ".join(sorted(x["key"] for x in items)).encode()).hexdigest()[:16]
+    if trigger == "new_ads" and prev.get("sig") == sig:
+        return None
+    log_event(db, "property", pid, "duplicate_scan", None, n=len(items), strong=strong[:20], trigger=trigger, sig=sig)
+    db.commit()
+    fresh = [s for s in strong if s["key"] not in prev_keys]
+    if fresh:
+        P._notify("exclusive_duplicates", p, len(items), fresh)
+    return {"n": len(items), "strong": strong, "fresh": fresh}
+
+
+def exclusives_hit(db: Session, listing_ids: list[str]) -> set[int]:
+    """New ads (bot sync → matching.process) that look like one of our live exclusives → those objects, to re-scan.
+    Cheap on purpose: only the exclusives' profiles against the new ads, photos through the index."""
+    ex = list(db.scalars(select(Property.id).where(Property.is_exclusive.is_(True), Property.status != "archived")))
+    if not ex or not listing_ids:
+        return set()
+    competitors = set(db.scalars(P.competitor_sources()))
+    ads = [_listing_profile(l, competitors) for l in db.scalars(
+        select(Listing).where(Listing.id.in_(listing_ids), Listing.source.not_in(("object", "agency"))))]
+    if not ads:
+        return set()
+    idx, hit = _photo_index(ads), set()
+    for o in _objects(db, ex):
+        near = {n for h in o["hashes"] for i in range(5) for n in idx.get((i, (h >> (i * 13)) & 0x1FFF), ())}
+        for n, a in enumerate(ads):
+            if a["key"] in {key("l", x) for x in o["ad_ids"]}:
+                continue
+            if compare(o, a, _shared(o["hashes"], a["hashes"]) if n in near else 0)[0]:
+                hit.add(o["property_id"])
+                break
+    return hit

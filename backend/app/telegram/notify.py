@@ -901,6 +901,25 @@ def exclusive_conflict(prop, source, url):
 
 
 @safe
+def exclusive_duplicates(prop, n, strong):
+    """Irakli 11-18: the duplicate search of an exclusive found strong candidates (a shared photo, the owner's phone,
+    the cadastral code) → the object's agent and the operators."""
+    pid = g(prop, "id")
+    def line(s):
+        head = " ".join(x for x in (s.get("where"), f"#{s['property_id']}" if s.get("property_id") else None,
+                                    f"· {s['address']}" if s.get("address") else None) if x)
+        return f"• {e(head)}: {e(', '.join(s.get('reasons') or []))}"
+    lines = "\n".join(line(s) for s in strong[:5])
+    more = f"\n…и ещё {len(strong) - 5}" if len(strong) > 5 else ""
+    text = (f"🔎 <b>Эксклюзив #{pid}: найдены возможные дубли — {n}</b>\n{e(prop_title(prop))}\n\n{lines}{more}\n\n"
+            "Проверьте в карточке → «Похожие объекты»: дубль или нет.")
+    ag = store.user(g(prop, "agent_id")) or {}
+    if ag.get("tg_id"):
+        tg.send(ag["tg_id"], text, kb([[app_btn("🏠 Открыть объект", links.property_app(pid))]]))
+    to_operators("exclusive_duplicates", pid, text, lambda private: kb([[app_btn("🏠 Открыть объект", links.property_app(pid), private)]]))
+
+
+@safe
 def property_published(prop):
     """C5: the agent gets the link to the channel post."""
     ag = store.user(g(prop, "agent_id")) or {}
@@ -910,7 +929,8 @@ def property_published(prop):
 
 
 # «Запрос оператору» (stage 6): field names as the CRM shows them
-CR_KIND = {"edit": "Изменение полей", "archive": "В архив", "transfer_owner": "Передать собственника", "delete": "Удаление → архив"}
+CR_KIND = {"edit": "Изменение полей", "archive": "В архив", "transfer_owner": "Передать собственника", "delete": "Удаление → архив",
+           "no_esign": "Эксклюзив без электронной подписи"}
 CR_FIELD = {"owner_name": "Собственник", "owner_phone": "Телефон собственника", "owner_phones": "Телефоны собственника", "address": "Адрес", "cadastral_code": "Кадастр",
             "source_url": "Ссылка на объявление", "is_exclusive": "Эксклюзив", "price": "Цена", "currency": "Валюта",
             "deposit": "Залог", "sale_price": "Цена продажи", "archive_reason": "Причина", "archive_comment": "Комментарий",

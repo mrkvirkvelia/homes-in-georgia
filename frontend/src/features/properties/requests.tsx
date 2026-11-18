@@ -3,9 +3,9 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Check, X } from 'lucide-react';
+import { Check, FileText, X } from 'lucide-react';
 import { api } from '../../api';
-import { itemsOf } from '../../api/client';
+import { itemsOf, mediaUrl } from '../../api/client';
 import type { ChangeRequest } from '../../api/types';
 import { useAuth } from '../../auth/AuthContext';
 import { errText, useToast } from '../../components/toast';
@@ -23,7 +23,7 @@ function val(field: string, v: unknown) {
 }
 
 export function RequestRow({ r, link = (id: number) => `/objects/${id}`, showObject = true }: { r: ChangeRequest; link?: (id: number) => string; showObject?: boolean }) {
-  const { isStaff } = useAuth();
+  const { isStaff, user } = useAuth();
   const qc = useQueryClient();
   const toast = useToast();
   const [comment, setComment] = useState('');
@@ -52,8 +52,10 @@ export function RequestRow({ r, link = (id: number) => `/objects/${id}`, showObj
           </div>
         ))}
         {r.reason && <div className="muted">{t('Причина:')} {r.reason}</div>}
+        {r.scan_url && <a href={mediaUrl(r.scan_url)} target="_blank" rel="noreferrer"><FileText size={14} /> {t('скан договора')}</a>}
       </div>
-      {isStaff && r.status === 'pending' ? (
+      {isStaff && r.status === 'pending' && r.requested_by?.id === user?.id ? <div className="muted" style={{ fontSize: 12 }}>{t('Свой запрос решает другой оператор')}</div>
+        : isStaff && r.status === 'pending' ? (
         <div className="row row-wrap gap-sm">
           <Button size="sm" variant="ok" loading={decide.isPending && decide.variables} onClick={() => decide.mutate(true)}><Check size={14} />{t('Одобрить')}</Button>
           <Input value={comment} placeholder={t('Комментарий агенту (нужен для отказа)')} onChange={(e) => setComment(e.target.value)} style={{ maxWidth: 320 }} />

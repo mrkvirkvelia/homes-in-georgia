@@ -1070,6 +1070,7 @@ function ExclusiveContract({ p, canEdit, nested }: { p: Property; canEdit: boole
   const { toast, set } = useProp(p.id);
   const ref = useRef<HTMLInputElement>(null);
   const c = p.exclusive_contract;
+  const waived = !c && p.no_esign?.status === 'approved';
   const link = p.exclusive_sign_token ? `${window.location.origin}/sign/${p.exclusive_sign_token}` : '';
   const up = useMutation({ mutationFn: (file: File) => api.properties.uploadContract(p.id, file), onSuccess: (r) => { set(r); toast(t('Договор загружен')); }, onError: (e) => toast(errText(e), true) });
   const copy = () => (navigator.clipboard ? navigator.clipboard.writeText(link || '') : Promise.reject()).then(() => toast(t('Ссылка скопирована')), () => toast(t('Не удалось скопировать'), true));
@@ -1078,8 +1079,9 @@ function ExclusiveContract({ p, canEdit, nested }: { p: Property; canEdit: boole
     <div className={nested ? 'col gap-sm' : 'gen-block'}>
       <span className={nested ? 'label' : 'gen-title'}>{t('Эксклюзивный договор')}</span>
       {c ? <div className="alert alert-ok">{t('Договор подписан {at}', { at: fmtDateTime(c.created_at) })} · <a href={mediaUrl(c.url)} target="_blank" rel="noreferrer"><FileText size={14} /> {t('скачать PDF')}</a></div>
-        : <div className="alert alert-warn">{t('Нет договора: без подписанного PDF объект нельзя отправить оператору')}</div>}
-      {canEdit && <>
+        : waived ? null : <div className="alert alert-warn">{t('Нет договора: без подписанного PDF объект нельзя отправить оператору')}</div>}
+      {!c && <NoEsign p={p} canEdit={canEdit} />}
+      {canEdit && !waived && <>
         {!link && !c && !p.is_exclusive && <div className="muted" style={{ fontSize: 12 }}>{t('Сохраняем — ссылка для собственника появится через секунду…')}</div>}
         {link && !c && <>
           <div className="muted" style={{ fontSize: 12 }}>{t('Отправьте собственнику ссылку: он заполнит данные и распишется, PDF появится здесь сам. Обновите карточку после подписи.')}</div>
@@ -1093,6 +1095,78 @@ function ExclusiveContract({ p, canEdit, nested }: { p: Property; canEdit: boole
       </>}
       <OwnerDoc p={p} canEdit={canEdit} kind="registry_extract" label={t('Выписка из Публичного реестра')} accept="application/pdf,.pdf" />
       <OwnerDoc p={p} canEdit={canEdit} kind="owner_id_doc" label={t('Паспорт / ID собственника')} accept="image/jpeg,image/png,image/heic,image/heif,.heic,.heif,application/pdf,.pdf" />
+    </div>
+  );
+}
+
+const NO_ESIGN_PRESETS = ['собственник за границей', 'не пользуется телефоном', 'подписал на бумаге'];
+
+/** «Без электронной подписи» (Irakli 11-18): the owner can't sign by the link → the agent asks the operator, with a
+ * reason and optionally a scan / photo of a paper contract. Approved = the contract step is done (backend
+ * properties.contract_done); rejected = the step is back with the operator's comment. The operator decides in
+ * «Запросы» or on this card (RequestRow); his own request goes to another operator. */
+function NoEsign({ p, canEdit }: { p: Property; canEdit: boolean }) {
+  const { toast, set } = useProp(p.id);
+  const [open, setOpen] = useState(false);
+  const [reason, setReason] = useState('');
+  const [file, setFile] = useState<File | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const w = p.no_esign;
+  const send = useMutation({
+    mutationFn: () => api.properties.noEsign(p.id, reason.trim(), file),
+    onSuccess: (r) => { set(r); setOpen(false); setReason(''); setFile(null); toast(t('Запрос ушёл оператору')); },
+    onError: (e) => toast(errText(e), true),
+  });
+  const who = (x?: { name: string | null } | null) => x?.name || '—';
+  const scan = w?.scan_url ? <> · <a href={mediaUrl(w.scan_url)} target="_blank" rel="noreferrer"><FileText size={14} /> {t('скан договора')}</a></> : null;
+  return (
+    <div className="col gap-sm">
+      {w?.status === 'approved' && <div className="alert alert-ok"><span><CheckCircle2 size={14} /> {t('Без электронной подписи · подтвердил оператор {who} {at}', { who: who(w.decided_by), at: fmtDateTime(w.decided_at) })}<br />
+        <span className="muted">{t('Причина:')} {w.reason} · {t('запросил {who}', { who: who(w.requested_by) })}</span>{scan}</span></div>}
+      {w?.status === 'pending' && <div className="alert alert-info"><span><Clock size={14} /> {t('Без электронной подписи: ждёт решения оператора')}<br />
+        <span className="muted">{t('Причина:')} {w.reason} · {who(w.requested_by)} · {fmtDateTime(w.created_at)}</span>{scan}</span></div>}
+      {w?.status === 'rejected' && <div className="alert alert-warn"><span>{t('Оператор отклонил «без электронной подписи»')}{w.decided_by ? ` (${who(w.decided_by)})` : ''}: <b>{w.comment || '—'}</b></span></div>}
+      {canEdit && w?.status !== 'approved' && w?.status !== 'pending' && (open ? (
+        <div className="col gap-sm outcome-card">
+          <span className="label">{t('Без электронной подписи')}</span>
+          <div className="muted" style={{ fontSize: 12 }}>{t('Если собственник не может подписать по ссылке — объясните оператору почему. После его подтверждения шаг договора будет пройден.')}</div>
+          <div className="row row-wrap gap-sm">
+            {NO_ESIGN_PRESETS.map((x) => <Button key={x} size="sm" variant={reason === x ? 'primary' : 'secondary'} onClick={() => setReason(x)}>{t(x)}</Button>)}
+          </div>
+          <Textarea rows={2} value={reason} placeholder={t('Причина для оператора')} onChange={(e) => setReason(e.target.value)} />
+          <div className="row row-wrap gap-sm" style={{ fontSize: 13 }}>
+            <input ref={fileRef} type="file" hidden accept="image/jpeg,image/png,image/heic,image/heif,.heic,.heif,application/pdf,.pdf" onChange={(e) => { setFile(e.target.files?.[0] || null); e.target.value = ''; }} />
+            <Button size="sm" variant="secondary" onClick={() => fileRef.current?.click()}><Upload size={14} />{file ? t('Заменить') : t('Скан договора')}</Button>
+            <span className="muted" style={{ fontSize: 12, minWidth: 0, overflowWrap: 'anywhere' }}>{file ? file.name : t('бумажный договор, фото или PDF — необязательно')}</span>
+          </div>
+          <div className="row row-wrap gap-sm">
+            <Button loading={send.isPending} disabled={!reason.trim()} onClick={() => send.mutate()}><Send size={16} />{t('Отправить оператору')}</Button>
+            <Button variant="ghost" onClick={() => setOpen(false)}>{t('Отмена')}</Button>
+          </div>
+        </div>
+      ) : <Button variant="secondary" block onClick={() => setOpen(true)}><FileText size={16} />{w?.status === 'rejected' ? t('Запросить снова: без электронной подписи') : t('Без электронной подписи')}</Button>)}
+    </div>
+  );
+}
+
+/** Irakli 11-18: what the exclusive's duplicate search found (backend similar.scan_exclusive): the count, and the
+ * strong ones (a shared photo, the owner's phone, the cadastral code); the full list is «Похожие объекты» below. */
+function DupScan({ p }: { p: Property }) {
+  const s = p.duplicate_scan;
+  const qc = useQueryClient();
+  useEffect(() => { if (s?.at) qc.invalidateQueries({ queryKey: ['similar', `p:${p.id}`] }); }, [s?.at, p.id, qc]);  // a new search → the list below again
+  if (!p.is_exclusive || !s) return null;
+  if (s.n === undefined) return <div className="alert alert-info"><Clock size={14} /> {t('Ищем дубли эксклюзива везде: в базе, на сайтах и у конкурентов…')}</div>;
+  if (!s.n) return <div className="alert alert-ok"><CheckCircle2 size={14} /> {t('Поиск дублей: ничего не найдено')}{s.at ? ` · ${fmtDateTime(s.at)}` : ''}</div>;
+  return (
+    <div className={`alert ${s.strong?.length ? 'alert-warn' : 'alert-info'}`}>
+      <span>
+        <b>{t('Найдены возможные дубли: {n}', { n: s.n })}</b>{s.at ? <span className="muted"> · {fmtDateTime(s.at)}</span> : null}
+        {!!s.strong?.length && <>
+          <br />{t('Сильные совпадения — агент и оператор получили уведомление:')}
+          {s.strong.slice(0, 5).map((x) => <div key={x.key} style={{ fontSize: 13 }}>• {x.where}{x.property_id ? ` #${x.property_id}` : ''}{x.address ? ` · ${x.address}` : ''}: {x.reasons.join(', ')}</div>)}
+        </>}
+      </span>
     </div>
   );
 }
@@ -1488,7 +1562,9 @@ function OwnerLeaseNote({ p, canWork }: { p: Property; canWork: boolean }) {
 
 export function PropertyDetail({ id, compact }: { id: number; compact?: boolean }) {
   const { user, isStaff } = useAuth();
-  const { data: p, isLoading, error } = useQuery({ queryKey: ['property', id], queryFn: () => api.properties.get(id) });
+  // an exclusive's duplicate search runs in the worker (~30 s): the card looks again until it is done
+  const { data: p, isLoading, error } = useQuery({ queryKey: ['property', id], queryFn: () => api.properties.get(id),
+    refetchInterval: (q) => (q.state.data?.duplicate_scan?.pending ? 10_000 : false) });
   const hist = useQuery({ queryKey: ['property-history', id], queryFn: () => api.properties.history(id) });
   const [edit, setEdit] = useState(false);
   const [ownerEdit, setOwnerEdit] = useState(false);
@@ -1544,6 +1620,7 @@ export function PropertyDetail({ id, compact }: { id: number; compact?: boolean 
             <div className="row row-wrap gap-sm mt">
               <PropertyStatusBadge status={p.status} />
               {p.is_exclusive && <Badge tone="solid">{t('эксклюзив')}</Badge>}
+              {p.is_exclusive && !!p.duplicate_scan?.n && <Badge tone={p.duplicate_scan.strong?.length ? 'red' : 'warn'}>{t('Найдены возможные дубли: {n}', { n: p.duplicate_scan.n })}</Badge>}
               <ExclusiveConflictBadge p={p} />
               <AiFlagBadges flags={p.ai_flags} />
             </div>
@@ -1567,6 +1644,7 @@ export function PropertyDetail({ id, compact }: { id: number; compact?: boolean 
           {/* Stanislav 11-17: the operator checks the similar ones before he publishes (a twin of a posted object) */}
           {p.status === 'review' && isStaff && (
             <Card label={t('Проверка на дубль')} title={t('Похожие объекты')}>
+              <DupScan p={p} />
               <SimilarList subject={`p:${p.id}`} intro={t('Перед публикацией проверьте похожие: это может быть дубль объекта из базы или уже выложенного.')}
                 emptyText={t('Похожих объектов не найдено: ни в базе, ни на сайтах, ни у конкурентов.')} />
             </Card>
@@ -1597,6 +1675,7 @@ export function PropertyDetail({ id, compact }: { id: number; compact?: boolean 
           <ExclusiveConflict p={p} />
           {!(p.status === 'review' && isStaff) && (
             <Card label={t('Дубли')} title={t('Похожие объекты')}>
+              <DupScan p={p} />
               <div className="muted" style={{ fontSize: 13, marginBottom: 8 }}>{t('Те же фото, адрес, собственник или параметры — в нашей базе, на ss.ge / myhome.ge и у конкурентов. Отметьте: дубль или нет.')}</div>
               <SimilarList subject={`p:${p.id}`} emptyText={t('Похожих объектов не найдено: ни в базе, ни на сайтах, ни у конкурентов.')} />
             </Card>

@@ -353,6 +353,8 @@ const ACTION_TEXT: Record<string, string> = tmap({
   from_deal: 'Создан из сделки', fast_track: 'Собственник согласен · объект показан клиентам',
   agent_bound: 'Собственник закреплён за агентом', agent_released: 'Собственник освобождён',
   listing_linked: 'Найдено объявление этого объекта', exclusive_conflict: 'Эксклюзив висит на другом сайте', ad_removed_checked: 'Проверено: объявление снято',
+  duplicate_scan: 'Поиск дублей эксклюзива', exclusive_contract_waived: 'Договор без электронной подписи: подтвердил оператор',
+  exclusive_contract_uploaded: 'Загружен эксклюзивный договор', exclusive_contract_signed: 'Собственник подписал эксклюзивный договор',
   // history from David's old work chats (backend/app/importers/legacy_objects.py)
   legacy_posted: 'Пост в канале (старая база)', legacy_updated: 'Пост обновлён (старая база)', legacy_discount: 'Скидка (старая база)',
   legacy_exclusive: 'Эксклюзив (старая база)', legacy_archived: 'В архив (старая база)',
@@ -366,8 +368,9 @@ function eventText(e: EventItem): string {
   const reason = d.reason ? ARCHIVE_REASON[d.reason as string] || REFUSAL_LABEL[d.reason as string] || (d.reason as string) : '';
   const kind = e.action.startsWith('change_request') && d.kind ? CR_KIND[d.kind as string] || (d.kind as string) : '';
   const source = AD_EVENTS.includes(e.action) && d.source ? SOURCE_LABEL[d.source as string] || (d.source as string) : '';
+  const dups = e.action === 'duplicate_scan' ? t('найдено: {n}', { n: Number(d.n || 0) }) : '';
   const unposted = Array.isArray(d.failed) && d.failed.length ? t('не удалось удалить: {n}', { n: d.failed.length }) : '';
-  const extra = (d.comment || d.note || d.to || [outcome, reason, source, kind, unposted].filter(Boolean).join(', ') || '') as string;
+  const extra = (d.comment || d.note || d.to || [outcome, reason, source, kind, unposted, dups].filter(Boolean).join(', ') || '') as string;
   return extra ? `${base}: ${extra}` : base;
 }
 

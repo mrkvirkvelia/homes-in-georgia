@@ -270,6 +270,9 @@ def process(db: Session, ids: list[str]) -> dict:
         if not (found and found[0]["verdict"] == SAME):
             fresh.append(l)
     P.store_similar(db, fresh)  # «В архиве по этому адресу: N» on the ad's card
+    from app.services import similar  # local: similar imports properties too
+    for pid in similar.exclusives_hit(db, [l.id for l in fresh]):  # an exclusive's new possible twin: re-scan it
+        P.schedule_dup_scan(db, db.get(Property, pid), "new_ads")
     db.commit()
     _send(alerts)
     return counts

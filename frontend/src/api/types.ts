@@ -163,6 +163,13 @@ export interface Property {
   registry_app?: { app_id: string; reg_number: string; date: string; type: string; url: string } | null;
   owner_docs?: Partial<Record<'owner_id_doc' | 'registry_extract', { id: number; url: string; created_at: string }>>;
   exclusive_sign_token?: string | null;
+  /** «Без электронной подписи» (Irakli 11-18): the latest request to the operator; approved = the contract step done */
+  no_esign?: { id: number; status: 'pending' | 'approved' | 'rejected'; reason: string | null; created_at: string;
+    requested_by: { id: number | null; name: string | null }; decided_by: { id: number; name: string | null } | null;
+    decided_at: string | null; comment: string | null; scan_url: string | null } | null;
+  /** the exclusive's last duplicate search (backend similar.scan_exclusive): pending while the worker hasn't run it */
+  duplicate_scan?: { n?: number; pending?: boolean; at?: string; trigger?: string;
+    strong?: { key: string; where: string; property_id: number | null; listing_id: string | null; url: string | null; address: string | null; reasons: string[] }[] } | null;
   missing?: string[]; // what still blocks «Отправить оператору» (backend properties.missing_fields)
   room_picker?: boolean; // Управление → Настройки: the per-photo room tag (optional) is shown
 
@@ -240,7 +247,9 @@ export interface Property {
 }
 
 export interface ChangeRequest {
-  id: number; entity: string; entity_id: number; kind: 'edit' | 'archive' | 'transfer_owner' | 'delete';
+  id: number; entity: string; entity_id: number; kind: 'edit' | 'archive' | 'transfer_owner' | 'delete' | 'no_esign';
+  /** no_esign: the scan / photo of the paper contract the agent attached */
+  scan_url?: string | null;
   status: 'pending' | 'approved' | 'rejected'; reason?: string | null;
   changes: { field: string; old: unknown; new: unknown }[];
   requested_by: { id: number | null; name: string | null }; decided_by?: { id: number; name: string | null } | null;

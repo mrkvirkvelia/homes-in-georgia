@@ -68,6 +68,9 @@ OWNER_ID_DOC, REGISTRY_EXTRACT = "owner_id_doc", "registry_extract"
 OWNER_DOCS = {OWNER_ID_DOC: ("паспорт / ID собственника", (".jpg", ".jpeg", ".png", ".pdf", ".heic", ".heif")),
               REGISTRY_EXTRACT: ("выписка из Публичного реестра (PDF)", (".pdf",))}
 MAX_OWNER_DOC = 15 * 1024 * 1024
+# «Без электронной подписи» (Irakli 11-18): the scan / photo of a paper contract the agent attaches to the request
+PAPER_CONTRACT = "paper_contract"
+DOC_KINDS = {**OWNER_DOCS, PAPER_CONTRACT: ("скан / фото бумажного договора", (".jpg", ".jpeg", ".png", ".pdf", ".heic", ".heif"))}
 PRIVATE_PREFIX = "private/"
 # the agent's media and checklist are open until «Готово — отправить оператору»; after that only staff change them,
 # unless the operator returns the object (returned)
@@ -522,6 +525,8 @@ def take(db: Session, listing_id: str | None, agent: User, manual_fields: dict |
     if listing_id:
         link_listing(db, p, listing)
     log_event(db, "property", p.id, "taken", agent, listing_id=listing_id)
+    if p.is_exclusive:  # a manual object typed in as an exclusive
+        schedule_dup_scan(db, p, "exclusive")
     if listing_id:
         plan_take_idle(db, p)
     if commit:
@@ -674,6 +679,7 @@ def apply_update(db: Session, p: Property, data: dict, actor: User) -> None:
     if p.is_exclusive and not was_exclusive:
         for a in external_ads(db, [p.id]).get(p.id, []):
             log_event(db, "property", p.id, "exclusive_conflict", actor, **a)
+        schedule_dup_scan(db, p, "exclusive")
     p.updated_at = now()
     fields = sorted(k for k in data if k in EDITABLE or k in ("owner_name", "owner_phone", "owner_phones"))
     if fields:
@@ -934,7 +940,7 @@ def _merge_duplicate(db: Session, p: Property, orig: int, actor: User | None) ->
     posts, files and the row itself."""
     moved = {}
     o = db.get(Property, orig)
-    kinds = (CONTRACT, *OWNER_DOCS)
+    kinds = (CONTRACT, *DOC_KINDS)
     have = set(db.scalars(select(PropertyMedia.kind).where(PropertyMedia.property_id == orig, PropertyMedia.kind.in_(kinds))))
     docs = [m for m in db.scalars(select(PropertyMedia).where(PropertyMedia.property_id == p.id,
                                                                PropertyMedia.kind.in_(kinds))) if m.kind not in have]
@@ -945,8 +951,13 @@ def _merge_duplicate(db: Session, p: Property, orig: int, actor: User | None) ->
     if p.is_exclusive and not o.is_exclusive:
         o.is_exclusive = True
         moved["is_exclusive"] = True
+    if o.is_exclusive:
+        schedule_dup_scan(db, o, "merged")
     if p.sign_draft and not o.sign_draft and CONTRACT not in have:
         o.sign_draft = p.sign_draft
+    if CONTRACT not in have and not contract_done(db, o) and (w := no_esign(db, p.id)) and w.status == "approved":
+        w.entity_id = orig  # the operator's «без электронной подписи» goes with the duplicate's contract step
+        moved["no_esign"] = w.id
     for model in (Lead, Deal, Contract, ClientView, ChannelPost, PropertyListing):
         n = db.execute(update_(model).where(model.property_id == p.id).values(property_id=orig)).rowcount
         if n:
@@ -1281,9 +1292,9 @@ def _store_contract(db: Session, p: Property, content: bytes, uploaded_by: int |
 
 def _check_owner_doc(kind: str, name: str, content: bytes) -> str:
     """-> the file extension; the type is checked by the content's magic bytes, not the name alone."""
-    if kind not in OWNER_DOCS:
+    if kind not in DOC_KINDS:
         raise DomainError("not_found", "unknown document kind")
-    label, exts = OWNER_DOCS[kind]
+    label, exts = DOC_KINDS[kind]
     ext = os.path.splitext(name or "")[1].lower()
     head = content[:16]
     magic = {".pdf": head.startswith(b"%PDF"), ".jpg": head.startswith(b"\xff\xd8"), ".jpeg": head.startswith(b"\xff\xd8"),
@@ -1313,6 +1324,8 @@ def _store_owner_doc(db: Session, p: Property, kind: str, name: str, content: by
 
 def upload_owner_doc(db: Session, pid: int, kind: str, name: str, content: bytes, actor: User) -> PropertyMedia:
     """The agent uploads the owner's passport / registry extract himself (contract signed on paper)."""
+    if kind not in OWNER_DOCS:
+        raise DomainError("not_found", "unknown document kind")
     p = _prop(db, pid, lock=True)
     _require_media_editable(p, actor)
     _require_status(p, *AGENT_MEDIA_STATUSES, "review", "published")
@@ -1342,6 +1355,7 @@ def upload_contract(db: Session, pid: int, name: str, content: bytes, actor: Use
     _require_status(p, *AGENT_MEDIA_STATUSES, "review", "published")
     m = _store_contract(db, p, content, actor.id)
     log_event(db, "property", p.id, "exclusive_contract_uploaded", actor)
+    schedule_dup_scan(db, p, "contract")
     db.commit()
     return m
 
@@ -1474,6 +1488,7 @@ def sign_contract(db: Session, token: str, data: dict, pdf: bytes, ip: str | Non
     log_event(db, "property", p.id, "exclusive_contract_signed", None, label=f["full_name"], **f, ip=ip, registry_app=app,
               user_agent=(user_agent or "")[:300], pdf_sha256=hashlib.sha256(pdf).hexdigest())
     p.sign_draft = {}
+    schedule_dup_scan(db, p, "contract")
     db.commit()
     if draft.get("id_doc_file"):  # copied into the object's owner docs above; the extract key is shared (content hash)
         try:
@@ -1503,6 +1518,41 @@ def registry_app(db: Session, pid: int) -> dict | None:
 
 def contract(db: Session, pid: int) -> PropertyMedia | None:
     return db.scalars(select(PropertyMedia).where(PropertyMedia.property_id == pid, PropertyMedia.kind == CONTRACT)).first()
+
+
+def no_esign(db: Session, pid: int):
+    """The latest «Без электронной подписи» request (change_requests kind no_esign) of the object, any status."""
+    from app.models import ChangeRequest
+    return db.scalars(select(ChangeRequest).where(ChangeRequest.entity == "property", ChangeRequest.entity_id == pid,
+                                                  ChangeRequest.kind == "no_esign").order_by(ChangeRequest.id.desc())).first()
+
+
+def contract_done(db: Session, p: Property) -> bool:
+    """The exclusive contract step: a signed / uploaded PDF, or the operator approved going without the e-signature."""
+    if contract(db, p.id):
+        return True
+    w = no_esign(db, p.id)
+    return w is not None and w.status == "approved"
+
+
+def schedule_dup_scan(db: Session, p: Property, trigger: str) -> None:
+    """«При эксклюзиве — сразу поиск дублей везде» (Irakli 11-18): the worker runs similar.scan_exclusive within ~30 s
+    (a whole-base search takes a second or two, not for a save request). No commit."""
+    if not jobs.pending(db, "dup_scan", p.id):  # one is waiting already: it runs the same search
+        jobs.schedule(db, "dup_scan", p.id, now(), {"trigger": trigger}, replace=False)
+
+
+def dup_scan(db: Session, pid: int) -> dict | None:
+    """The last duplicate search of the object (its history event) for the card: {n, strong, at, trigger}; pending
+    while the job has not run yet."""
+    ev = db.scalars(select(Event).where(Event.entity == "property", Event.entity_id == str(pid),
+                                        Event.action == "duplicate_scan").order_by(Event.id.desc())).first()
+    pending = bool(jobs.pending(db, "dup_scan", pid))
+    if ev is None:
+        return {"pending": True} if pending else None
+    d = ev.data or {}
+    return {"n": d.get("n", 0), "strong": d.get("strong") or [], "trigger": d.get("trigger"), "at": ev.at.isoformat(),
+            "sig": d.get("sig"), "pending": pending}
 
 
 def set_media_room(db: Session, pid: int, mid: int, room: str | None, actor: User) -> PropertyMedia:
@@ -1618,7 +1668,7 @@ def submit_for_review(db: Session, pid: int, agent: User) -> Property:
     if not media(db, p.id):
         raise DomainError("no_media", "upload photos or videos first")
     require_min_photos(db, p)
-    if p.is_exclusive and not contract(db, p.id):
+    if p.is_exclusive and not contract_done(db, p):
         raise DomainError("no_exclusive_contract", "Эксклюзив: загрузите подписанный собственником эксклюзивный договор (PDF)")
     if docs := missing_owner_docs(db, p):
         raise DomainError("no_owner_docs", "Эксклюзив: загрузите " + ", ".join(docs))
@@ -2466,8 +2516,14 @@ def out(db: Session, p: Property, user: User, full: bool = False, cache: dict | 
         d["room_picker"] = settings_svc.get(db, "room_picker") != "0"  # Управление → Настройки; rooms never required
         c = contract(db, p.id) if p.is_exclusive else None
         d["exclusive_contract"] = {"id": c.id, "url": f"/api/media/{c.path}", "created_at": c.created_at} if c else None
-        if p.is_exclusive and not c:
+        w = no_esign(db, p.id) if p.is_exclusive and not c else None
+        d["no_esign"] = _no_esign_out(db, w, can_see_owner(p, user)) if w else None
+        if p.is_exclusive and not c and not (w and w.status == "approved"):
             d["missing"].append("эксклюзивный договор (PDF)")
+        scan = dup_scan(db, p.id) if p.is_exclusive else None
+        if scan and not can_see_owner(p, user):  # ad links lead to the owner's phone
+            scan["strong"] = [{**x, "url": None} for x in scan.get("strong") or []]
+        d["duplicate_scan"] = scan
         d["missing"] += missing_owner_docs(db, p)
         # the passport and the extract: only staff and the object's agent (the files themselves: api media_file)
         d["owner_docs"] = {k: {"id": m.id, "url": f"/api/media/{m.path}", "created_at": m.created_at}
@@ -2491,6 +2547,18 @@ def out(db: Session, p: Property, user: User, full: bool = False, cache: dict | 
             _covers(db, [p], cache)
         d["photo"] = cache[("cover", p.id)]
     return d
+
+
+def _no_esign_out(db: Session, w, files: bool) -> dict:
+    """The «Без электронной подписи» request on the card: status, reason, who asked / decided, the scan (private)."""
+    names = dict(db.execute(select(User.id, User.name).where(User.id.in_({w.requested_by, w.decided_by} - {None}))).all())
+    scan = db.get(PropertyMedia, (w.payload or {}).get("media_id")) if (w.payload or {}).get("media_id") and files else None
+    iso = lambda v: v.isoformat() if v else None  # noqa: E731
+    return {"id": w.id, "status": w.status, "reason": w.reason, "created_at": iso(w.created_at),
+            "requested_by": {"id": w.requested_by, "name": names.get(w.requested_by)},
+            "decided_by": {"id": w.decided_by, "name": names.get(w.decided_by)} if w.decided_by else None,
+            "decided_at": iso(w.decided_at), "comment": w.decision_comment,
+            "scan_url": f"/api/media/{scan.path}" if scan else None}
 
 
 def card(db: Session, p: Property, user: User) -> dict:

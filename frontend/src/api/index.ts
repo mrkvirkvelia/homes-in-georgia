@@ -108,6 +108,12 @@ export const api = {
       fd.append('file', file);
       return http.post<Property>(`/properties/${id}/exclusive-contract`, fd);
     },
+    noEsign: (id: number, reason: string, file?: File | null) => {
+      const fd = new FormData();
+      fd.append('reason', reason);
+      if (file) fd.append('file', file);
+      return http.post<Property>(`/properties/${id}/exclusive-no-esign`, fd);
+    },
     uploadOwnerDoc: (id: number, kind: 'owner_id_doc' | 'registry_extract', file: File) => {
       const fd = new FormData();
       fd.append('file', file);

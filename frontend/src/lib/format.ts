@@ -208,7 +208,9 @@ const CC3 = ['21', '22', '23', '24', '25', '26', '29', '35', '37', '38', '42', '
 /** «599206716» / «+995599206716» / «0599-20-67-16» → «+995 599 206 716»; foreign → «+7 916 123 45 67».
  *  Text with letters/commas or >15 digits (two numbers in one field) is returned untouched, so no digit is ever lost. */
 export function formatPhone(raw?: string | null): string {
-  const s = raw ?? '';
+  let s = raw ?? '';
+  // a «+» typed after the prefilled «+995 » starts another country's number (Irakli 11-18: not always Georgian)
+  if (s.lastIndexOf('+') > 0 && !/[^\d\s+()\-.]/.test(s)) s = s.slice(s.lastIndexOf('+'));
   if (/[^\d\s+()\-.]/.test(s)) return s;
   let d = s.replace(/\D/g, '');
   let plus = s.trim().startsWith('+');

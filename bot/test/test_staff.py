@@ -87,6 +87,14 @@ class AgentPhonesTest(Base):
         self.assertEqual(core.listing("ss2")["status"], "published")
         self.assertEqual(core.listing("tg_x_1")["status"], "published")  # competitor channels are agencies anyway
 
+    def test_an_agents_second_number_counts_too(self):
+        """owners.phones (migration 0032): the number he gave on the call, not only the main one."""
+        with db.tx() as c:
+            c.execute("""INSERT INTO owners (name, phone, phone_norm, phones, is_agent) VALUES ('X', '+995599123456', '599123456',
+                         '[{"phone": "+995599123456", "norm": "599123456"}, {"phone": "+995577001122", "norm": "577001122"}]', true)""")
+        self.sync([item("ss3", text="Сдаю, 577 00 11 22")])
+        self.assertEqual(core.listing("ss3")["agent_suspect"], 1)
+
 
 if __name__ == "__main__":
     unittest.main()

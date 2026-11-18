@@ -22,6 +22,9 @@ class Owner(Base):
     name = Column(Text)
     phone = Column(Text)
     phone_norm = Column(Text, index=True)
+    # every number, the main (= phone / phone_norm) first: [{phone, norm, note}] (David + Irakli 11-18, migration 0032;
+    # services.dedup.owner_phones / set_owner_phones)
+    phones = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
     address = Column(Text)
     address_norm = Column(Text)
     link = Column(Text)

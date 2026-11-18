@@ -306,6 +306,10 @@ a.brand, a.brand:hover { color: inherit; text-decoration: none; }
 .check input { width: 18px; height: 18px; accent-color: var(--brand); }
 .form-grid { display: grid; gap: 12px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .form-grid .span2 { grid-column: span 2; }
+/* an owner's phones (components/PhonesField): number · note · remove; on a phone the note goes under the number */
+.phones-row { display: grid; gap: 8px; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) auto; align-items: center; }
+@media (max-width: 600px) { .phones-row { grid-template-columns: minmax(0, 1fr) auto; } .phones-row > :first-child { grid-column: 1 / -1; }
+  .phones-row + .phones-row { border-top: 1px solid var(--line); padding-top: 8px; } }
 @media (max-width: 600px) { .form-grid { grid-template-columns: 1fr; } .form-grid .span2 { grid-column: auto; } }
 .switch { position: relative; width: 42px; height: 24px; flex: none; }
 .switch input { opacity: 0; width: 0; height: 0; }

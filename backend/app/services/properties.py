@@ -28,7 +28,8 @@ from app.services import jobs
 from app.services import users as users_svc
 from app.services import settings as settings_svc
 from app.services.common import aware, clean_cadastral, get_or_404, jload, log_event, now, now_text
-from app.services.dedup import address_match, extract_phones, norm_address, norm_phone, phone_match
+from app.services.dedup import (address_match, e164, extract_phones, norm_address, norm_phone, owner_phones, phone_match,
+                                 phone_rows, set_owner_phones)
 from app.services.errors import DomainError, forbidden
 from app.telegram import notify
 
@@ -44,7 +45,7 @@ EDITABLE = ("address", "district", "lat", "lng", "cadastral_code", "price", "cur
 # cheat could use (owner contact and binding, address, cadastral code, the ad link, exclusive, price and deposit). His
 # edit of them becomes a «Запрос оператору» (services/change_requests.py); archiving does too. deposit / sale_price are
 # keys of post_fields; the other post fields (amenities, description, headline…) stay his, logged as usual.
-LOCKED_AFTER_VERIFY = ("owner_name", "owner_phone", "address", "cadastral_code", "source_url", "is_exclusive", "price",
+LOCKED_AFTER_VERIFY = ("owner_name", "owner_phone", "owner_phones", "address", "cadastral_code", "source_url", "is_exclusive", "price",
                        "currency", "deposit", "sale_price")
 POST_LOCKED = ("deposit", "sale_price")
 VIDEO_EXT = {".mp4", ".mov", ".m4v", ".webm", ".avi", ".mkv"}
@@ -596,9 +597,9 @@ def is_locked_for(p: Property, user: User) -> bool:
 
 
 def _current(db: Session, p: Property, k: str):
-    if k in ("owner_name", "owner_phone"):
+    if k in ("owner_name", "owner_phone", "owner_phones"):
         o = db.get(Owner, p.owner_id) if p.owner_id else None
-        return (o.name if k == "owner_name" else o.phone) if o else None
+        return (o.name if k == "owner_name" else o.phone if k == "owner_phone" else owner_phones(o)) if o else None
     return (p.post_fields or {}).get(k) if k in POST_LOCKED else getattr(p, k)
 
 
@@ -612,6 +613,10 @@ def _norm(k: str, v):
         return int(n) if n is not None else None
     if k == "is_exclusive":
         return bool(v)
+    if k == "owner_phone":  # «599…» typed again is the same «+995599…»
+        return e164(v)
+    if k == "owner_phones":
+        return [{"phone": r["phone"], "note": r["note"]} for r in phone_rows(v)] or None
     return (str(v).strip() or None) if v is not None else None
 
 
@@ -631,7 +636,7 @@ def split_locked(db: Session, p: Property, data: dict) -> tuple[dict, dict]:
     for k in LOCKED_AFTER_VERIFY:
         if k in data and k not in POST_LOCKED:
             old, new = _norm(k, _current(db, p, k)), _norm(k, data.pop(k))
-            if old != new and not (k in ("owner_name", "owner_phone") and new is None):  # empty = "don't touch" there
+            if old != new and not (k in ("owner_name", "owner_phone", "owner_phones") and new is None):  # empty = "don't touch" there
                 locked[k] = {"old": old, "new": new}
     return data, locked
 
@@ -664,12 +669,13 @@ def apply_update(db: Session, p: Property, data: dict, actor: User) -> None:
     _apply(p, data)
     if p.rent_to != was_rent_to:
         schedule_lease_reminders(db, p)
-    _set_owner_contact(db, p, data.get("owner_name"), data.get("owner_phone"), actor, bool(data.get("owner_separate")))
+    _set_owner_contact(db, p, data.get("owner_name"), data.get("owner_phone"), actor, bool(data.get("owner_separate")),
+                       data.get("owner_phones"))
     if p.is_exclusive and not was_exclusive:
         for a in external_ads(db, [p.id]).get(p.id, []):
             log_event(db, "property", p.id, "exclusive_conflict", actor, **a)
     p.updated_at = now()
-    fields = sorted(k for k in data if k in EDITABLE or k in ("owner_name", "owner_phone"))
+    fields = sorted(k for k in data if k in EDITABLE or k in ("owner_name", "owner_phone", "owner_phones"))
     if fields:
         log_event(db, "property", p.id, "updated", actor, fields=fields)
 
@@ -680,18 +686,20 @@ def _mask_phone(phone: str | None) -> str:
 
 
 def _set_owner_contact(db: Session, p: Property, name: str | None, phone: str | None, actor: User,
-                       separate: bool = False) -> None:
+                       separate: bool = False, phones: list | None = None) -> None:
     """Fix the owner's name/phone from the object card (a typo like "Sofa" for "Nadia"). The contact lives on the Owner,
     so his other objects show the fix too. A phone that already belongs to another owner in the base re-links the object
     to that owner instead of creating a twin, unless separate (the agent chose «оставить отдельным»). Logged on the
-    object's timeline as old → new, the phones masked."""
-    name, phone = (name or "").strip() or None, (phone or "").strip() or None
+    object's timeline as old → new, the phones masked. phones (the owner's whole list, the main first) replaces his
+    numbers; only phone (the main) keeps his other numbers. Empty = don't touch."""
+    rows = phone_rows(phones) or None
+    name, phone = (name or "").strip() or None, rows[0]["phone"] if rows else (phone or "").strip() or None
     if not name and not phone:
         return
     o = db.get(Owner, p.owner_id) if p.owner_id else None
-    before = (o.name, o.phone) if o else (None, None)
+    before = (o.name, o.phone, {r["norm"] for r in owner_phones(o)}) if o else (None, None, set())
     if o is None:
-        o, _ = upsert_owner(db, name, phone, p.address, p.source_url, actor=actor)
+        o, _ = upsert_owner(db, name, phone, p.address, p.source_url, actor=actor, phones=rows)
         p.owner_id = o.id
         _bind_owner(db, p, o, actor)
     elif phone and norm_phone(phone) != o.phone_norm:
@@ -699,8 +707,11 @@ def _set_owner_contact(db: Session, p: Property, name: str | None, phone: str | 
         if other and other.id != o.id:
             p.owner_id, o = other.id, other
             _bind_owner(db, p, o, actor)
+            add_owner_phones(o, rows or [])
         else:
-            o.phone, o.phone_norm = phone, norm_phone(phone)
+            set_owner_phones(o, rows or phone_rows([phone, *owner_phones(o)[1:]]))
+    elif rows:
+        set_owner_phones(o, rows)
     if name:
         o.name = name
     changes = []
@@ -708,6 +719,9 @@ def _set_owner_contact(db: Session, p: Property, name: str | None, phone: str | 
         changes.append(f"{before[0] or '—'} → {o.name or '—'}")
     if norm_phone(before[1]) != o.phone_norm:
         changes.append(f"{_mask_phone(before[1])} → {_mask_phone(o.phone)}")
+    after = owner_phones(o)
+    if {r["norm"] for r in after} - {o.phone_norm} != before[2] - {norm_phone(before[1]) or None}:
+        changes.append("номера: " + ", ".join(_mask_phone(r["phone"]) for r in after))
     if changes:
         log_event(db, "property", p.id, "owner_contact", actor, owner_id=o.id, note="; ".join(changes))
 
@@ -1016,20 +1030,40 @@ def call_result(db: Session, pid: int, agent: User, reached: bool) -> Property:
     return p
 
 
-def find_owner(db: Session, phone: str | None = None, address: str | None = None) -> Owner | None:
-    pn = norm_phone(phone)
-    if len(pn) > 4:
-        o = db.scalar(select(Owner).where(Owner.phone_norm == pn).order_by(Owner.id))
-        if o:
+def owner_has_phone(pn: str):
+    """SQL: the owner has this normalized number, main or any other (owners.phones, GIN index)."""
+    return or_(Owner.phone_norm == pn, Owner.phones.contains([{"norm": pn}]))
+
+
+def owner_phone_like(pn: str):
+    """SQL: a digit fragment of any of the owner's numbers (staff search)."""
+    return or_(Owner.phone_norm.like(f"%{pn}%"), cast(Owner.phones, Text).like(f"%{pn}%"))
+
+
+def find_owner(db: Session, phone=None, address: str | None = None) -> Owner | None:
+    """The owner with this number (main or another one); phone may be a list: the first number that is known wins."""
+    for pn in (norm_phone(x) for x in (phone if isinstance(phone, list) else [phone])):
+        if len(pn) > 4 and (o := db.scalar(select(Owner).where(owner_has_phone(pn)).order_by(Owner.id))):
             return o
     return None
 
 
+def add_owner_phones(o: Owner, rows: list[dict]) -> None:
+    """Numbers he doesn't have yet go to the end of his list (the main stays)."""
+    have = owner_phones(o)
+    new = [r for r in rows if r["norm"] not in {h["norm"] for h in have}]
+    if new:
+        set_owner_phones(o, have + new)
+
+
 def upsert_owner(db: Session, name: str | None, phone: str | None, address: str | None = None, link: str | None = None,
-                 is_agent: bool = False, actor: User | None = None) -> tuple[Owner, bool]:
-    """Owner_Base row by normalized phone (apps-script addToOwnerBase). Returns (owner, created)."""
-    o = find_owner(db, phone)
+                 is_agent: bool = False, actor: User | None = None, phones: list | None = None) -> tuple[Owner, bool]:
+    """Owner_Base row by normalized phone (apps-script addToOwnerBase): any of the numbers finds him, and the ones he
+    doesn't have are added. phones = the whole list (the main first), else just phone. Returns (owner, created)."""
+    rows = phone_rows(phones) or phone_rows([phone])
+    o = find_owner(db, [r["phone"] for r in rows])
     if o:
+        add_owner_phones(o, rows)
         if is_agent:
             o.is_agent = True
         if name and (not o.name or o.name == "—"):
@@ -1037,8 +1071,9 @@ def upsert_owner(db: Session, name: str | None, phone: str | None, address: str 
         if address and not o.address:
             o.address, o.address_norm = address, norm_address(address)
         return o, False
-    o = Owner(name=name, phone=phone, phone_norm=norm_phone(phone), address=address, address_norm=norm_address(address),
-              link=link, is_agent=is_agent, created_by=actor.id if actor else None)
+    o = Owner(name=name, address=address, address_norm=norm_address(address), link=link, is_agent=is_agent,
+              created_by=actor.id if actor else None)
+    set_owner_phones(o, rows)
     db.add(o)
     db.flush()
     log_event(db, "owner", o.id, "created", actor, is_agent=is_agent)
@@ -1046,18 +1081,21 @@ def upsert_owner(db: Session, name: str | None, phone: str | None, address: str 
 
 
 def owner_or_agent(db: Session, pid: int, agent: User, is_owner: bool, owner_name: str | None = None,
-                   owner_phone: str | None = None) -> Property:
+                   owner_phone: str | None = None, owner_phones: list | None = None) -> Property:
     """C2b / C3: an agent answered → object stays in the base marked "agent"; an owner → owner_confirmed.
     The owner is saved to the base right away; dup_check records whether the phone was already known."""
     p = _prop(db, pid, lock=True)
     _require_owner(p, agent)
     _require_status(p, "taken", "call_failed", "owner_confirmed", "agent_marked")
+    rows = phone_rows(owner_phones) or phone_rows([owner_phone])
+    owner_phone = rows[0]["phone"] if rows else None
     if not owner_phone and not owner_name:
         raise DomainError("owner_required", "owner name or phone is required")
     mark_agent = not is_owner
     if mark_agent and _real_owner(db, owner_phone, p.id):  # a known owner with other real objects stays an owner
         mark_agent = False
-    owner, created = upsert_owner(db, owner_name, owner_phone, p.address, p.source_url, is_agent=mark_agent, actor=agent)
+    owner, created = upsert_owner(db, owner_name, owner_phone, p.address, p.source_url, is_agent=mark_agent, actor=agent,
+                                  phones=rows)
     _bind_owner(db, p, owner, agent)
     p.owner_id = owner.id
     if is_owner:
@@ -1131,7 +1169,7 @@ def schedule_shoot(db: Session, pid: int, agent: User, shoot_at) -> tuple[Proper
     jobs.cancel(db, "owner_followup", p.id)
     owner = db.get(Owner, p.owner_id) if p.owner_id else None
     if not p.dup_check:
-        res = check_duplicate(db, owner.phone if owner else None, p.address, exclude_property=p.id)
+        res = check_duplicate(db, [r["phone"] for r in owner_phones(owner)], p.address, exclude_property=p.id)
         p.dup_check = "exists" if res["level"] != "none" else "added"
     if p.address and not p.duplicate_of:
         for other in db.scalars(select(Property).where(Property.id != p.id, Property.address.isnot(None),
@@ -1142,7 +1180,7 @@ def schedule_shoot(db: Session, pid: int, agent: User, shoot_at) -> tuple[Proper
     _status(db, p, "shoot_scheduled", agent, shoot_at=p.shoot_at.isoformat() if p.shoot_at else None, dup_check=p.dup_check)
     db.commit()
     from app.services import reports  # local import: reports imports nothing from here, keep module graph flat
-    reports.save(db, "makefoto", {"address": p.address, "phone": owner.phone if owner else "", "owner": owner.name if owner else "",
+    reports.save(db, "makefoto", {"address": p.address, "phone": ", ".join(r["phone"] for r in owner_phones(owner)), "owner": owner.name if owner else "",
                                   "date": p.shoot_at.astimezone(_tz()).strftime("%d.%m.%Y %H:%M") if p.shoot_at else "",
                                   "agent": agent.name, "link": p.source_url or "", "status": p.dup_check,
                                   "property_id": p.id}, agent)
@@ -1541,7 +1579,7 @@ def _same_object(db: Session, p: Property) -> Property | None:
             o = db.get(Owner, other.owner_id)
             if p.cadastral_code and other.cadastral_code:
                 continue  # both have codes and they differ (checked above): the owner's second flat in the house
-            if o and phone_match(owner.phone, o.phone) and address_match(p.address, other.address):
+            if o and _phones_match(owner_phones(owner), owner_phones(o)) and address_match(p.address, other.address):
                 return other
     return None
 
@@ -2203,14 +2241,20 @@ def ad_removed(db: Session, pid: int, listing_id: str, actor: User) -> Property:
 
 # ---------------------------------------------------------------- dedup
 
-def check_duplicate(db: Session, phone: str | None = None, address: str | None = None, url: str | None = None,
+def _phones_match(a: list[dict], b: list[dict]) -> bool:
+    return any(phone_match(x["phone"], y["phone"]) for x in a for y in b)
+
+
+def check_duplicate(db: Session, phone=None, address: str | None = None, url: str | None = None,
                     cadastral: str | None = None, exclude_property: int | None = None) -> dict:
-    """Port of apps-script checkProperty (Owner_Base phone/address) + link and cadastral matches.
+    """Port of apps-script checkProperty (Owner_Base phone/address) + link and cadastral matches. phone: one number or
+    a list; any of them against any of an owner's numbers.
     level: none | warn (one signal) | danger (phone and address, or same link/cadastral)."""
     results = []
-    if (phone and len(norm_phone(phone)) > 4) or (address and len(norm_address(address)) > 2):
+    mine = [r for r in phone_rows(phone if isinstance(phone, list) else [phone]) if len(r["norm"]) > 4]
+    if mine or (address and len(norm_address(address)) > 2):
         for o in db.scalars(select(Owner)):
-            pm = bool(phone) and phone_match(phone, o.phone)
+            pm = bool(mine) and _phones_match(mine, owner_phones(o))
             am = bool(address) and address_match(address, o.address)
             if pm or am:
                 results.append({"source": "owners", "owner_id": o.id, "owner": o.name, "phone": o.phone,
@@ -2384,7 +2428,8 @@ def out(db: Session, p: Property, user: User, full: bool = False, cache: dict | 
         visible = can_see_owner(p, user)
         # stage 6.5: the owner's agent is the agent of all his objects (may differ from this object's after a staff override)
         d["owner"] = {"id": owner.id, "name": owner.name, "is_agent": owner.is_agent,
-                      "phone": owner.phone if visible else None, "agent": ref(get(User, owner.agent_id))}
+                      "phone": owner.phone if visible else None, "phones": owner_phones(owner) if visible else None,
+                      "agent": ref(get(User, owner.agent_id))}
     else:
         d["owner"] = None
     k = ("conflict", p.id)
@@ -2517,7 +2562,7 @@ def query(db: Session, user: User, status: str | None = None, agent_id: int | No
         cond = and_(*map(word, words))
         pn = norm_phone(re.sub(r"[^\d+]", "", q))
         if len(pn) >= 5 and not re.search(r"[^\d\s+()\-]", q):  # the owner's phone, any format
-            cond = or_(cond, Property.owner_id.in_(select(Owner.id).where(Owner.phone_norm.like(f"%{pn}%"))))
+            cond = or_(cond, Property.owner_id.in_(select(Owner.id).where(owner_phone_like(pn))))
         stmt = stmt.where(cond)
     # the base by publication date, the archive by archiving date; work lists by the last change
     first = (Property.published_at if base else Property.archived_at if status == "archived" else Property.updated_at)

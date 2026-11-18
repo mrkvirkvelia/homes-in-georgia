@@ -8,7 +8,7 @@ import type { IntegrationKey, KeyCheck, Spend,
   Birthday, Invite, InviteInfo,
   AgentStat, AppConfig, AuthOut, Cabinet, Client, Contract, ContractCloseReason, ContractDraftIn, ContractIn, CounterRow, Dashboard, Deal, DealCalcIn, DealCalcOut,
   EventItem, Evaluation, Lead, LeadContract, LeadStatus, DealPrefill, Listing, NewsItem, Owner, Page, Property, RecommendedAgent, Report, ReportKind,
-  Offer, OfferKind, OfferStatus,
+  Offer, OfferKind, OfferStatus, PhoneRow,
   Settings, SiteReport, Source, SourceSchedule, TickerMessage, UserbotStatus, User, ListingsStats, Elsewhere, PostDraft, ChangeRequest, DealPick, Demand, GeoHit, SimilarItem,
 } from './types';
 
@@ -91,9 +91,9 @@ export const api = {
     take: (listing_id: string, force?: boolean) => http.post<Property>('/properties', force ? { listing_id, force } : { listing_id }),
     create: (b: Partial<Property> & { owner_name?: string }) => http.post<Property>('/properties', b),
     get: (id: number) => then(http.get<Property>(`/properties/${id}`), normProperty),
-    update: (id: number, b: Partial<Property> & { owner_name?: string; owner_phone?: string; owner_separate?: boolean; reason?: string }) => http.patch<Property>(`/properties/${id}`, b),
+    update: (id: number, b: Partial<Property> & { owner_name?: string; owner_phone?: string; owner_phones?: PhoneRow[]; owner_separate?: boolean; reason?: string }) => http.patch<Property>(`/properties/${id}`, b),
     call: (id: number, reached: boolean) => http.post<Property>(`/properties/${id}/call`, { reached }),
-    owner: (id: number, b: { is_owner: boolean; owner_name?: string; owner_phone?: string }) =>
+    owner: (id: number, b: { is_owner: boolean; owner_name?: string; owner_phone?: string; owner_phones?: PhoneRow[] }) =>
       http.post<Property>(`/properties/${id}/owner`, b),
     shoot: (id: number, shoot_at: string) =>
       http.post<Property & { dup_check?: 'added' | 'exists' }>(`/properties/${id}/shoot`, { shoot_at }),

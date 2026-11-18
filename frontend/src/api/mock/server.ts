@@ -1,7 +1,7 @@
 // VITE_MOCK=1 in-memory API. Mimics §7 shapes and the main state transitions so the UI can be exercised offline.
 import { ApiError, getToken } from '../client';
 import { scenarioRows, type DistRow, type Scenario } from '../../lib/scenarios';
-import type { Deal, EventItem, Lead, LeadStatus, Listing, Property, PropertyStatus, Report, User } from '../types';
+import type { Deal, EventItem, Lead, LeadStatus, Listing, PhoneRow, Property, PropertyStatus, Report, User } from '../types';
 import { STAFF_ROLES } from '../types';
 import * as F from './fixtures';
 import { registerDailyRent } from './dailyRent';
@@ -24,9 +24,19 @@ const isStaff = (u: User) => STAFF_ROLES.includes(u.role);
 function levelFor(n: number) { return n < 11 ? 50 : n < 101 ? 70 : 90; }
 function nextLevelAt(n: number) { return n < 11 ? 11 : n < 101 ? 101 : null; }
 
+/** backend dedup.phone_rows / e164, roughly: the list (or the single main phone over the old list), «+995» for a local number, repeats dropped */
+function mockPhones(list: unknown, main: unknown, old?: { phone?: string | null; phones?: PhoneRow[] | null } | null): PhoneRow[] {
+  const e164 = (s: string) => { const d = s.replace(/\D/g, ''); return s.trim().startsWith('+') ? '+' + d : d.length <= 10 ? '+995' + d.slice(-9) : '+' + d; };
+  const rows = Array.isArray(list) && list.length ? list as PhoneRow[]
+    : main ? [{ phone: String(main) }, ...(old?.phones || []).slice(1)] : old?.phones || (old?.phone ? [{ phone: old.phone }] : []);
+  const seen = new Set<string>();
+  return rows.filter((r) => r.phone && r.phone.replace(/\D/g, '').replace(/^995$/, '')).map((r) => ({ phone: e164(r.phone), note: r.note || null }))
+    .filter((r) => !seen.has(r.phone) && !!seen.add(r.phone));
+}
+
 function propOut(p: Property, u: User): Property {
   const canPhone = isStaff(u) || p.agent_id === u.id;
-  return { ...p, photo: p.photo ?? p.media?.find((m) => m.kind === 'photo')?.path ?? null, owner: p.owner ? { ...p.owner, phone: canPhone ? p.owner.phone : null } : null };
+  return { ...p, photo: p.photo ?? p.media?.find((m) => m.kind === 'photo')?.path ?? null, owner: p.owner ? { ...p.owner, phone: canPhone ? p.owner.phone : null, phones: canPhone ? p.owner.phones : null } : null };
 }
 function leadOut(l: Lead, u: User): Lead {
   const client = F.clients.find((c) => c.id === l.client_id) || null;
@@ -296,10 +306,13 @@ on('GET', '/properties/:id/history', (m) => page([...(F.propertyEvents[Number(m[
 on('GET', '/properties/:id', (m) => propOut(getProp(Number(m[1])), currentUser()));
 on('PATCH', '/properties/:id', (m, b) => {
   const p = getProp(Number(m[1]));
-  const { owner_name, owner_phone, owner_id, owner_separate: _sep, reason: _r, ...rest } = b as Record<string, unknown>;
+  const { owner_name, owner_phone, owner_phones, owner_id, owner_separate: _sep, reason: _r, ...rest } = b as Record<string, unknown>;
   Object.assign(p, rest);
-  if (owner_id || owner_name || owner_phone) p.owner = { ...(p.owner || { id: nextId(), is_agent: false }), ...(owner_id ? { id: Number(owner_id) } : {}),
-    name: (owner_name as string) || p.owner?.name, phone: (owner_phone as string) || p.owner?.phone };
+  if (owner_id || owner_name || owner_phone || owner_phones) {
+    const phones = mockPhones(owner_phones, owner_phone, p.owner);
+    p.owner = { ...(p.owner || { id: nextId(), is_agent: false }), ...(owner_id ? { id: Number(owner_id) } : {}),
+      name: (owner_name as string) || p.owner?.name, phone: phones[0]?.phone ?? null, phones };
+  }
   return propOut(p, currentUser());
 });
 on('POST', '/properties/:id/call', (m, b) => {
@@ -311,7 +324,8 @@ on('POST', '/properties/:id/call', (m, b) => {
 });
 on('POST', '/properties/:id/owner', (m, b) => {
   const u = currentUser(); const p = getProp(Number(m[1]));
-  p.owner = { id: p.owner?.id ?? nextId(), name: (b.owner_name as string) || p.owner?.name, phone: (b.owner_phone as string) || p.owner?.phone, is_agent: !b.is_owner };
+  const phones = mockPhones(b.owner_phones, b.owner_phone, p.owner);
+  p.owner = { id: p.owner?.id ?? nextId(), name: (b.owner_name as string) || p.owner?.name, phone: phones[0]?.phone ?? null, phones, is_agent: !b.is_owner };
   p.status = b.is_owner ? 'owner_confirmed' : 'agent_marked';
   propEvent(p.id, b.is_owner ? 'owner_confirmed' : 'agent_marked', b.is_owner ? 'Собственник подтвердил' : 'Ответил агент → в базу с пометкой', u);
   return propOut(p, u);
@@ -401,13 +415,16 @@ on('POST', '/properties/:id/resume', (m) => {
 on('GET', '/owners', (_m, _b, q) => {
   const s = q.get('q')?.toLowerCase();
   const u = currentUser();
-  return page(F.owners.filter((o) => !s || `${o.name} ${o.phone} ${o.address}`.toLowerCase().includes(s)).map((o) => ({
-    ...o, phone: isStaff(u) ? o.phone : null,
+  return page(F.owners.filter((o) => !s || `${o.name} ${o.phone} ${(o.phones || []).map((r) => r.phone).join(' ')} ${o.address}`.toLowerCase().includes(s)).map((o) => ({
+    ...o, phone: isStaff(u) ? o.phone : null, phones: isStaff(u) ? o.phones : null,
     properties: F.properties.filter((p) => p.owner_id === o.id).map((p) => propOut(p, u)),
   })));
 });
-on('POST', '/owners', (_m, b) => { const o = { id: nextId(), ...b }; F.owners.push(o); return o; });
-on('PATCH', '/owners/:id', (m, b) => { const o = F.owners.find((x) => x.id === Number(m[1]))!; Object.assign(o, b); return o; });
+on('POST', '/owners', (_m, b) => { const phones = mockPhones(b.phones, b.phone); const o = { id: nextId(), ...b, phones, phone: phones[0]?.phone ?? null }; F.owners.push(o); return o; });
+on('PATCH', '/owners/:id', (m, b) => {
+  const o = F.owners.find((x) => x.id === Number(m[1]))!; const phones = mockPhones(b.phones, b.phone, o);
+  Object.assign(o, b, { phones, phone: phones[0]?.phone ?? null }); return o;
+});
 on('GET', '/clients', (_m, _b, q) => {
   const s = q.get('q')?.toLowerCase();
   return page(F.clients.filter((c) => !s || `${c.name} ${c.username} ${c.phone}`.toLowerCase().includes(s))

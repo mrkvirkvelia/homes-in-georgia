@@ -9,6 +9,7 @@ import type { ClientProfile, Lead } from '../../api/types';
 import { atLeast } from '../../api/types';
 import { useAuth } from '../../auth/AuthContext';
 import { CopyPhone, LeadStatusBadge, ListingModal, Place, SlaChip, Timeline } from '../../components/domain';
+import { MorePhones } from '../../components/PhonesField';
 import { errText, useToast } from '../../components/toast';
 import { Avatar, Badge, Button, Card, ErrorBox, Field, Input, KV, Loading, Modal, Seg, Textarea } from '../../components/ui';
 import { DealView } from '../../pages/Deals';
@@ -271,6 +272,7 @@ export function LeadDetail({ id, compact }: { id: number; compact?: boolean }) {
                 </a>
                 <b className="num" style={{ fontSize: 16, userSelect: 'all' }}>{formatPhone(ownerPhone)}</b>
                 <CopyPhone phone={ownerPhone} />
+                <MorePhones phones={lead.owner?.phones} />
               </div>
             )}
             {canDeal && CONTRACT_FROM.includes(lead.status) && !liveContract && (

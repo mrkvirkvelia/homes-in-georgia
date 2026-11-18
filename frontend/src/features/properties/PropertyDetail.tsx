@@ -18,6 +18,7 @@ import { ARCHIVE_REASON, agentLabel, distLabel, districtLabel, SOURCE_LABEL, bed
 import { DealStatusBadge } from '../../pages/Deals';
 import { RequestRow } from './requests';
 import { OwnerSuggest } from '../../components/OwnerSuggest';
+import { MorePhones, PhonesField, cleanPhones, phoneRows, samePhones } from '../../components/PhonesField';
 import { cadastralError, cadastralHint, cadastralInput, cadastralNorm } from '../../lib/cadastral';
 import { pool, shrinkPhoto } from '../../lib/upload';
 import { addMonths, isoDate, parseIsoDate } from '../../lib/dates';
@@ -92,7 +93,13 @@ function OwnerPhone({ p }: { p: Property }) {
   const phone = p.owner?.phone || p.owner_phone;
   // the backend hides it only from agents on someone else's object (can_see_owner); otherwise there is no number
   if (!phone) return <span className="muted">{!isStaff && p.agent?.id !== user?.id ? t('скрыт') : t('не указан')}</span>;
-  return <span className="row gap-sm" style={{ display: 'inline-flex' }}><a href={`tel:${phone.replace(/[^+\d]/g, '')}`} style={{ fontWeight: 700, whiteSpace: 'nowrap' }}>{formatPhone(phone)}</a><CopyPhone phone={phone} /></span>;
+  const note = p.owner?.phones?.[0]?.note;
+  return (
+    <span className="col" style={{ display: 'inline-flex', gap: 0 }}>
+      <span className="row gap-sm row-wrap" style={{ display: 'inline-flex' }}><a href={`tel:${phone.replace(/[^+\d]/g, '')}`} style={{ fontWeight: 700, whiteSpace: 'nowrap' }}>{formatPhone(phone)}</a>{note && <span className="muted" style={{ fontSize: 12 }}>{note}</span>}<CopyPhone phone={phone} /></span>
+      <MorePhones phones={p.owner?.phones} />
+    </span>
+  );
 }
 
 /** «Взят» from the feed, nothing done yet: the object goes back when this runs out (worker job take_idle) */
@@ -108,12 +115,13 @@ function CallStep({ p }: { p: Property }) {
   const [reached, setReached] = useState(false);
   const [isOwner, setIsOwner] = useState<'owner' | 'agent'>('owner');
   const [name, setName] = useState(p.owner?.name || '');
-  const [phone, setPhone] = useState(p.owner?.phone || '');
+  const [phones, setPhones] = useState(() => phoneRows(p.owner));  // David 11-18: the ad's number + the one given on the call
   const fail = useMutation({ mutationFn: () => api.properties.call(p.id, false), onSuccess: (r) => { set(r); toast(t('Бот напомнит позвонить через 2 часа')); }, onError: (e) => toast(errText(e), true) });
   const save = useMutation({
     mutationFn: async () => {
       await api.properties.call(p.id, true);
-      return api.properties.owner(p.id, { is_owner: isOwner === 'owner', owner_name: name, owner_phone: phone });
+      const list = cleanPhones(phones);
+      return api.properties.owner(p.id, { is_owner: isOwner === 'owner', owner_name: name, owner_phone: list[0]?.phone, owner_phones: list });
     },
     onSuccess: (r) => { set(r); toast(isOwner === 'owner' ? t('Собственник подтверждён') : t('Объект в базе с пометкой «агент»')); },
     onError: (e) => toast(errText(e), true),
@@ -143,8 +151,8 @@ function CallStep({ p }: { p: Property }) {
           <span className="label">{t('Кто ответил')}</span>
           <Seg value={isOwner} onChange={setIsOwner} options={[{ value: 'owner', label: t('Собственник') }, { value: 'agent', label: t('Агент') }]} />
           <div className="form-grid">
-            <Field label={t('Имя')}><Input value={name} onChange={(e) => setName(e.target.value)} /></Field>
-            <Field label={t('Телефон')}><Input value={phone} onChange={(e) => setPhone(phoneInput(e))} inputMode="tel" /></Field>
+            <Field label={t('Имя')} className="span2"><Input value={name} onChange={(e) => setName(e.target.value)} /></Field>
+            <PhonesField value={phones} onChange={setPhones} />
           </div>
           {isOwner === 'agent' && <div className="muted" style={{ fontSize: 12 }}>{t('Объект останется в базе с пометкой «агент», а номер попадёт в список агентов.')}</div>}
           <div className="row"><Button loading={save.isPending} onClick={() => save.mutate()}>{t('Сохранить')}</Button><Button variant="ghost" onClick={() => setReached(false)}>{t('Отмена')}</Button></div>
@@ -1370,7 +1378,8 @@ function EditModal({ p, open, onClose }: { p: Property; open: boolean; onClose: 
 function OwnerEditModal({ p, open, onClose }: { p: Property; open: boolean; onClose: () => void }) {
   const { toast, set } = useProp(p.id);
   const [name, setName] = useState(p.owner?.name || '');
-  const [phone, setPhone] = useState(p.owner?.phone || '');
+  const [phones, setPhones] = useState(() => phoneRows(p.owner));
+  const phone = phones[0]?.phone || '';
   const [link, setLink] = useState<'link' | 'separate'>('link');
   const [reason, setReason] = useState('');
   const digits = (s?: string | null) => (s || '').replace(/\D/g, '').replace(/^995/, '').replace(/^0/, '');
@@ -1379,19 +1388,20 @@ function OwnerEditModal({ p, open, onClose }: { p: Property; open: boolean; onCl
   useEffect(() => { const h = setTimeout(() => setQ(changed && digits(phone).length >= 9 ? phone : ''), 300); return () => clearTimeout(h); }, [phone, changed]);
   const found = useQuery({ queryKey: ['owners', 'same-phone', q], queryFn: () => api.owners.list(q, 'all'), enabled: !!q });
   // agents get only full-number matches with the phone hidden; staff get substring matches: compare the digits
-  const other = q ? itemsOf(found.data).find((o) => o.id !== p.owner?.id && (!o.phone || digits(o.phone) === digits(q))) : undefined;
+  const other = q ? itemsOf(found.data).find((o) => o.id !== p.owner?.id && (!o.phone || [o.phone, ...(o.phones || []).map((r) => r.phone)].some((x) => digits(x) === digits(q)))) : undefined;
   const locked = (p.locked_fields || []).includes('owner_phone');
   const save = useMutation({
     mutationFn: () => api.properties.update(p.id, other && link === 'link' ? { owner_id: other.id, reason: reason || undefined }
-      : { owner_name: name, owner_phone: phone, owner_separate: !!other || undefined, reason: reason || undefined }),
+      : { owner_name: name, owner_phone: cleanPhones(phones)[0]?.phone, owner_phones: samePhones(phones, phoneRows(p.owner)) ? undefined : cleanPhones(phones),
+          owner_separate: !!other || undefined, reason: reason || undefined }),
     onSuccess: (r) => { set(r); toast(r.change_request ? REQUEST_SENT : t('Сохранено')); onClose(); },
     onError: (e) => toast(errText(e), true),
   });
   return (
     <Modal open={open} onClose={onClose} title={t('Контакт собственника')}>
       <div className="form-grid">
-        <Field label={t('Имя собственника')}><Input value={name} onChange={(e) => setName(e.target.value)} /></Field>
-        <Field label={t('Телефон собственника')}><Input type="tel" inputMode="tel" value={phone} placeholder="+995 5__ __ __ __" onChange={(e) => setPhone(phoneInput(e))} /></Field>
+        <Field label={t('Имя собственника')} className="span2"><Input value={name} onChange={(e) => setName(e.target.value)} /></Field>
+        <PhonesField value={phones} onChange={setPhones} label={t('Телефон собственника')} />
       </div>
       {other && (
         <div className="alert alert-warn col gap-sm mt" style={{ fontSize: 13 }}>
@@ -1406,7 +1416,7 @@ function OwnerEditModal({ p, open, onClose }: { p: Property; open: boolean; onCl
           <Field label={t('Причина изменения')}><Input value={reason} placeholder={t('Например: собственник сменил номер')} onChange={(e) => setReason(e.target.value)} /></Field>
         </div>
       )}
-      <div className="row mt-lg"><Button loading={save.isPending} disabled={!name.trim() && !phone.trim()} onClick={() => save.mutate()}>{t('Сохранить')}</Button><Button variant="ghost" onClick={onClose}>{t('Отмена')}</Button></div>
+      <div className="row mt-lg"><Button loading={save.isPending} disabled={!name.trim() && !cleanPhones(phones).length} onClick={() => save.mutate()}>{t('Сохранить')}</Button><Button variant="ghost" onClick={onClose}>{t('Отмена')}</Button></div>
     </Modal>
   );
 }

@@ -17,7 +17,7 @@ from app.services import demand, geo, matching, similar
 from app.services import properties as P
 from app.services.leads import ACTIVE
 from app.services.common import get_or_404, jload, log_event
-from app.services.dedup import norm_address, norm_phone
+from app.services.dedup import norm_address, norm_phone, owner_phones, phone_rows, set_owner_phones
 
 router = APIRouter(tags=["objects"])
 
@@ -119,6 +119,11 @@ def listing_match_decide(listing_id: str, pid: int, body: MatchDecisionIn, db: S
 
 # ---------------------------------------------------------------- properties
 
+class PhoneIn(BaseModel):
+    phone: str | None = None
+    note: str | None = Field(None, max_length=100)  # «сестра», «WhatsApp»
+
+
 class PropertyIn(BaseModel):
     listing_id: str | None = None
     force: bool | None = None  # «Беру в работу» after «Это другой объект» (possible_duplicate)
@@ -140,6 +145,7 @@ class PropertyIn(BaseModel):
     source_type: str | None = None
     owner_name: str | None = None
     owner_phone: str | None = None
+    owner_phones: list[PhoneIn] | None = None  # the owner's whole list, the main first (replaces owner_phone then)
     owner_id: int | None = None  # picked from the owners list
     owner_separate: bool | None = None  # the new phone is another owner's: keep this owner, don't re-link
     post_fields: dict | None = None  # services.properties.POST_ONE / POST_MANY / POST_NUM
@@ -159,6 +165,7 @@ class OwnerStepIn(BaseModel):
     is_owner: bool
     owner_name: str | None = None
     owner_phone: str | None = None
+    owner_phones: list[PhoneIn] | None = None  # David 11-18: the ad's number and the one given on the call
 
 
 class ShootIn(BaseModel):
@@ -314,7 +321,8 @@ def properties_fast_track(pid: int, db: Session = Depends(get_db, scope="functio
 
 @router.post("/properties/{pid}/owner")
 def properties_owner(pid: int, body: OwnerStepIn, db: Session = Depends(get_db, scope="function"), user: User = Depends(current_user)):
-    return P.out(db, P.owner_or_agent(db, pid, user, body.is_owner, body.owner_name, body.owner_phone), user, full=True)
+    return P.out(db, P.owner_or_agent(db, pid, user, body.is_owner, body.owner_name, body.owner_phone,
+                                        [x.model_dump() for x in body.owner_phones or []]), user, full=True)
 
 
 class RefusedIn(BaseModel):
@@ -638,6 +646,7 @@ def properties_history(pid: int, db: Session = Depends(get_db, scope="function")
 class OwnerIn(BaseModel):
     name: str | None = None
     phone: str | None = None
+    phones: list[PhoneIn] | None = None  # the whole list, the main first (replaces phone then)
     address: str | None = None
     link: str | None = None
     is_agent: bool | None = None
@@ -645,7 +654,8 @@ class OwnerIn(BaseModel):
 
 
 def owner_out(o: Owner, show_phone: bool = True) -> dict:
-    return {"id": o.id, "name": o.name, "phone": o.phone if show_phone else None, "address": o.address, "link": o.link,
+    return {"id": o.id, "name": o.name, "phone": o.phone if show_phone else None,
+            "phones": owner_phones(o) if show_phone else None, "address": o.address, "link": o.link,
             "is_agent": o.is_agent, "notes": o.notes, "created_by": o.created_by, "agent_id": o.agent_id,
             "created_at": o.created_at.isoformat() if o.created_at else None}
 
@@ -669,9 +679,9 @@ def owners_list(q: str | None = None, scope: str = "all", limit: int = 50, offse
         pn = norm_phone(q)
         conds = [Owner.name.ilike(like), Owner.address.ilike(like)]
         if at_least(user, "operator") and len(pn) > 3:
-            conds.append(Owner.phone_norm.ilike(f"%{pn}%"))
+            conds.append(P.owner_phone_like(pn))
         elif len(pn) >= 9:  # agents: full number only, no digit-by-digit search of hidden phones
-            conds.append(Owner.phone_norm == pn)
+            conds.append(P.owner_has_phone(pn))
         stmt = stmt.where(or_(*conds))
     if at_least(user, "operator"):
         return paginate(db, stmt.order_by(Owner.id.desc()), owner_out, limit, offset)
@@ -682,7 +692,8 @@ def owners_list(q: str | None = None, scope: str = "all", limit: int = 50, offse
 
 @router.post("/owners")
 def owners_create(body: OwnerIn, db: Session = Depends(get_db, scope="function"), user: User = Depends(current_user)):
-    o, _ = P.upsert_owner(db, body.name, body.phone, body.address, body.link, bool(body.is_agent), user)
+    o, _ = P.upsert_owner(db, body.name, body.phone, body.address, body.link, bool(body.is_agent), user,
+                          [x.model_dump() for x in body.phones or []])
     if body.notes:
         o.notes = body.notes
     db.commit()
@@ -693,10 +704,16 @@ def owners_create(body: OwnerIn, db: Session = Depends(get_db, scope="function")
 def owners_patch(oid: int, body: OwnerIn, db: Session = Depends(get_db, scope="function"), user: User = Depends(require_level("operator"))):
     o = get_or_404(db, Owner, oid, "owner")
     data = body.model_dump(exclude_unset=True)
+    phones = data.pop("phones", None)
+    phone = data.pop("phone", None) if "phone" in data else None
     for k, v in data.items():
         setattr(o, k, v)
-    if "phone" in data:
-        o.phone_norm = norm_phone(o.phone)
+    if phones is not None:
+        set_owner_phones(o, phone_rows(phones))
+        data["phones"] = phones
+    elif "phone" in body.model_fields_set:  # the main number only: his other numbers stay
+        set_owner_phones(o, phone_rows([phone, *owner_phones(o)[1:]]) if (phone or "").strip() else [])
+        data["phone"] = phone
     if "address" in data:
         o.address_norm = norm_address(o.address)
     log_event(db, "owner", o.id, "updated", user, fields=sorted(data))

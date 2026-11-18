@@ -34,7 +34,7 @@ from app import storage
 from app.models import Listing, ListingMatch, Owner, Property, PropertyListing, PropertyMedia, User, at_least
 from app.services import properties as P
 from app.services.common import get_or_404, jdump, jload, log_event, now
-from app.services.dedup import address_match, extract_phones, phone_match
+from app.services.dedup import address_match, extract_phones, owner_phones, phone_match
 from app.services.errors import DomainError, forbidden
 
 log = logging.getLogger(__name__)
@@ -109,7 +109,7 @@ def _objects(db: Session, pids: list[int] | None = None) -> dict[int, dict]:
     last9 = func.right(Owner.phone_norm, literal_column("9"))
     many = set(db.scalars(select(last9).join(Property, Property.owner_id == Owner.id).where(Owner.phone_norm.isnot(None))
                           .group_by(last9).having(func.count(Property.id) >= 3)))
-    objs = {p.id: {"p": p, "phone": getattr(owners_.get(p.owner_id), "phone", None),
+    objs = {p.id: {"p": p, "phones": [r["phone"] for r in owner_phones(owners_.get(p.owner_id))],
                    "agent": getattr(owners_.get(p.owner_id), "is_agent", False)
                    or (getattr(owners_.get(p.owner_id), "phone_norm", None) or "")[-9:] in many,
                    "urls": {p.source_url} - {None}, "hashes": []} for p in props}
@@ -145,7 +145,7 @@ def verdict(f: dict, o: dict, sim: float | None = None) -> tuple[str, float, lis
     if shared >= SAME_PHOTOS:
         why.append(f"общих фото: {shared}")
     # an agent's number (is_agent, or behind 3+ objects) names no flat
-    phone = bool(o["phone"]) and not o.get("agent") and any(phone_match(x, o["phone"]) for x in f["phones"])
+    phone = not o.get("agent") and any(phone_match(x, y) for x in f["phones"] for y in o["phones"])
     if phone and address_match(l.address or "", p.address or ""):
         why.append("тот же телефон и адрес")
     elif phone and shared:

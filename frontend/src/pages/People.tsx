@@ -13,7 +13,8 @@ import { LeadStatusBadge, PropertyStatusBadge } from '../components/domain';
 import { errText, useToast } from '../components/toast';
 import { Badge, Button, Card, Drawer, Empty, ErrorBox, Field, Input, Loading, PageHead, Seg, Switch, Textarea } from '../components/ui';
 import { ProfileView } from '../features/leads/LeadDetail';
-import { fmtDate, fmtDateTime, money, phoneInput } from '../lib/format';
+import { fmtDate, fmtDateTime, formatPhone, money } from '../lib/format';
+import { PhonesField, cleanPhones, phoneRows } from '../components/PhonesField';
 
 function SearchBox({ value, onChange, placeholder }: { value: string; onChange: (v: string) => void; placeholder: string }) {
   return (
@@ -173,9 +174,10 @@ export function ClientsPage() {
 function OwnerForm({ owner, onDone }: { owner?: Owner; onDone: () => void }) {
   const qc = useQueryClient();
   const toast = useToast();
-  const [f, setF] = useState<Partial<Owner>>({ name: owner?.name || '', phone: owner?.phone || '', address: owner?.address || '', link: owner?.link || '', notes: owner?.notes || '', is_agent: !!owner?.is_agent });
+  const [f, setF] = useState<Partial<Owner>>({ name: owner?.name || '', address: owner?.address || '', link: owner?.link || '', notes: owner?.notes || '', is_agent: !!owner?.is_agent });
+  const [phones, setPhones] = useState(() => phoneRows(owner));
   const m = useMutation({
-    mutationFn: () => (owner ? api.owners.update(owner.id, f) : api.owners.create(f)),
+    mutationFn: () => { const b = { ...f, phones: cleanPhones(phones) }; return owner ? api.owners.update(owner.id, b) : api.owners.create(b); },
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['owners'] }); toast('Сохранено'); onDone(); },
     onError: (e) => toast(errText(e), true),
   });
@@ -183,7 +185,7 @@ function OwnerForm({ owner, onDone }: { owner?: Owner; onDone: () => void }) {
     <div className="col">
       <div className="form-grid">
         <Field label="Имя"><Input value={f.name || ''} onChange={(e) => setF({ ...f, name: e.target.value })} /></Field>
-        <Field label="Телефон"><Input value={f.phone || ''} onChange={(e) => setF({ ...f, phone: phoneInput(e) })} inputMode="tel" /></Field>
+        <PhonesField value={phones} onChange={setPhones} />
         <Field label="Адрес" className="span2"><Input value={f.address || ''} onChange={(e) => setF({ ...f, address: e.target.value })} /></Field>
         <Field label="Ссылка" className="span2"><Input value={f.link || ''} onChange={(e) => setF({ ...f, link: e.target.value })} /></Field>
         <Field label="Заметки" className="span2"><Textarea value={f.notes || ''} onChange={(e) => setF({ ...f, notes: e.target.value })} /></Field>
@@ -221,7 +223,7 @@ export function OwnersPage() {
               {items.map((o) => (
                 <tr key={o.id} className="clickable" onClick={() => setOpen(o)}>
                   <td><b>{o.name || '—'}</b></td>
-                  <td className="num">{o.phone || <span className="muted">{isStaff ? 'не указан' : 'скрыт'}</span>}</td>
+                  <td className="num">{o.phone ? <>{formatPhone(o.phone)}{(o.phones?.length || 0) > 1 && <span className="muted"> +{o.phones!.length - 1}</span>}</> : <span className="muted">{isStaff ? 'не указан' : 'скрыт'}</span>}</td>
                   <td className="hide-mobile">{o.address || '—'}</td>
                   <td>{o.is_agent ? <Badge tone="warn">агент</Badge> : <Badge tone="ok">собственник</Badge>}</td>
                   <td className="muted hide-mobile">{fmtDate(o.created_at)}</td>

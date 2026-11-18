@@ -911,14 +911,20 @@ def property_published(prop):
 
 # «Запрос оператору» (stage 6): field names as the CRM shows them
 CR_KIND = {"edit": "Изменение полей", "archive": "В архив", "transfer_owner": "Передать собственника", "delete": "Удаление → архив"}
-CR_FIELD = {"owner_name": "Собственник", "owner_phone": "Телефон собственника", "address": "Адрес", "cadastral_code": "Кадастр",
+CR_FIELD = {"owner_name": "Собственник", "owner_phone": "Телефон собственника", "owner_phones": "Телефоны собственника", "address": "Адрес", "cadastral_code": "Кадастр",
             "source_url": "Ссылка на объявление", "is_exclusive": "Эксклюзив", "price": "Цена", "currency": "Валюта",
             "deposit": "Залог", "sale_price": "Цена продажи", "archive_reason": "Причина", "archive_comment": "Комментарий",
             "duplicate_of": "Дубль объекта", "owner_agent": "Агент собственника"}
 
 
+def phones_text(rows, sep=", "):
+    """owners.phones → «+995…, +7… (сестра)»."""
+    return sep.join(r["phone"] + (f" ({r['note']})" if r.get("note") else "") for r in rows or [] if r.get("phone"))
+
+
 def cr_changes(cr):
-    fmt = lambda v: "—" if v in (None, "") else ("да" if v is True else "нет" if v is False else v)  # noqa: E731
+    fmt = lambda v: "—" if v in (None, "", []) else ("да" if v is True else "нет" if v is False else  # noqa: E731
+                                                    phones_text(v) if isinstance(v, list) else v)
     return "\n".join(f"• {e(CR_FIELD.get(k, k))}: {e(fmt(v.get('old')))} → <b>{e(fmt(v.get('new')))}</b>"
                      for k, v in (g(cr, "payload") or {}).items() if isinstance(v, dict))
 
@@ -1217,11 +1223,13 @@ def publish_post(prop):
         return None
     sent.append(m)
     url = post_link(m, chat)
-    owner = store.q("SELECT name, phone FROM owners WHERE id = %s", (g(prop, "owner_id"),)) if g(prop, "owner_id") else []
+    owner = store.q("SELECT name, phone, phones FROM owners WHERE id = %s", (g(prop, "owner_id"),)) if g(prop, "owner_id") else []
     if owner_topic and owner and (owner[0]["name"] or owner[0]["phone"]):
         o = owner[0]
+        # every number (David 11-18: the ad's and the one given on the call), the main first
+        rows = o.get("phones") or ([{"phone": o["phone"]}] if o["phone"] else [])
         sent.append(tg.send(chat, "\n".join(x for x in ("🏠 <b>Owner Information</b>", g(prop, "address") and f"📍 {e(g(prop, 'address'))}",
-                                            o["name"] and f"👤 {e(o['name'])}", o["phone"] and f"📞 {e(o['phone'])}",
+                                            o["name"] and f"👤 {e(o['name'])}", rows and "📞 " + e(phones_text(rows, "\n📞 ")),
                                             url and f'🔗 <a href="{e(url)}">Ссылка на объявление</a>') if x),
                             thread_id=owner_topic))
     return m["message_id"], url, chat, [x["message_id"] for x in sent if x]

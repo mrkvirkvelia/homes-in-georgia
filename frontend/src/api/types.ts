@@ -136,7 +136,9 @@ export type PropertyStatus =
   | 'media_uploaded' | 'review' | 'returned' | 'published' | 'rented' | 'archived';
 
 /** agent: the agent the owner belongs to (stage 6.5) — the agent of all his objects */
-export interface OwnerRef { id: number; name?: string | null; phone?: string | null; is_agent?: boolean; agent?: UserRef | null }
+/** One of an owner's numbers (backend owners.phones): the first is the main one = phone. */
+export interface PhoneRow { phone: string; note?: string | null }
+export interface OwnerRef { id: number; name?: string | null; phone?: string | null; phones?: PhoneRow[] | null; is_agent?: boolean; agent?: UserRef | null }
 
 /** The channel post fields of the old generator (backend services/properties.py POST_ONE / POST_MANY / POST_NUM), tags without '#'. */
 export interface PostFields {
@@ -357,7 +359,7 @@ export interface Lead {
   viewing_at?: string | null;
   contacts_shared_at?: string | null;
   contacts_visible?: boolean;
-  owner?: { name?: string | null; phone?: string | null; is_agent?: boolean } | null;
+  owner?: { name?: string | null; phone?: string | null; phones?: PhoneRow[] | null; is_agent?: boolean } | null;
   client_outcome?: string | null;
   agent_outcome?: string | null;
   refusal_reason?: string | null;
@@ -626,6 +628,7 @@ export interface Owner {
   id: number;
   name?: string | null;
   phone?: string | null;
+  phones?: PhoneRow[] | null;
   address?: string | null;
   link?: string | null;
   is_agent?: boolean;

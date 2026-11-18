@@ -26,7 +26,7 @@ from sqlalchemy import select
 from app.db import SessionLocal
 from app.importers.sheets_csv import Importer, integer, read
 from app.models import ChannelPost, Deal, Owner, Report
-from app.services.dedup import norm_phone
+from app.services.dedup import norm_phone, set_owner_phones
 
 ERR = "#ERROR"
 
@@ -67,7 +67,7 @@ def phones(db, fixes: list) -> dict:
             n["owner_conflict_several_numbers"] += 1  # same address + name, different numbers: left for a person
         else:
             for o in rows:
-                o.phone, o.phone_norm = next(iter(ph)), norm_phone(next(iter(ph)))
+                set_owner_phones(o, [{"phone": next(iter(ph)), "norm": norm_phone(next(iter(ph))), "note": None}])
                 n["owner_fixed"] += 1
     db.commit()
     return dict(n)

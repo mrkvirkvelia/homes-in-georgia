@@ -209,9 +209,9 @@ def test_fix_owner_name_and_phone_from_card(db, client):
     client.post(f"/api/properties/{pid}/owner", json={"is_owner": True, "owner_name": "Sofa", "owner_phone": "+995 595 256 262"},
                 headers=auth(georgiy))
     r = client.patch(f"/api/properties/{pid}", json={"owner_name": "Надя"}, headers=auth(georgiy)).json()
-    assert r["owner"]["name"] == "Надя" and r["owner"]["phone"] == "+995 595 256 262"
+    assert r["owner"]["name"] == "Надя" and r["owner"]["phone"] == "+995595256262"  # stored as E.164 (11-18)
     r = client.patch(f"/api/properties/{pid}", json={"owner_phone": "+995 599 11 22 33"}, headers=auth(georgiy)).json()
-    assert r["owner"]["phone"] == "+995 599 11 22 33" and db.query(Owner).count() == 1
+    assert r["owner"]["phone"] == "+995599112233" and db.query(Owner).count() == 1
     other = Owner(name="Лела", phone="+995 577 00 00 01", phone_norm=norm_phone("+995 577 00 00 01"))
     db.add(other); db.commit()
     r = client.patch(f"/api/properties/{pid}", json={"owner_phone": "577000001"}, headers=auth(georgiy)).json()
@@ -221,7 +221,7 @@ def test_fix_owner_name_and_phone_from_card(db, client):
     first = r["owner"]["id"]
     r = client.patch(f"/api/properties/{pid}", json={"owner_phone": "577000001", "owner_separate": True},
                      headers=auth(georgiy)).json()
-    assert r["owner"]["id"] == first and r["owner"]["phone"] == "577000001"  # «оставить отдельным»: no re-link
+    assert r["owner"]["id"] == first and r["owner"]["phone"] == "+995577000001"  # «оставить отдельным»: no re-link
     notes = [e["data"]["note"] for e in client.get(f"/api/properties/{pid}/history", headers=auth(georgiy)).json()
              if e["action"] == "owner_contact"]
     assert "Sofa → Надя" in notes and "…6262 → …2233" in notes and "595" not in "".join(notes)

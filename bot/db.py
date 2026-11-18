@@ -403,7 +403,10 @@ def phones(text):
 
 def agent_phones(c):
     """Phones the agents marked as "answered an agent" (journey C2b: owners.is_agent), as 9 digits."""
-    return {re.sub(r"\D", "", r[0])[-9:] for r in c.execute("SELECT phone_norm FROM owners WHERE is_agent AND phone_norm IS NOT NULL")}
+    # every number of such a contact (owners.phones, migration 0032), not only the main one
+    return {re.sub(r"\D", "", r[0])[-9:] for r in c.execute(
+        "SELECT phone_norm FROM owners WHERE is_agent AND phone_norm IS NOT NULL"
+        " UNION SELECT x->>'norm' FROM owners, jsonb_array_elements(phones) x WHERE is_agent AND x->>'norm' IS NOT NULL")}
 
 
 def mark_known_agent(it, known):

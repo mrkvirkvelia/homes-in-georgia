@@ -28,7 +28,8 @@ from sqlalchemy.orm import Session
 from app.models import Listing, Owner, Property, PropertyListing, PropertyMedia, SimilarDecision, User
 from app.services import properties as P
 from app.services.common import jload, log_event, now
-from app.services.dedup import _same_street, extract_phones, phone_match, relation, street_house, street_words
+from app.services.dedup import (_same_street, extract_phones, owner_phones, phone_match, relation, street_house,
+                                 street_words)
 from app.services.errors import DomainError
 
 log = logging.getLogger(__name__)
@@ -147,7 +148,7 @@ def _objects(db: Session, pids: list[int] | None = None) -> list[dict]:
         origin = next((l for _, l in mine if l.id == p.listing_id), None)
         urls = {p.source_url} | {u for u, _ in mine} | {u for _, l in mine for u in jload(l.urls, []) or []}
         hashes = own.get(p.id, []) + [h for _, l in mine for h in _hashes(l.photo_hashes)]
-        phones = [o.phone] if o and o.phone else []
+        phones = [r["phone"] for r in owner_phones(o)]
         phones += [x for _, l in mine for x in extract_phones(l.text or "")]
         at = (p.lat, p.lng) if p.lat is not None else (origin.lat, origin.lng) if origin is not None else (None, None)
         # every photo (lazy previews, Lightbox on tap): with 6 the card showed the house and the terrace, not the flat (11-18)

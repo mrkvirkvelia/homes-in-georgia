@@ -1,0 +1,119 @@
+"""An owner holds any number of phones (David + Irakli 11-18, migration 0032): the ad's number and the one the person
+gave on the call («сестра»), a foreign one; search, duplicates, matching and visibility use every one of them."""
+from app.models import Owner, Property
+from app.services import matching, properties
+from app.services.dedup import e164
+from app.telegram.notify import phones_text  # bound before conftest records every notify.* call
+from tests.conftest import auth, make_listing, make_user
+
+AD = "+995 599 11 22 33"
+SISTER = "577 44 55 66"
+FOREIGN = "+7 916 123 45 67"
+
+
+def _take(client, agent, lid, address="ул. Палиашвили 10"):
+    pid = client.post("/api/properties", json={"listing_id": lid, "force": True}, headers=auth(agent)).json()["id"]
+    client.patch(f"/api/properties/{pid}", json={"address": address}, headers=auth(agent))
+    return pid
+
+
+def test_e164():
+    assert e164("599 11 22 33") == e164("0599112233") == e164("995599112233") == e164("+995 0599 11 22 33") == "+995599112233"
+    assert e164("+7 916 123-45-67") == e164("0079161234567") == "+79161234567"  # a foreign code is kept, no +995
+    assert e164("+995 +44 20 7946 0958") == "+442079460958"  # a «+» typed after the prefilled «+995 » wins
+    assert e164("79161234567") == "+79161234567"
+    assert e164("звонить после 6") == "звонить после 6" and e164("123") == "123" and e164("") is None
+
+
+def test_call_step_saves_every_number_and_hides_them_like_the_main(db, client, sent):
+    david, other, nino = make_user(db, "agent", "Давид"), make_user(db, "agent", "Ника"), make_user(db, "operator", "Нино")
+    make_listing(db, "ss501")
+    pid = _take(client, david, "ss501")
+    r = client.post(f"/api/properties/{pid}/owner", headers=auth(david), json={
+        "is_owner": True, "owner_name": "Тамара",
+        "owner_phones": [{"phone": AD}, {"phone": SISTER, "note": "сестра"}, {"phone": FOREIGN, "note": "WhatsApp"},
+                         {"phone": "+995 "}, {"phone": "599112233"}]}).json()  # an empty row and a repeat are dropped
+    assert r["status"] == "owner_confirmed"
+    assert r["owner"]["phone"] == "+995599112233"  # the main = the first, kept in owners.phone for old readers
+    assert [(x["phone"], x["note"]) for x in r["owner"]["phones"]] == [
+        ("+995599112233", None), ("+995577445566", "сестра"), ("+79161234567", "WhatsApp")]
+    # the same rule as the main phone: staff and the object's agent; another agent sees none of them
+    assert client.get(f"/api/properties/{pid}", headers=auth(nino)).json()["owner"]["phones"][2]["phone"] == "+79161234567"
+    assert len(client.get("/api/owners", params={"q": "Тамара"}, headers=auth(david)).json()["items"][0]["phones"]) == 3
+    seen = client.get("/api/owners", params={"q": "Тамара"}, headers=auth(other)).json()["items"][0]
+    assert seen["phone"] is None and seen["phones"] is None
+    assert phones_text(r["owner"]["phones"]) == "+995599112233, +995577445566 (сестра), +79161234567 (WhatsApp)"
+
+
+def test_add_and_remove_numbers_from_the_card(db, client, sent):
+    david = make_user(db, "agent", "Давид")
+    make_listing(db, "ss502")
+    pid = _take(client, david, "ss502")
+    client.post(f"/api/properties/{pid}/owner", json={"is_owner": True, "owner_name": "Тамара", "owner_phone": AD},
+                headers=auth(david))
+    r = client.patch(f"/api/properties/{pid}", headers=auth(david), json={
+        "owner_name": "Тамара", "owner_phones": [{"phone": AD}, {"phone": SISTER, "note": "сестра"}]}).json()
+    assert [x["phone"] for x in r["owner"]["phones"]] == ["+995599112233", "+995577445566"]
+    # the main number alone (the «Править» form): his other numbers stay
+    r = client.patch(f"/api/properties/{pid}", json={"owner_phone": "599 00 00 01"}, headers=auth(david)).json()
+    assert [x["phone"] for x in r["owner"]["phones"]] == ["+995599000001", "+995577445566"]
+    # the sister's number removed, a foreign one made the main
+    r = client.patch(f"/api/properties/{pid}", json={"owner_phones": [{"phone": FOREIGN}, {"phone": "599 00 00 01"}]},
+                     headers=auth(david)).json()
+    assert r["owner"]["phone"] == "+79161234567" and [x["phone"] for x in r["owner"]["phones"]] == ["+79161234567", "+995599000001"]
+    assert db.query(Owner).count() == 1
+    notes = [e["data"].get("note") for e in client.get(f"/api/properties/{pid}/history", headers=auth(david)).json()
+             if e["action"] == "owner_contact"]
+    assert any("номера:" in (n or "") for n in notes)
+
+
+def test_second_number_finds_the_same_owner(db, client, sent):
+    """Duplicate-owner search: the sister's number typed on another object, in the owners list or in the dedup check."""
+    david, nika, nino = make_user(db, "agent", "Давид"), make_user(db, "agent", "Ника"), make_user(db, "operator", "Нино")
+    make_listing(db, "ss503")
+    make_listing(db, "ss504")
+    p1 = _take(client, david, "ss503")
+    client.post(f"/api/properties/{p1}/owner", headers=auth(david), json={
+        "is_owner": True, "owner_name": "Тамара", "owner_phones": [{"phone": AD}, {"phone": SISTER, "note": "сестра"}]})
+    owner_id = db.get(Property, p1).owner_id
+    # staff: a fragment of the second number; an agent: the full second number only
+    assert [o["id"] for o in client.get("/api/owners", params={"q": "4455"}, headers=auth(nino)).json()["items"]] == [owner_id]
+    assert [o["id"] for o in client.get("/api/owners", params={"q": SISTER}, headers=auth(nika)).json()["items"]] == [owner_id]
+    assert client.get("/api/owners", params={"q": "4455"}, headers=auth(nika)).json()["items"] == []
+    # the object search by the owner's second number
+    assert p1 in [x["id"] for x in client.get("/api/properties", params={"q": "577445566"}, headers=auth(nino)).json()["items"]]
+    # the dedup check: the second number + the address = danger
+    res = properties.check_duplicate(db, phone="+995 577 44 55 66", address="ул. Палиашвили 10")
+    assert res["level"] == "danger" and res["results"][0]["owner_id"] == owner_id and res["results"][0]["phone_match"]
+    # another object, the call reaches the sister: the same owner, not a twin; the new number joins his list
+    p2 = _take(client, david, "ss504", "ул. Абашидзе 3")
+    r = client.post(f"/api/properties/{p2}/owner", headers=auth(david), json={
+        "is_owner": True, "owner_name": "Сестра Тамары", "owner_phones": [{"phone": SISTER}, {"phone": FOREIGN}]}).json()
+    assert r["owner"]["id"] == owner_id and r["dup_check"] == "exists" and db.query(Owner).count() == 1
+    assert [x["phone"] for x in r["owner"]["phones"]] == ["+995599112233", "+995577445566", "+79161234567"]
+
+
+def test_matching_by_the_second_number(db, client, sent):
+    david = make_user(db, "agent", "Давид")
+    make_listing(db, "ss505")
+    pid = _take(client, david, "ss505")
+    client.post(f"/api/properties/{pid}/owner", headers=auth(david), json={
+        "is_owner": True, "owner_name": "Тамара", "owner_phones": [{"phone": AD}, {"phone": SISTER, "note": "сестра"}]})
+    hit = matching.same_as(db, "Палиашвили 10", None, "+995 577 44 55 66")
+    assert [x["property_id"] for x in hit] == [pid] and "тот же телефон и адрес" in hit[0]["reasons"]
+    assert matching.same_as(db, "Палиашвили 10", None, "+995 555 00 00 00") == []
+
+
+def test_after_verification_a_new_number_is_an_operator_request(db, client, sent):
+    from tests.test_change_requests import _verified
+    georgiy, nino, pid = _verified(db, client, sent, "ss506")
+    client.post(f"/api/properties/{pid}/publish", headers=auth(nino))
+    body = {"owner_name": "Нана", "owner_phone": AD, "owner_phones": [{"phone": AD}, {"phone": SISTER, "note": "сестра"}]}
+    r = client.patch(f"/api/properties/{pid}", json=body, headers=auth(georgiy)).json()
+    assert len(r["owner"]["phones"]) == 1  # not applied yet
+    ch = {c["field"]: (c["old"], c["new"]) for c in r["change_request"]["changes"]}
+    assert ch == {"owner_phones": ([{"phone": "+995599112233", "note": None}],
+                                   [{"phone": "+995599112233", "note": None}, {"phone": "+995577445566", "note": "сестра"}])}
+    client.post(f"/api/change-requests/{r['change_request']['id']}/decide", json={"approve": True}, headers=auth(nino))
+    r = client.get(f"/api/properties/{pid}", headers=auth(georgiy)).json()
+    assert [x["phone"] for x in r["owner"]["phones"]] == ["+995599112233", "+995577445566"]

@@ -110,6 +110,8 @@ export const owners: Owner[] = propSeeds.map(([, address], i) => ({
   created_at: iso(-(i + 2) * day),
   properties_count: 1,
 }));
+// David 11-18: the number from the ad + the sister's, a foreign one (owners.phones, the main first)
+owners[2].phones = [{ phone: owners[2].phone! }, { phone: '+7 916 123 45 67', note: 'сестра · WhatsApp' }];
 
 export const properties: Property[] = propSeeds.map(([district, address, price, bedrooms, area], i) => {
   const status = STATUS_SEQ[i];
@@ -122,7 +124,7 @@ export const properties: Property[] = propSeeds.map(([district, address, price, 
     source_type: SOURCES[i % SOURCES.length],
     source_url: `https://example.ge/listing/${2000 + i}`,
     status,
-    owner: { id: i + 1, name: owners[i].name, phone: owners[i].phone, is_agent: i === 3 },
+    owner: { id: i + 1, name: owners[i].name, phone: owners[i].phone, phones: owners[i].phones, is_agent: i === 3 },
     owner_id: i + 1,
     agent: agentId ? ref(agentId) : null,
     agent_id: agentId,

@@ -9,7 +9,7 @@ the owner from Owner_Base by a phone in the post text. Idempotent: a listing tha
 """
 import sys
 
-from sqlalchemy import select
+from sqlalchemy import Text, cast, or_, select
 from sqlalchemy.orm import Session
 
 from app.db import SessionLocal
@@ -23,7 +23,8 @@ def _owner(db: Session, text: str | None) -> Owner | None:
     for ph in extract_phones(text or ""):
         n = norm_phone(ph)
         if len(n) >= 9:
-            o = db.scalar(select(Owner).where(Owner.phone_norm.like(f"%{n[-9:]}")).limit(1))
+            o = db.scalar(select(Owner).where(or_(Owner.phone_norm.like(f"%{n[-9:]}"),
+                                                  cast(Owner.phones, Text).like(f'%{n[-9:]}"%'))).limit(1))
             if o:
                 return o
     return None

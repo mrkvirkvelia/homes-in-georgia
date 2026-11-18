@@ -27,7 +27,7 @@ def test_agent_edits_freely_before_verification(db, client, sent):
     pid = client.post("/api/properties", json={"listing_id": make_listing(db, "ss6000").id, "force": True}, headers=auth(georgiy)).json()["id"]
     r = client.patch(f"/api/properties/{pid}", json={"price": 900, "owner_phone": "599000111", "owner_name": "Нана",
                                                     "address": "Ваке, 5"}, headers=auth(georgiy)).json()
-    assert r["change_request"] is None and r["locked_fields"] == [] and r["price"] == 900 and r["owner"]["phone"] == "599000111"
+    assert r["change_request"] is None and r["locked_fields"] == [] and r["price"] == 900 and r["owner"]["phone"] == "+995599000111"
     assert r["address"] == "Ваке, 5" and r["verified_at"] is None
 
 
@@ -42,11 +42,11 @@ def test_after_verification_locked_fields_become_a_request_others_apply(db, clie
     r = client.patch(f"/api/properties/{pid}", json=body, headers=auth(georgiy)).json()
     # price unchanged (850) → not in the request; description / amenities applied; phone and deposit wait for the operator
     assert r["description"] == "Свежий ремонт" and r["post_fields"] == {"amenities": ["WiFi"]}
-    assert r["owner"]["phone"] == "+995 599 11 22 33"
+    assert r["owner"]["phone"] == "+995599112233"
     cr = r["change_request"]
     assert cr["kind"] == "edit" and cr["status"] == "pending" and cr["reason"] == "собственник сменил номер"
     assert {c["field"]: (c["old"], c["new"]) for c in cr["changes"]} == {
-        "owner_phone": ("+995 599 11 22 33", "+995 577 00 00 00"), "deposit": (None, 500)}
+        "owner_phone": ("+995599112233", "+995577000000"), "deposit": (None, 500)}
     assert [x["id"] for x in client.get(f"/api/properties/{pid}", headers=auth(georgiy)).json()["change_requests"]] == [cr["id"]]
     assert sent.of("change_request_new")
 
@@ -59,7 +59,7 @@ def test_after_verification_locked_fields_become_a_request_others_apply(db, clie
     assert d["status"] == "approved" and d["decided_by"]["id"] == nino.id
     db.expire_all()
     p = db.get(Property, pid)
-    assert db.get(Owner, p.owner_id).phone == "+995 577 00 00 00" and p.post_fields == {"amenities": ["WiFi"], "deposit": 500}
+    assert db.get(Owner, p.owner_id).phone == "+995577000000" and p.post_fields == {"amenities": ["WiFi"], "deposit": 500}
     acts = [e.action for e in db.query(Event).filter_by(entity="property", entity_id=str(pid)).order_by(Event.id)]
     assert acts[-4:] == ["change_requested", "owner_contact", "updated", "change_request_approved"]
     assert sent.of("change_request_decided")

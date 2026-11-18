@@ -5,6 +5,7 @@ from app.services.common import now_text
 from tests.conftest import auth, make_client, make_listing, make_user
 
 PHONE = "+995 599 20 30 40"
+E164 = "+995599203040"  # how the owner keeps it (11-18)
 
 
 def _object(db, client, agent, lid="ss1", cadastral="01.14.05.003.017"):
@@ -31,13 +32,13 @@ def test_picker_search_scoping_and_prefill(db, client):
         rows = _search(client, zaza, q=q)
         assert [r["id"] for r in rows] == [pid], q
     f = rows[0]["fields"]
-    assert rows[0]["blocked"] is None and f["owner_phone"] == PHONE and f["owner_name"] == "Нана"
+    assert rows[0]["blocked"] is None and f["owner_phone"] == E164 and f["owner_name"] == "Нана"
     assert f["address"] == "ул. Палиашвили 10" and f["cadastral"] == "01.14.05.003.017" and f["metro"] == "Rustaveli"
     assert f["price"] == 850 and f["ad_link"] == "https://ss.ge/ss1" and f["is_exclusive"] is False
     # another agent sees the object only as «закреплён», no owner, no data
     r = _search(client, levan, q="599 20 30 40")[0]
     assert r["blocked"] == "Объект закреплён за #Zaza" and r["fields"] is None
-    assert _search(client, nino, pid=pid)[0]["fields"]["owner_phone"] == PHONE  # staff see everything
+    assert _search(client, nino, pid=pid)[0]["fields"]["owner_phone"] == E164  # staff see everything
     assert _search(client, zaza, q="x") == []
 
     # «Оформить сделку» from the object card (pid): the object's agent and the lead in work on it
@@ -58,7 +59,7 @@ def test_picker_search_scoping_and_prefill(db, client):
         "rent_from": "2030-01-01"})
     assert r.status_code == 200, r.text
     d = r.json()
-    assert d["property_id"] == pid and d["address"] == "ул. Палиашвили 10" and d["owner_phone"] == PHONE
+    assert d["property_id"] == pid and d["address"] == "ул. Палиашвили 10" and d["owner_phone"] == E164
     assert d["price"] == 850 and d["cadastral"] == "01.14.05.003.017" and d["metro"] == "Rustaveli"
     card = client.get(f"/api/deals/{d['id']}", headers=auth(zaza)).json()
     assert card["property"] == {"id": pid, "address": "ул. Палиашвили 10", "status": "owner_confirmed", "needs_check": False}
@@ -68,7 +69,7 @@ def test_picker_search_scoping_and_prefill(db, client):
     r = client.post("/api/deals", headers=auth(levan), json={"property_id": pid, "price": 850, "rent_from": "2030-01-01"})
     assert r.status_code == 409 and r.json() == {"detail": "Объект закреплён за #Zaza", "code": "object_taken"}
     r = client.post("/api/deals", headers=auth(nino), json={"property_id": pid, "agent_id": levan.id, "price": 850})
-    assert r.status_code == 200 and r.json()["owner_phone"] == PHONE
+    assert r.status_code == 200 and r.json()["owner_phone"] == E164
 
 
 def test_new_object_from_deal_needs_verification(db, client):
@@ -84,7 +85,7 @@ def test_new_object_from_deal_needs_verification(db, client):
     assert p.source_type == "deal" and p.verified_at is None and p.agent_id == levan.id and p.address == "ул. Чавчавадзе 5"
     assert p.cadastral_code == "01.10.13.001.002" and p.source_url == "https://myhome.ge/123" and p.post_fields == {"metro": "Rustaveli"}
     assert db.get(Owner, p.owner_id).agent_id == levan.id  # stage 6.5: the owner is Levan's
-    assert d["status"] == "pending" and d["owner_phone"] == "555 11 22 33"
+    assert d["status"] == "pending" and d["owner_phone"] == "+995555112233"
     assert client.get(f"/api/deals/{d['id']}", headers=auth(nino)).json()["property"]["needs_check"] is True
     assert client.get(f"/api/properties/{p.id}", headers=auth(nino)).json()["needs_check"] is True
 

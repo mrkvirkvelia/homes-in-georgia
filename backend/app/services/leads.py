@@ -11,7 +11,7 @@ from app.models import (FIELD_SQL, Client, Event, Lead, LeadEvent, LeadSlot, Lis
                         at_least, is_field)
 from app.services import catalog, jobs, settings
 from app.services.common import aware, get_or_404, jload, log_event, now, now_text
-from app.services.dedup import extract_phones
+from app.services.dedup import extract_phones, owner_phones
 from app.services.errors import DomainError, forbidden
 from app.telegram import notify, texts
 
@@ -725,7 +725,7 @@ def owner_contact(db: Session, lead: Lead, user: User, prop: Property | None) ->
         return None
     owner = db.get(Owner, prop.owner_id) if prop and prop.owner_id else None
     if owner and owner.phone:
-        return {"name": owner.name, "phone": owner.phone, "is_agent": owner.is_agent}
+        return {"name": owner.name, "phone": owner.phone, "phones": owner_phones(owner), "is_agent": owner.is_agent}
     listing = db.get(Listing, lead.listing_id) if lead.listing_id else None
     phones = extract_phones(listing.text or "") if listing else []
     return {"name": None, "phone": phones[0], "is_agent": False} if phones else None

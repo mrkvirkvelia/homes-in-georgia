@@ -32,7 +32,7 @@ CREATE TABLE IF NOT EXISTS reactions (
   created_at TEXT NOT NULL, PRIMARY KEY (client_id, listing_id)
 );
 CREATE TABLE IF NOT EXISTS owners (
-  id SERIAL PRIMARY KEY, name TEXT, phone TEXT, phone_norm TEXT, address TEXT, address_norm TEXT, link TEXT,
+  id SERIAL PRIMARY KEY, name TEXT, phone TEXT, phone_norm TEXT, phones JSONB NOT NULL DEFAULT '[]', address TEXT, address_norm TEXT, link TEXT,
   is_agent BOOLEAN NOT NULL DEFAULT false, notes TEXT, created_by INT REFERENCES users(id), created_at TIMESTAMPTZ DEFAULT now()
 );
 CREATE TABLE IF NOT EXISTS properties (

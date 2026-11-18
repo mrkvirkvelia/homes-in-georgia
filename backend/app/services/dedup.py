@@ -8,6 +8,63 @@ def norm_phone(s) -> str:
     return re.sub(r"^0", "", r)
 
 
+def e164(s) -> str | None:
+    """A typed number as +<country code><number> (E.164) where we can tell: a local Georgian one (9 digits, or 10 with the
+    trunk 0) gets +995, a foreign one keeps its own code («+7 916…», «0044…»). A «+» typed after the prefilled «+995 »
+    wins (Irakli 11-18: not every number is Georgian). Letters, extensions or a digit count no number has come back as
+    typed: no digit is ever lost."""
+    raw = str(s or "").strip()
+    if "+" in raw:
+        raw = raw[raw.rindex("+"):]
+    d = re.sub(r"\D", "", raw)
+    if not d or re.search(r"[^\d\s+()\-.]", raw):
+        return raw or None
+    if not raw.startswith("+"):
+        if d.startswith("00"):
+            d = d[2:]
+        elif len(d) == 9 or (len(d) == 10 and d[0] == "0"):
+            d = "995" + d[-9:]
+        elif len(d) < 9:
+            return raw
+    if d.startswith("9950"):
+        d = "995" + d[4:]
+    return "+" + d if 8 <= len(d) <= 15 else raw
+
+
+def phone_rows(v) -> list[dict]:
+    """Form input (numbers as strings or {phone, note}) → [{phone, norm, note}]: E.164, empties and repeats dropped,
+    the first is the main one."""
+    out, seen = [], set()
+    for x in v or []:
+        phone, note = (x.get("phone"), x.get("note")) if isinstance(x, dict) else (x, None)
+        phone = e164(phone)
+        n = norm_phone(phone)
+        if n and n not in seen:
+            seen.add(n)
+            out.append({"phone": phone, "norm": n, "note": (note or "").strip() or None})
+    return out
+
+
+def owner_phones(o) -> list[dict]:
+    """Every number of an owner as [{phone, norm, note}], the main one (owners.phone) first. owners.phones holds the full
+    list (migration 0032); a path that writes only owners.phone (old importers) still reads right: the main always comes
+    from owners.phone, the list adds the rest."""
+    if o is None:
+        return []
+    rows = [x for x in (o.phones or []) if x.get("phone")]
+    main = norm_phone(o.phone) if o.phone else None
+    note = next((x.get("note") for x in rows if norm_phone(x["phone"]) == main), None)
+    head = [{"phone": o.phone, "norm": main, "note": note}] if main else []
+    return head + [{"phone": x["phone"], "norm": norm_phone(x["phone"]), "note": x.get("note")}
+                   for x in rows if norm_phone(x["phone"]) != main]
+
+
+def set_owner_phones(o, rows: list[dict]) -> None:
+    """rows from phone_rows; owners.phone / phone_norm stay the main (first) number, so old readers and exports work."""
+    o.phones = rows
+    o.phone, o.phone_norm = (rows[0]["phone"], rows[0]["norm"]) if rows else (None, None)
+
+
 def norm_address(s) -> str:
     """normA kept latin+digits only; we also keep Cyrillic/Georgian letters so local addresses match too."""
     r = re.sub(r"[^a-z0-9а-яёႠ-ჿ ]", " ", str(s or "").lower())

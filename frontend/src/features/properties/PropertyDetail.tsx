@@ -31,6 +31,7 @@ const REQUEST_SENT = t('Изменение ушло оператору на пр
 // backend properties.MAX_MEDIA / MIN_PHOTOS / ALBUM_PHOTOS: the site shows every photo, the Telegram album the first 9 + the video
 const MAX_PHOTO = 40, MAX_VIDEO = 1, MIN_PHOTOS = 9, ALBUM_PHOTOS = 9;
 const ALBUM_MAX = 10; // Telegram album limit
+const UPLOAD_PART = 8 * 1024 * 1024; // files over 2 parts go up in parts (backend properties.upload_part)
 /** The Telegram album of a pick in order: the first ALBUM_PHOTOS photos + the video, ≤ ALBUM_MAX (backend notify._album). */
 export function albumOf<T>(ids: T[], isVideo: (id: T) => boolean): T[] {
   let ph = 0;
@@ -403,12 +404,36 @@ function PostGeneratorStep({ p, canEdit }: { p: Property; canEdit: boolean }) {
       mark(i, { state: 'prep' });
       try {
         const small = await shrinkPhoto(x);
+        // a big file (an iPhone video) in 8 MB parts: one 2-3 minute request over a phone used to die midway (Irakli 11-18),
+        // now a drop costs one part, retried, and the server says where to go on from
+        const sendParts = async (): Promise<Property & { uploaded_ids?: number[] }> => {
+          const uid = crypto.randomUUID().replace(/-/g, '');
+          let off = 0, fails = 0;
+          for (;;) {
+            const end = Math.min(off + UPLOAD_PART, small.size), from = off;
+            mark(i, { state: 'up' });
+            try {
+              const r = await api.properties.uploadMediaPart(p.id, small.slice(from, end), { upload_id: uid, name: small.name, offset: from, total: small.size },
+                (f) => mark(i, { pct: Math.round(((from + f * (end - from)) / small.size) * 100) }));
+              fails = 0;
+              if ('received' in r) { off = r.received; continue; }
+              return r;
+            } catch (e) {
+              if (e instanceof ApiError && e.code === 'upload_gap') { off = Number(e.data?.have ?? 0); continue; }
+              const dropped = e instanceof ApiError && (e.status === 0 || e.code === 'upload_broken' || e.status >= 502);
+              if (!dropped || ++fails > 6) throw e;
+              mark(i, { state: 'prep', msg: t('связь прервалась, повторяем…') });
+              await new Promise((ok) => setTimeout(ok, 2000 * fails));
+            }
+          }
+        };
         const send = async (tries: number): Promise<Property & { uploaded_ids?: number[] }> => {
+          if (small.size > 2 * UPLOAD_PART) return sendParts();
           mark(i, { state: 'up', pct: 0 });
           try {
             return await api.properties.uploadMediaProgress(p.id, small, (f) => mark(i, { pct: Math.round(f * 100) }));
           } catch (e) {
-            if (!(e instanceof ApiError && e.status === 0) || tries >= 2) throw e;
+            if (!(e instanceof ApiError && (e.status === 0 || e.code === 'upload_broken')) || tries >= 2) throw e;
             mark(i, { state: 'prep', msg: t('связь прервалась, повторяем…') });
             await new Promise((ok) => setTimeout(ok, 3000 * (tries + 1)));
             return send(tries + 1);

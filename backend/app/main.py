@@ -196,6 +196,9 @@ async def http_error(request: Request, e: StarletteHTTPException):
     dropped mid-way is a ClientDisconnect)."""
     c = e.__cause__
     request.state.err = {"code": "http", "message": str(e.detail)[:300], **({"cause": f"{type(c).__name__}: {c}"[:300]} if c else {})}
+    if e.status_code == 400 and c is not None:  # the body never arrived whole: say it in words the agent understands
+        return JSONResponse({"detail": "Файл не дошёл до сервера целиком: связь прервалась. Загрузите его ещё раз",
+                             "code": "upload_broken"}, status_code=400)
     return await http_exception_handler(request, e)
 
 

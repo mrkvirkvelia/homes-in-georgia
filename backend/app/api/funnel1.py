@@ -377,6 +377,17 @@ def properties_media(pid: int, files: list[UploadFile] = File(...), room: str | 
     return {**P.out(db, get_or_404(db, Property, pid), user, full=True), "uploaded_ids": ids}
 
 
+@router.post("/properties/{pid}/media/part")
+def properties_media_part(pid: int, file: UploadFile = File(...), upload_id: str = Form(...), name: str = Form(...),
+                          offset: int = Form(...), total: int = Form(...), room: str | None = Form(None),
+                          db: Session = Depends(get_db, scope="function"), user: User = Depends(current_user)):
+    """A big file in parts (P.upload_part): {received} until the last part, then the card like /media."""
+    r = P.upload_part(db, pid, upload_id, name, offset, total, file.file.read(), room, user)
+    if isinstance(r, int):
+        return {"received": r}
+    return {**P.out(db, get_or_404(db, Property, pid), user, full=True), "uploaded_ids": [m.id for m in r]}
+
+
 @router.post("/properties/{pid}/exclusive-contract")
 async def properties_contract(pid: int, file: UploadFile = File(...), db: Session = Depends(get_db, scope="function"),
                               user: User = Depends(current_user)):

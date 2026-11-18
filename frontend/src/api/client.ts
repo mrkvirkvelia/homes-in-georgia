@@ -250,12 +250,12 @@ export function uploadWithProgress<T>(path: string, body: FormData, onProgress: 
     x.upload.onprogress = (e) => { if (e.lengthComputable) onProgress(e.loaded / e.total); };
     x.onerror = () => reject(new ApiError(0, 'Нет связи с сервером, попробуйте ещё раз'));
     x.onload = () => {
-      let d: { detail?: unknown; code?: string } | null = null;
+      let d: { detail?: unknown; code?: string; data?: Record<string, unknown> } | null = null;
       try { d = JSON.parse(x.responseText); } catch { /* not JSON */ }
       if (x.status >= 200 && x.status < 300) { resolve(d as T); return; }
       if (x.status === 401) { onUnauthorized(); reject(new ApiError(401, 'Сессия истекла, войдите снова', 'unauthorized')); return; }
       const msg = typeof d?.detail === 'string' ? d.detail : x.status === 413 ? 'Файл слишком большой' : `Ошибка ${x.status}`;
-      reject(new ApiError(x.status, msg, d?.code));
+      reject(new ApiError(x.status, msg, d?.code, x.getResponseHeader('X-Request-Id') || undefined, d?.data));
     };
     x.send(body);
   });

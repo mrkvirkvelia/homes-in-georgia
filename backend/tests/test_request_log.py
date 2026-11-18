@@ -80,5 +80,7 @@ def test_body_parse_400_logs_its_cause(db, client, caplog):
     e = HTTPException(400, "There was an error parsing the body")
     e.__cause__ = ClientDisconnect()
     req = Request({"type": "http", "headers": [], "method": "POST", "path": "/"})
-    assert asyncio.run(http_error(req, e)).status_code == 400
-    assert req.state.err["cause"].startswith("ClientDisconnect")
+    r = asyncio.run(http_error(req, e))
+    assert r.status_code == 400 and req.state.err["cause"].startswith("ClientDisconnect")
+    body = json.loads(r.body)  # the agent sees a reason, not «There was an error parsing the body»
+    assert body["code"] == "upload_broken" and "связь прервалась" in body["detail"]

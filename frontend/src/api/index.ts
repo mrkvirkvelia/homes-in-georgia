@@ -124,6 +124,13 @@ export const api = {
       fd.append('files', file);
       return uploadWithProgress<Property & { uploaded_ids?: number[] }>(`/properties/${id}/media`, fd, onProgress);
     },
+    /** One part of a big file (backend properties.upload_part): {received} until the last part, then the card. */
+    uploadMediaPart: (id: number, part: Blob, f: { upload_id: string; name: string; offset: number; total: number }, onProgress: (f: number) => void) => {
+      const fd = new FormData();
+      fd.append('file', part, f.name);
+      Object.entries(f).forEach(([k, v]) => fd.append(k, String(v)));
+      return uploadWithProgress<{ received: number } | (Property & { uploaded_ids?: number[] })>(`/properties/${id}/media/part`, fd, onProgress);
+    },
     mediaOrder: (id: number, ids: number[]) => http.put<Property>(`/properties/${id}/media/order`, { ids }),
     deleteMedia: (id: number, mid: number) => http.del<unknown>(`/properties/${id}/media/${mid}`),
     mediaRoom: (id: number, mid: number, room: string | null) => http.patch<{ id: number; room: string | null }>(`/properties/${id}/media/${mid}`, { room }),

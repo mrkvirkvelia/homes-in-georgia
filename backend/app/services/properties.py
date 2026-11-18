@@ -1275,6 +1275,50 @@ def upload_media(db: Session, pid: int, files: list[tuple[str, bytes]], room: st
     return out
 
 
+UPLOAD_ID = re.compile(r"[0-9a-f]{32}")
+PART_TTL = timedelta(days=1)
+
+
+def upload_part(db: Session, pid: int, upload_id: str, name: str, offset: int, total: int, chunk: bytes,
+                room: str | None, actor: User) -> int | list[PropertyMedia]:
+    """A big file (an iPhone video, 100-300 MB) in parts (Irakli 11-18: one 2-3 minute request over a phone died midway,
+    the video never got in). Parts land at their offset in MEDIA_DIR/uploads, so a retried part just overwrites itself;
+    -> the bytes received so far, or (the last part) upload_media's rows."""
+    ext = os.path.splitext(name or "")[1].lower()
+    if not UPLOAD_ID.fullmatch(upload_id or "") or offset < 0 or total <= 0:
+        raise DomainError("bad_upload", "Загрузка сломалась, выберите файл ещё раз")
+    if ext not in PHOTO_EXT | VIDEO_EXT:
+        raise DomainError("bad_file", f"Можно загружать только фото и видео: {name}")
+    if total > MAX_UPLOAD:
+        raise DomainError("too_large", f"Файл слишком большой: {name} ({total // 2**20} МБ, можно до {MAX_UPLOAD // 2**20} МБ)")
+    if offset == 0:  # the limits before 300 MB travel, not after
+        _media_check(db, _prop(db, pid), actor, ["video" if ext in VIDEO_EXT else "photo"])
+    else:
+        _require_media_editable(_prop(db, pid), actor)
+    db.rollback()
+    d = Path(env.MEDIA_DIR) / "uploads"
+    d.mkdir(parents=True, exist_ok=True)
+    old = datetime.now().timestamp() - PART_TTL.total_seconds()
+    for f in d.iterdir():  # abandoned uploads
+        if f.stat().st_mtime < old:
+            f.unlink(missing_ok=True)
+    path = d / f"{int(pid)}-{actor.id}-{upload_id}{ext}"
+    have = path.stat().st_size if path.exists() else 0
+    if offset > have:
+        raise DomainError("upload_gap", "Часть файла потерялась, продолжаем", 409, data={"have": have})
+    if offset + len(chunk) > total:
+        raise DomainError("bad_upload", "Загрузка сломалась, выберите файл ещё раз")
+    with open(path, "r+b" if path.exists() else "wb") as fh:
+        fh.seek(offset)
+        fh.write(chunk)
+        fh.truncate()
+    if offset + len(chunk) < total:
+        return offset + len(chunk)
+    data = path.read_bytes()
+    path.unlink()
+    return upload_media(db, pid, [(name, data)], room, actor)
+
+
 def _store_contract(db: Session, p: Property, content: bytes, uploaded_by: int | None) -> PropertyMedia:
     """Save the PDF as the object's exclusive contract (replacing the previous one); the caller commits."""
     if not content.startswith(b"%PDF"):

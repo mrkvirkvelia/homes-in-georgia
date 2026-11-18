@@ -148,3 +148,33 @@ def test_media_order_saved_and_rooms_photo_only(db, client):
     r = client.post(f"/api/properties/{p.id}/media", headers=auth(ag), files={"files": ("c.jpg", b"\xff\xd8x", "image/jpeg")})
     assert r.status_code == 200, r.text
     assert r.json()["uploaded_ids"] == [r.json()["media"][-1]["id"]]  # the UI maps parallel uploads to the selection order
+
+
+def test_big_video_in_parts_survives_a_dropped_part(db, client):
+    """Irakli 11-18: an iPhone .MOV never got in (one 2-3 minute request died midway). The CRM sends it in parts: a retried
+    part overwrites itself, a lost one is reported with where to go on from, the last part stores the video."""
+    from pathlib import Path
+    from app.config import settings as env
+    ag, p = _object(db, "ss904")
+    video = bytes(range(256)) * 400  # 100 KB
+    uid, url, h = "a" * 32, f"/api/properties/{p.id}/media/part", auth(ag)
+
+    def part(off, end, **kw):
+        return client.post(url, headers=h, files={"file": ("IMG_0412.MOV", video[off:end], "video/quicktime")},
+                           data={"upload_id": uid, "name": "IMG_0412.MOV", "offset": off, "total": len(video), **kw})
+    assert part(0, 40_000).json() == {"received": 40_000}
+    assert part(0, 40_000).json() == {"received": 40_000}  # the response was lost: the same part again
+    r = part(80_000, len(video))  # a part went missing
+    assert r.status_code == 409 and r.json()["code"] == "upload_gap" and r.json()["data"] == {"have": 40_000}
+    assert part(40_000, 80_000).json() == {"received": 80_000}
+    r = part(80_000, len(video)).json()
+    assert [m["kind"] for m in r["media"]] == ["video"] and r["uploaded_ids"]
+    m = properties.media(db, p.id)[0]
+    assert (Path(env.MEDIA_DIR) / m.path).read_bytes() == video and not list((Path(env.MEDIA_DIR) / "uploads").iterdir())
+    # the limits before the bytes travel: a second video is refused on its first part
+    r = client.post(url, headers=h, files={"file": ("b.mov", b"x", "video/quicktime")},
+                    data={"upload_id": "b" * 32, "name": "b.mov", "offset": 0, "total": 10})
+    assert r.status_code == 422 and r.json()["code"] == "media_limit"
+    r = client.post(url, headers=h, files={"file": ("c.mov", b"x", "video/quicktime")},
+                    data={"upload_id": "../../etc", "name": "c.mov", "offset": 0, "total": 1})
+    assert r.json()["code"] == "bad_upload"

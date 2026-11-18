@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { Icon, BrandMark, Logo } from './Icon';
 import { localeOf } from '@/lib/i18n';
-import { CHANNELS, CONTACT, GROUPS, OFFICE_MAP, SOCIALS, phoneHref, telegramHref, whatsappHref, type GroupId } from '@/lib/config';
+import { CHANNELS, CONTACT, GROUPS, OFFICE_MAP, PORTALS, SOCIALS, phoneHref, telegramHref, whatsappHref, type GroupId } from '@/lib/config';
 import type { Fmt } from '@/lib/format';
 import type { Feed, ServiceId } from '@/lib/types';
 
@@ -57,6 +57,13 @@ export default function Footer({ fmt, feed }: { fmt: Fmt; feed: Feed | null }) {
             </div></div>
           ))}
         </section>
+        <section><h4>{t('footer.listings')}</h4><div className="foot-chips">
+          {PORTALS.map(p => (
+            <a key={p.href} className="foot-chip" href={p.href} target="_blank" rel="noopener">
+              <span className="foot-mark"><BrandMark name="list" /></span><span><b>{p.name}</b><small>{t('footer.allads')}</small></span>
+            </a>
+          ))}
+        </div></section>
       </div>
       <div className="container foot-bottom"><span>© {new Date().getFullYear()} Homes in Georgia. {t('footer.rights')}</span><span>{t('footer.data')}<RateLine feed={feed} fmt={fmt} /></span></div>
     </footer>

@@ -2,6 +2,8 @@
 // (backend services/sign_docs.py). One fixed template (the NDA's layout): staff paste the title and the text, pick the
 // other party (a team member or an outside person) and optionally our second signer; «Отправить» puts David's company
 // signature in and gives each signer a link /doc/<token> (the NDA's signing page). черновик → отправлен → подписан.
+// Or «Готовый PDF»: staff upload a ready file instead of the text; signers read the file, the signed PDF is that file
+// unchanged + the signing record page.
 import { useConfirm } from '../components/ActionDialog';
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
@@ -26,10 +28,11 @@ interface Doc {
   id: number; number: string; status: 'draft' | 'sent' | 'signed' | 'cancelled'; status_label: string; lang: Lang;
   title: Partial<Record<Ln, string>>; body?: Partial<Record<Ln, string>>; html?: string; created_at: string;
   created_by: { id: number; name: string } | null; sent_at: string | null; signed_at: string | null; has_pdf: boolean;
-  signers: Signer[]; editable: boolean; links?: { id: number; sent: boolean }[];
+  signers: Signer[]; editable: boolean; links?: { id: number; sent: boolean }[]; pdf: { name: string; pages: number; size: number } | null;
 }
 interface Person { user_id: number | null; full_name: string; personal_id: string; phone: string; telegram: string }
-interface Form { lang: Lang; title: Record<Ln, string>; body: Record<Ln, string>; who: 'team' | 'outside'; party: Person; cosigner: number | null }
+interface Form { lang: Lang; title: Record<Ln, string>; body: Record<Ln, string>; who: 'team' | 'outside'; party: Person; cosigner: number | null;
+  mode: 'text' | 'pdf'; file: { name: string; data: string } | null }
 
 const LANGS = [{ value: 'KA-RU', label: 'ქართული + Русский' }, { value: 'KA', label: 'ქართული' }, { value: 'RU', label: 'Русский' }];
 const LNS: Record<Lang, Ln[]> = { 'KA-RU': ['ka', 'ru'], KA: ['ka'], RU: ['ru'] };
@@ -37,7 +40,8 @@ const TABS = [{ value: 'all', label: 'Все' }, { value: 'draft', label: 'Че�
   { value: 'signed', label: 'Подписаны' }, { value: 'cancelled', label: 'Отменены' }] as const;
 const TONE = { draft: 'warn', sent: 'blue', signed: 'ok', cancelled: 'grey' } as const;
 const blankPerson: Person = { user_id: null, full_name: '', personal_id: '', phone: '', telegram: '' };
-const blank: Form = { lang: 'KA-RU', title: { ka: '', ru: '' }, body: { ka: '', ru: '' }, who: 'team', party: blankPerson, cosigner: null };
+const blank: Form = { lang: 'KA-RU', title: { ka: '', ru: '' }, body: { ka: '', ru: '' }, who: 'team', party: blankPerson, cosigner: null, mode: 'text', file: null };
+const MAX_PDF = 15 * 1024 * 1024;  // backend sign_docs.MAX_PDF
 const absolute = (p: string) => `${window.location.origin}${p}`;
 const titleOf = (d: Doc) => d.title.ru || d.title.ka || d.number;
 
@@ -45,7 +49,7 @@ function fromDoc(d: Doc): Form {
   const p = d.signers.find((s) => s.side === 'party');
   const c = d.signers.find((s) => s.side === 'company');
   return { lang: d.lang, title: { ka: d.title.ka || '', ru: d.title.ru || '' }, body: { ka: d.body?.ka || '', ru: d.body?.ru || '' },
-    who: p?.user_id ? 'team' : 'outside', cosigner: c?.user_id ?? null,
+    who: p?.user_id ? 'team' : 'outside', cosigner: c?.user_id ?? null, mode: d.pdf ? 'pdf' : 'text', file: null,
     party: { user_id: p?.user_id ?? null, full_name: p?.full_name || '', personal_id: p?.personal_id || '', phone: p?.phone || '', telegram: p?.telegram ? `@${p.telegram}` : '' } };
 }
 
@@ -59,7 +63,8 @@ function DocForm({ doc, onDone, onClose }: { doc: Doc | null; onDone: (d: Doc) =
     mutationFn: () => {
       const party = f.who === 'team' ? { user_id: f.party.user_id, personal_id: f.party.personal_id, full_name: f.party.full_name, phone: f.party.phone }
         : { ...f.party, user_id: null };
-      const body = { lang: f.lang, title: f.title, body: f.body, party, cosigner: f.cosigner ? { user_id: f.cosigner } : null };
+      const body = { lang: f.lang, title: f.title, body: f.body, party, cosigner: f.cosigner ? { user_id: f.cosigner } : null,
+        ...(f.mode === 'pdf' && f.file ? { pdf: f.file.data, pdf_name: f.file.name } : {}) };
       return doc ? http.put<Doc>(`/sign-docs/${doc.id}`, body) : http.post<Doc>('/sign-docs', body);
     },
     onSuccess: (d) => { toast(doc ? t('Документ сохранён') : t('Черновик создан — проверьте и отправьте')); onDone(d); },
@@ -70,8 +75,19 @@ function DocForm({ doc, onDone, onClose }: { doc: Doc | null; onDone: (d: Doc) =
     const u = all.find((x) => String(x.id) === id);
     setF({ ...f, party: u ? { ...blankPerson, user_id: u.id, full_name: [u.first_name, u.last_name].filter(Boolean).join(' ') || u.name, phone: u.phone || '' } : blankPerson });
   };
+  const pickPdf = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    if (file.type !== 'application/pdf' && !/\.pdf$/i.test(file.name)) { toast(t('Нужен файл PDF'), true); return; }
+    if (file.size > MAX_PDF) { toast(t('PDF больше 15 МБ'), true); return; }
+    const r = new FileReader();
+    r.onload = () => setF((x) => ({ ...x, file: { name: file.name, data: String(r.result) } }));
+    r.readAsDataURL(file);
+  };
   const lns = LNS[f.lang];
-  const ok = lns.every((l) => f.title[l].trim() && f.body[l].trim()) && f.party.full_name.trim()
+  const hasPdf = !!f.file || !!doc?.pdf;
+  const ok = lns.every((l) => f.title[l].trim() && (f.mode === 'pdf' ? hasPdf : f.body[l].trim())) && f.party.full_name.trim()
     && (f.who === 'team' ? !!f.party.user_id : !!f.party.phone.trim() && !!f.party.personal_id.trim());
   return (
     <Card label={doc ? `№ ${doc.number} · ${t(doc.status_label)}` : t('Новый документ')} title={doc ? titleOf(doc) : t('Документ на подпись')}
@@ -82,7 +98,16 @@ function DocForm({ doc, onDone, onClose }: { doc: Doc | null; onDone: (d: Doc) =
           <Field label={t('Язык документа')}><Select value={f.lang} onChange={(e) => setF({ ...f, lang: e.target.value as Lang })} options={LANGS} /></Field>
           {lns.map((l) => <Field key={l} label={l === 'ka' ? t('Название по-грузински *') : t('Название по-русски *')}><Input value={f.title[l]} onChange={(e) => setF({ ...f, title: { ...f.title, [l]: e.target.value } })} placeholder={l === 'ka' ? 'ხელშეკრულება' : 'Договор'} /></Field>)}
         </div>
-        {lns.map((l) => (
+        {!doc && <Seg value={f.mode} onChange={(mode) => setF({ ...f, mode })} options={[{ value: 'text', label: t('Вставить текст') }, { value: 'pdf', label: t('Готовый PDF') }]} />}
+        {f.mode === 'pdf' && (
+          <Field label={t('Файл PDF *')} hint={t('Документ подписывают как есть: страницы не меняются, в конце добавится страница с подписями. До 15 МБ')}>
+            <div className="row row-wrap gap-sm" style={{ alignItems: 'center' }}>
+              <input type="file" accept="application/pdf,.pdf" onChange={pickPdf} />
+              {(f.file || doc?.pdf) && <small className="muted">{f.file ? f.file.name : `${doc!.pdf!.name} · ${doc!.pdf!.pages} ${t('стр.')}`}</small>}
+            </div>
+          </Field>
+        )}
+        {f.mode === 'text' && lns.map((l) => (
           <Field key={l} label={l === 'ka' ? t('Текст по-грузински *') : t('Текст по-русски *')} hint={t('Вставьте текст как есть: пустая строка между абзацами, **жирный** — звёздочками')}>
             <Textarea rows={12} value={f.body[l]} onChange={(e) => setF({ ...f, body: { ...f.body, [l]: e.target.value } })} />
           </Field>
@@ -183,7 +208,7 @@ export function SignDocsPage() {
                 <div className="row row-between row-wrap gap-sm">
                   <span className="col" style={{ gap: 2 }}>
                     <b>{titleOf(d)}</b>
-                    <small className="muted">№ {d.number} · {d.lang} · {d.created_by?.name || '—'}, {fmtDate(d.created_at)}{d.signed_at ? ` · ${t('подписан')} ${fmtDateTime(d.signed_at)}` : ''}</small>
+                    <small className="muted">№ {d.number} · {d.lang}{d.pdf ? ` · PDF ${d.pdf.pages} ${t('стр.')}` : ''} · {d.created_by?.name || '—'}, {fmtDate(d.created_at)}{d.signed_at ? ` · ${t('подписан')} ${fmtDateTime(d.signed_at)}` : ''}</small>
                     {d.signers.map((s) => (
                       <small key={s.id} className="muted">{s.signed_at ? '✅' : d.status === 'sent' ? '⏳' : '·'} {s.full_name}
                         {s.side === 'company' ? ` (${t('наш подписант')})` : ''}{s.signed_at ? ` — ${fmtDateTime(s.signed_at)}` : ''}{s.tg_username ? ` · @${s.tg_username}` : ''}</small>
@@ -192,12 +217,12 @@ export function SignDocsPage() {
                   <Badge tone={TONE[d.status]}>{t(d.status_label)}</Badge>
                 </div>
                 <div className="row row-wrap gap-sm">
-                  <Button size="sm" variant="ghost" onClick={() => open(d, setView)}><Eye size={14} />{t('Просмотр')}</Button>
+                  <Button size="sm" variant="ghost" onClick={() => (d.pdf ? pdf(d).catch((e) => toast(errText(e), true)) : open(d, setView))}><Eye size={14} />{t('Просмотр')}</Button>
                   {d.editable && <Button size="sm" variant="ghost" onClick={() => open(d, (x) => setForm({ doc: x }))}><FilePen size={14} />{t('Изменить')}</Button>}
                   {d.status === 'draft' && <Button size="sm" loading={send.isPending} onClick={async () => { if (await confirm(t('Отправить «{title}» на подпись? Подпись компании поставится сама.', { title: titleOf(d) }))) send.mutate(d); }}><Send size={14} />{t('Отправить на подпись')}</Button>}
                   {d.status === 'sent' && d.signers.some((s) => s.user_id && !s.signed_at) && <Button size="sm" variant="secondary" loading={send.isPending} onClick={() => send.mutate(d)}><Send size={14} />{t('Отправить снова в Telegram')}</Button>}
                   {(d.status === 'draft' || d.status === 'sent') && <Button size="sm" variant="ghost" loading={cancel.isPending} onClick={async () => { if (await confirm(t('Отменить документ? Ссылки перестанут работать.'))) cancel.mutate(d.id); }}><XCircle size={14} />{t('Отменить')}</Button>}
-                  {d.status !== 'cancelled' && <Button size="sm" variant={d.status === 'signed' ? 'secondary' : 'ghost'} onClick={() => pdf(d).catch((e) => toast(errText(e), true))}><Download size={14} />{d.status === 'signed' ? 'PDF' : t('PDF (черновик)')}</Button>}
+                  {d.status !== 'cancelled' && <Button size="sm" variant={d.status === 'signed' ? 'secondary' : 'ghost'} onClick={() => pdf(d).catch((e) => toast(errText(e), true))}><Download size={14} />{d.status === 'signed' ? 'PDF' : d.pdf ? 'PDF' : t('PDF (черновик)')}</Button>}
                 </div>
                 {d.status === 'sent' && d.signers.map((s) => <SignerLink key={s.id} d={d} s={s} />)}
               </div>

@@ -368,9 +368,10 @@ def properties_shoot(pid: int, body: ShootIn, db: Session = Depends(get_db, scop
 
 
 @router.post("/properties/{pid}/media")
-async def properties_media(pid: int, files: list[UploadFile] = File(...), room: str | None = Form(None),
-                           db: Session = Depends(get_db, scope="function"), user: User = Depends(current_user)):
-    payload = [(f.filename or "file", await f.read()) for f in files]
+def properties_media(pid: int, files: list[UploadFile] = File(...), room: str | None = Form(None),
+                     db: Session = Depends(get_db, scope="function"), user: User = Depends(current_user)):
+    # sync (threadpool): storage puts and HEIC previews took the one event loop of the api, the whole CRM froze for seconds
+    payload = [(f.filename or "file", f.file.read()) for f in files]
     ids = [m.id for m in P.upload_media(db, pid, payload, room, user)]
     # uploaded_ids: the UI puts parallel uploads back in the agent's selection order (positions follow completion order)
     return {**P.out(db, get_or_404(db, Property, pid), user, full=True), "uploaded_ids": ids}

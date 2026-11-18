@@ -1198,44 +1198,65 @@ def media_root() -> Path:
     return Path(env.MEDIA_DIR)
 
 
-def upload_media(db: Session, pid: int, files: list[tuple[str, bytes]], room: str | None, actor: User) -> list[PropertyMedia]:
-    p = _prop(db, pid, lock=True)
+def _media_check(db: Session, p: Property, actor: User, kinds: list[str]):
     _require_media_editable(p, actor)
     _require_status(p, *AGENT_MEDIA_STATUSES, "review", "published")
-    pos = db.scalar(select(func.coalesce(func.max(PropertyMedia.position), -1)).where(PropertyMedia.property_id == p.id))
     have = dict(db.execute(select(PropertyMedia.kind, func.count()).where(PropertyMedia.property_id == p.id)
                            .group_by(PropertyMedia.kind)).all())
+    for kind in kinds:
+        have[kind] = have.get(kind, 0) + 1
+        if have[kind] > MAX_MEDIA[kind]:
+            raise DomainError("media_limit", f"У объекта максимум {MAX_MEDIA['photo']} фото и {MAX_MEDIA['video']} видео. "
+                              "Удалите лишнее, чтобы добавить новое", 422)
+
+
+def upload_media(db: Session, pid: int, files: list[tuple[str, bytes]], room: str | None, actor: User) -> list[PropertyMedia]:
+    """The slow part (storage put, preview, dHash: ~2 s per iPhone HEIC, a 100+ MB video) runs before the row lock, so
+    the 3 parallel uploads of the CRM don't queue behind each other; the checks run again under the lock."""
+    kinds = []
     for name, content in files:
         ext = os.path.splitext(name or "")[1].lower() or ".jpg"
         if ext not in PHOTO_EXT | VIDEO_EXT:
             raise DomainError("bad_file", f"Можно загружать только фото и видео: {name}")
         if len(content) > MAX_UPLOAD:
             raise DomainError("too_large", f"Файл слишком большой: {name}")
-        kind = "video" if ext in VIDEO_EXT else "photo"
-        have[kind] = have.get(kind, 0) + 1
-        if have[kind] > MAX_MEDIA[kind]:
-            raise DomainError("media_limit", f"У объекта максимум {MAX_MEDIA['photo']} фото и {MAX_MEDIA['video']} видео. "
-                              "Удалите лишнее, чтобы добавить новое", 422)
+        kinds.append("video" if ext in VIDEO_EXT else "photo")
+    _media_check(db, _prop(db, pid), actor, kinds)
+    db.rollback()  # no transaction stays open during the uploads below
     from app.services.matching import photo_hash  # the matcher compares new ads with these photos
-    out = []
-    for name, content in files:
-        ext = os.path.splitext(name or "")[1].lower() or ".jpg"
-        key = f"properties/{p.id}/{uuid.uuid4().hex}{ext}"
-        storage.put(key, content)
-        storage.put_preview(key, content)
-        pos += 1
-        kind = "video" if ext in VIDEO_EXT else "photo"
-        m = PropertyMedia(property_id=p.id, kind=kind, path=key, room=room if kind == "photo" else None,  # rooms: photos only
-                          position=pos, uploaded_by=actor.id, dhash=photo_hash(content) if kind == "photo" else None)
-        db.add(m)
-        out.append(m)
-        if kind == "video":  # the worker prepares the Telegram copy now, not the publish request (notify._tg_video)
-            jobs.schedule(db, "tg_video", key, now())
-    if p.status in ("owner_confirmed", "shoot_scheduled", "returned"):
-        _status(db, p, "media_uploaded", actor, files=len(files))
-    else:
-        log_event(db, "property", p.id, "media_added", actor, files=len(files))
-    db.commit()
+    stored = []  # (key, kind, dhash)
+    try:
+        for (name, content), kind in zip(files, kinds):
+            key = f"properties/{int(pid)}/{uuid.uuid4().hex}{os.path.splitext(name or '')[1].lower() or '.jpg'}"
+            storage.put(key, content)
+            stored.append((key, kind, None))
+            storage.put_preview(key, content)
+            stored[-1] = (key, kind, photo_hash(content) if kind == "photo" else None)
+        p = _prop(db, pid, lock=True)
+        _media_check(db, p, actor, kinds)
+        pos = db.scalar(select(func.coalesce(func.max(PropertyMedia.position), -1)).where(PropertyMedia.property_id == p.id))
+        out = []
+        for key, kind, dhash in stored:
+            pos += 1
+            m = PropertyMedia(property_id=p.id, kind=kind, path=key, room=room if kind == "photo" else None,  # rooms: photos only
+                              position=pos, uploaded_by=actor.id, dhash=dhash)
+            db.add(m)
+            out.append(m)
+            if kind == "video":  # the worker prepares the Telegram copy now, not the publish request (notify._tg_video)
+                jobs.schedule(db, "tg_video", key, now())
+        if p.status in ("owner_confirmed", "shoot_scheduled", "returned"):
+            _status(db, p, "media_uploaded", actor, files=len(files))
+        else:
+            log_event(db, "property", p.id, "media_added", actor, files=len(files))
+        db.commit()
+    except Exception:
+        db.rollback()
+        for key, _, _ in stored:  # a parallel upload took the last slot, the card left the agent: no orphan files
+            try:
+                storage.delete(key)
+            except Exception:  # noqa: BLE001
+                log.warning("could not delete %s", key)
+        raise
     return out
 
 

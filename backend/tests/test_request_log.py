@@ -63,3 +63,22 @@ def test_client_log(db, client, caplog):
     for _ in range(30):
         client.post("/api/client-log", json={"message": "spam"})
     assert client.post("/api/client-log", json={"message": "spam"}).status_code == 429
+
+
+def test_body_parse_400_logs_its_cause(db, client, caplog):
+    """Irakli 11-18: two uploads ended with 400 and no reason in the log (FastAPI's «error parsing the body»)."""
+    caplog.set_level(logging.INFO)
+    u = make_user(db, "agent")
+    r = client.post("/api/properties/1/media", headers={**auth(u), "Content-Type": "multipart/form-data"}, content=b"x")
+    assert r.status_code == 400
+    assert lines(caplog, "app.request")[-1].fields["error"] == {"code": "http", "message": "Missing boundary in multipart."}
+    # the client dropped the upload mid-way: FastAPI wraps starlette's ClientDisconnect into a 400
+    import asyncio
+    from fastapi import HTTPException
+    from starlette.requests import ClientDisconnect, Request
+    from app.main import http_error
+    e = HTTPException(400, "There was an error parsing the body")
+    e.__cause__ = ClientDisconnect()
+    req = Request({"type": "http", "headers": [], "method": "POST", "path": "/"})
+    assert asyncio.run(http_error(req, e)).status_code == 400
+    assert req.state.err["cause"].startswith("ClientDisconnect")

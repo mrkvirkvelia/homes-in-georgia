@@ -9,12 +9,14 @@ from contextlib import asynccontextmanager
 import jwt
 
 from fastapi import FastAPI, Request
+from fastapi.exception_handlers import http_exception_handler
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.api import api_router
 from app import logs
@@ -186,6 +188,15 @@ async def client_log(request: Request):
 async def domain_error(request: Request, e: DomainError):
     request.state.err = {"code": e.code, "message": str(e.message)[:300]}
     return JSONResponse({"detail": e.message, "code": e.code, **({"data": e.data} if e.data else {})}, status_code=e.status)
+
+
+@app.exception_handler(StarletteHTTPException)
+async def http_error(request: Request, e: StarletteHTTPException):
+    """FastAPI's «There was an error parsing the body» 400 hides why: the log line gets the cause (an upload the client
+    dropped mid-way is a ClientDisconnect)."""
+    c = e.__cause__
+    request.state.err = {"code": "http", "message": str(e.detail)[:300], **({"cause": f"{type(c).__name__}: {c}"[:300]} if c else {})}
+    return await http_exception_handler(request, e)
 
 
 @app.exception_handler(RequestValidationError)

@@ -26,3 +26,14 @@ export async function pool<T>(items: T[], n: number, fn: (x: T, i: number) => Pr
     while (next < items.length) { const i = next++; await fn(items[i], i); }
   }));
 }
+
+/** While a long upload runs: the screen stays on (an iPhone that locks itself drops Safari's uploads) and closing the
+ * tab asks first. -> release. */
+export function keepAwake(): () => void {
+  let lock: { release: () => Promise<void> } | undefined, off = false;
+  const nav = navigator as Navigator & { wakeLock?: { request: (t: 'screen') => Promise<{ release: () => Promise<void> }> } };
+  nav.wakeLock?.request('screen').then((l) => { if (off) l.release().catch(() => undefined); else lock = l; }).catch(() => undefined);
+  const warn = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = ''; };
+  window.addEventListener('beforeunload', warn);
+  return () => { off = true; lock?.release().catch(() => undefined); window.removeEventListener('beforeunload', warn); };
+}

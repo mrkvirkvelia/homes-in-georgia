@@ -20,7 +20,7 @@ import { RequestRow } from './requests';
 import { OwnerSuggest } from '../../components/OwnerSuggest';
 import { MorePhones, PhonesField, cleanPhones, phoneRows, samePhones } from '../../components/PhonesField';
 import { cadastralError, cadastralHint, cadastralInput, cadastralNorm } from '../../lib/cadastral';
-import { pool, shrinkPhoto } from '../../lib/upload';
+import { keepAwake, pool, shrinkPhoto } from '../../lib/upload';
 import { addMonths, isoDate, parseIsoDate } from '../../lib/dates';
 import { Autosaver, type AutosaveState } from '../../lib/autosave';
 import { AddressField, type Point } from '../../components/AddressField';
@@ -382,17 +382,20 @@ function PostGeneratorStep({ p, canEdit }: { p: Property; canEdit: boolean }) {
   const nPhoto = media.filter((m) => m.kind === 'photo').length;
   const nVideo = media.filter((m) => m.kind === 'video').length;
   const full = nPhoto >= MAX_PHOTO && nVideo >= MAX_VIDEO;
-  const [queue, setQueue] = useState<{ name: string; state: 'wait' | 'prep' | 'up' | 'done' | 'err'; pct?: number; msg?: string }[]>([]);
+  const [queue, setQueue] = useState<{ name: string; state: 'wait' | 'prep' | 'up' | 'done' | 'err'; pct?: number; msg?: string; mb?: number }[]>([]);
   const busy = queue.some((q) => q.state === 'wait' || q.state === 'prep' || q.state === 'up');
+  useEffect(() => (busy ? keepAwake() : undefined), [busy]);
   const doneN = queue.filter((q) => q.state === 'done').length;
-  /** The ones that fit MAX_PHOTO photos + 1 video go up 3 at a time, photos resized first; one request per file. */
+  /** The ones that fit MAX_PHOTO photos + 1 video go up 3 at a time, photos resized first, the video last (the photos
+   * are done in seconds, the video's 100+ MB then has the whole uplink); one request per file, a dropped connection
+   * is retried twice. */
   const uploadFiles = async (picked: File[]) => {
     let ph = nPhoto, vd = nVideo;
     const isVideo = (x: File) => x.type.startsWith('video/') || /\.(mp4|mov|m4v|webm|avi|mkv)$/i.test(x.name);
-    const fit = picked.filter((x) => (isVideo(x) ? ++vd <= MAX_VIDEO : ++ph <= MAX_PHOTO));
+    const fit = picked.filter((x) => (isVideo(x) ? ++vd <= MAX_VIDEO : ++ph <= MAX_PHOTO)).sort((a, b) => Number(isVideo(a)) - Number(isVideo(b)));
     if (fit.length < picked.length) toast(t('Не добавлено {n}: у объекта максимум {p} фото и {v} видео', { n: picked.length - fit.length, p: MAX_PHOTO, v: MAX_VIDEO }), true);
     if (!fit.length) return;
-    setQueue(fit.map((x) => ({ name: x.name, state: 'wait' })));
+    setQueue(fit.map((x) => ({ name: x.name, state: 'wait', mb: x.size >= 20e6 ? Math.round(x.size / 1e6) : undefined })));
     const mark = (i: number, ch: Partial<(typeof queue)[number]>) => setQueue((q) => q.map((x, j) => (j === i ? { ...x, ...ch } : x)));
     let failed = 0;
     const got: number[][] = [];  // the new media ids per picked file
@@ -400,8 +403,18 @@ function PostGeneratorStep({ p, canEdit }: { p: Property; canEdit: boolean }) {
       mark(i, { state: 'prep' });
       try {
         const small = await shrinkPhoto(x);
-        mark(i, { state: 'up', pct: 0 });
-        const r = await api.properties.uploadMediaProgress(p.id, small, (f) => mark(i, { pct: Math.round(f * 100) }));
+        const send = async (tries: number): Promise<Property & { uploaded_ids?: number[] }> => {
+          mark(i, { state: 'up', pct: 0 });
+          try {
+            return await api.properties.uploadMediaProgress(p.id, small, (f) => mark(i, { pct: Math.round(f * 100) }));
+          } catch (e) {
+            if (!(e instanceof ApiError && e.status === 0) || tries >= 2) throw e;
+            mark(i, { state: 'prep', msg: t('связь прервалась, повторяем…') });
+            await new Promise((ok) => setTimeout(ok, 3000 * (tries + 1)));
+            return send(tries + 1);
+          }
+        };
+        const r = await send(0);
         got[i] = r.uploaded_ids || [];
         set(r);
         mark(i, { state: 'done', pct: 100 });
@@ -549,13 +562,13 @@ function PostGeneratorStep({ p, canEdit }: { p: Property; canEdit: boolean }) {
             </div>
             {queue.length > 0 && (
               <div className="upload-queue">
-                <div className="row row-between"><b>{t('Загружено {n} из {total}', { n: doneN, total: queue.length })}</b>{busy && <span className="muted">{t('не закрывайте страницу')}</span>}</div>
+                <div className="row row-between"><b>{t('Загружено {n} из {total}', { n: doneN, total: queue.length })}</b>{busy && <span className="muted">{t('не закрывайте страницу и не сворачивайте браузер')}</span>}</div>
                 <progress className="uq-total" max={queue.length} value={doneN} />
                 {queue.map((q, i) => (
                   <div key={i} className={`uq uq-${q.state}`}>
                     <div className="row row-between gap-sm">
                       <span className="uq-name">{q.name}</span>
-                      <span className="uq-state">{q.state === 'wait' ? t('в очереди') : q.state === 'prep' ? t('сжимаем…') : q.state === 'up' ? `${q.pct ?? 0}%` : q.state === 'done' ? t('готово') : q.msg || t('ошибка')}</span>
+                      <span className="uq-state">{q.state === 'wait' ? t('в очереди') : q.state === 'prep' ? q.msg || t('сжимаем…') : q.state === 'up' ? `${q.pct ?? 0}%${q.mb ? ` · ${t('{n} МБ', { n: q.mb })}` : ''}` : q.state === 'done' ? t('готово') : q.msg || t('ошибка')}</span>
                     </div>
                     {(q.state === 'up' || q.state === 'done') && <progress max={100} value={q.pct ?? 0} />}
                   </div>

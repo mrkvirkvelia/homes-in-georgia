@@ -76,6 +76,30 @@ def test_media_limit_40_photos_1_video(db):
     assert len(properties.media(db, p.id)) == 40
 
 
+def test_upload_lost_the_last_slot_to_a_parallel_one_leaves_no_files(db, monkeypatch):
+    """Files go to the storage before the row lock (3 parallel uploads don't queue, Irakli 11-18); the limit is checked
+    again under the lock, and the loser's files are deleted."""
+    from pathlib import Path
+    from app.config import settings as env
+    ag, p = _object(db, "ss903")
+    properties.upload_media(db, p.id, [("v.mp4", b"\0\0video")], None, ag)
+    m = properties.media(db, p.id)
+    properties.delete_media(db, p.id, m[0].id, ag)
+    real, calls = properties._media_check, []
+
+    def race(db_, p_, actor, kinds):
+        calls.append(1)
+        if len(calls) == 2:  # under the lock: a parallel upload has taken the video slot meanwhile
+            properties.upload_media(db_, p_.id, [("other.mp4", b"\0\0v2")], None, actor)
+        return real(db_, p_, actor, kinds)
+    monkeypatch.setattr(properties, "_media_check", race)
+    with pytest.raises(DomainError) as e:
+        properties.upload_media(db, p.id, [("v.mp4", b"\0\0video")], None, ag)
+    assert e.value.code == "media_limit"
+    left = [f.name for f in Path(env.MEDIA_DIR, "properties", str(p.id)).iterdir()]
+    assert len(left) == 1 and [x.path for x in properties.media(db, p.id)] == [f"properties/{p.id}/{left[0]}"]
+
+
 def test_min_9_photos_to_review_and_publish(db, monkeypatch):
     monkeypatch.setattr(properties, "MIN_PHOTOS", 9)
     ag, p = _object(db, "ss904")

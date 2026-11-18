@@ -2,6 +2,7 @@
 // (backend services/sign_docs.py). One fixed template (the NDA's layout): staff paste the title and the text, pick the
 // other party (a team member or an outside person) and optionally our second signer; «Отправить» puts David's company
 // signature in and gives each signer a link /doc/<token> (the NDA's signing page). черновик → отправлен → подписан.
+import { useConfirm } from '../components/ActionDialog';
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -132,6 +133,7 @@ function SignerLink({ d, s }: { d: Doc; s: Signer }) {
 }
 
 export function SignDocsPage() {
+  const confirm = useConfirm();
   const toast = useToast();
   const qc = useQueryClient();
   const [tab, setTab] = useState<(typeof TABS)[number]['value']>('all');
@@ -192,9 +194,9 @@ export function SignDocsPage() {
                 <div className="row row-wrap gap-sm">
                   <Button size="sm" variant="ghost" onClick={() => open(d, setView)}><Eye size={14} />{t('Просмотр')}</Button>
                   {d.editable && <Button size="sm" variant="ghost" onClick={() => open(d, (x) => setForm({ doc: x }))}><FilePen size={14} />{t('Изменить')}</Button>}
-                  {d.status === 'draft' && <Button size="sm" loading={send.isPending} onClick={() => { if (window.confirm(t('Отправить «{title}» на подпись? Подпись компании поставится сама.', { title: titleOf(d) }))) send.mutate(d); }}><Send size={14} />{t('Отправить на подпись')}</Button>}
+                  {d.status === 'draft' && <Button size="sm" loading={send.isPending} onClick={async () => { if (await confirm(t('Отправить «{title}» на подпись? Подпись компании поставится сама.', { title: titleOf(d) }))) send.mutate(d); }}><Send size={14} />{t('Отправить на подпись')}</Button>}
                   {d.status === 'sent' && d.signers.some((s) => s.user_id && !s.signed_at) && <Button size="sm" variant="secondary" loading={send.isPending} onClick={() => send.mutate(d)}><Send size={14} />{t('Отправить снова в Telegram')}</Button>}
-                  {(d.status === 'draft' || d.status === 'sent') && <Button size="sm" variant="ghost" loading={cancel.isPending} onClick={() => { if (window.confirm(t('Отменить документ? Ссылки перестанут работать.'))) cancel.mutate(d.id); }}><XCircle size={14} />{t('Отменить')}</Button>}
+                  {(d.status === 'draft' || d.status === 'sent') && <Button size="sm" variant="ghost" loading={cancel.isPending} onClick={async () => { if (await confirm(t('Отменить документ? Ссылки перестанут работать.'))) cancel.mutate(d.id); }}><XCircle size={14} />{t('Отменить')}</Button>}
                   {d.status !== 'cancelled' && <Button size="sm" variant={d.status === 'signed' ? 'secondary' : 'ghost'} onClick={() => pdf(d).catch((e) => toast(errText(e), true))}><Download size={14} />{d.status === 'signed' ? 'PDF' : t('PDF (черновик)')}</Button>}
                 </div>
                 {d.status === 'sent' && d.signers.map((s) => <SignerLink key={s.id} d={d} s={s} />)}

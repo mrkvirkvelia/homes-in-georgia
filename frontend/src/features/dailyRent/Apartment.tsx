@@ -1,5 +1,6 @@
 // «Посуточная аренда» → one apartment: its stays and money for a period, the owner's period report, the card (owner,
 // split, bills), photos / nightly price / description for the site, and the Airbnb / Booking calendars (iCal).
+import { useConfirm } from '../../components/ActionDialog';
 import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery } from '@tanstack/react-query';
@@ -131,6 +132,7 @@ export function AptForm({ a, onDone }: { a?: DrApartment; onDone?: (x: DrApartme
 }
 
 function SiteBlock({ a }: { a: DrApartment }) {
+  const confirm = useConfirm();
   const toast = useToast();
   const refresh = useDrInvalidate();
   const [busy, setBusy] = useState<Record<number, number>>({});
@@ -163,7 +165,7 @@ function SiteBlock({ a }: { a: DrApartment }) {
                   <Button size="sm" variant="secondary" disabled={i === 0} onClick={() => move(i, -1)} aria-label="Левее"><ArrowLeft size={12} /></Button>
                   <Button size="sm" variant="secondary" disabled={i === a.photos.length - 1} onClick={() => move(i, 1)} aria-label="Правее"><ArrowRight size={12} /></Button>
                 </div>
-                <Button size="sm" variant="danger" className="del" aria-label="Удалить" onClick={() => { if (confirm('Удалить фото?')) run(dr.deletePhoto(a.id, k)); }}><Trash2 size={12} /></Button>
+                <Button size="sm" variant="danger" className="del" aria-label="Удалить" onClick={async () => { if (await confirm('Удалить фото?')) run(dr.deletePhoto(a.id, k)); }}><Trash2 size={12} /></Button>
               </div>
             ))}
             {Object.entries(busy).map(([i, p]) => <div key={`b${i}`} className="ph" style={{ display: 'grid', placeItems: 'center' }}><span className="muted">{p}%</span></div>)}
@@ -184,6 +186,7 @@ function SiteBlock({ a }: { a: DrApartment }) {
 const CH_LABEL = { airbnb: 'Airbnb', booking: 'Booking', other: 'Другая площадка' } as const;
 
 function Channels({ a }: { a: DrApartment }) {
+  const confirm = useConfirm();
   const toast = useToast();
   const refresh = useDrInvalidate();
   const [urls, setUrls] = useState<Record<number, string>>({});
@@ -201,7 +204,7 @@ function Channels({ a }: { a: DrApartment }) {
                 {ch.last_status === 'ok' && <Badge tone="ok">✓ {ch.events ?? 0} событий · {ch.last_sync_at ? new Date(ch.last_sync_at).toLocaleString('ru-RU') : ''}</Badge>}
                 {ch.last_status === 'error' && <Badge tone="red" title={ch.last_error || ''}>Ошибка: {ch.last_error}</Badge>}
                 <Button size="sm" variant="secondary" disabled={!ch.import_url} onClick={() => run(dr.syncChannel(ch.id)).then((r) => { const x = r as { error?: string; events?: number } | undefined; if (x) toast(x.error ? `Ошибка: ${x.error}` : `Загружено событий: ${x.events ?? 0}`, !!x.error); })}><RefreshCw size={14} />Обновить</Button>
-                <Button size="sm" variant="ghost" aria-label="Удалить" onClick={() => { if (confirm('Удалить календарь? Его брони снимутся.')) run(dr.deleteChannel(ch.id)); }}><Trash2 size={14} /></Button>
+                <Button size="sm" variant="ghost" aria-label="Удалить" onClick={async () => { if (await confirm('Удалить календарь? Его брони снимутся.')) run(dr.deleteChannel(ch.id)); }}><Trash2 size={14} /></Button>
               </span>
             </div>
             <Field label={`Наша ссылка для ${CH_LABEL[ch.channel]} (вставить в «Импорт календаря» площадки)`}>

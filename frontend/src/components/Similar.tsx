@@ -1,6 +1,7 @@
 // «Похожие объекты» (Stanislav 11-17): one flat is never worked twice. For an ad or an object, every candidate across our
 // base (the archive too), ss / myhome / livo / korter, Facebook / Telegram and the competitors, with why it looks the
 // same; the agent says «Дубль» / «Не дубль» (backend services/similar.py).
+import { useConfirm } from './ActionDialog';
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
@@ -115,6 +116,7 @@ export function TakeCheck({ listingId, items, taking, onTake, onClose }: { listi
  * «Не дубль», and for two objects the operator merges them right here: the other one goes «В архив → Дубль» (its leads,
  * deals, contracts and exclusive contract move to the one that stays, backend properties._merge_duplicate). */
 function CompareModal({ subject, x, qk, onLinked, onClose }: { subject: string; x: SimilarItem; qk: unknown[]; onLinked?: (pid: number) => void; onClose: () => void }) {
+  const confirm = useConfirm();
   const isAd = subject.startsWith('l:');
   const id = subject.slice(2);
   const { isStaff } = useAuth();
@@ -138,8 +140,8 @@ function CompareModal({ subject, x, qk, onLinked, onClose }: { subject: string; 
     },
     onError: (e) => toast(errText(e), true),
   });
-  const ask = (drop: number, keep: number) => {
-    if (window.confirm(t('Объект #{drop} будет удалён как дубль: его заявки, показы, сделки и договор перейдут в #{keep}. Продолжить?', { drop, keep }))) merge.mutate({ drop, keep });
+  const ask = async (drop: number, keep: number) => {
+    if (await confirm(t('Объект #{drop} будет удалён как дубль: его заявки, показы, сделки и договор перейдут в #{keep}. Продолжить?', { drop, keep }))) merge.mutate({ drop, keep });
   };
   const p = me.data;
   const own = (p?.media || []).filter((m) => m.kind === 'photo').map((m) => m.url || m.path);

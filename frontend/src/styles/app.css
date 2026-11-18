@@ -440,6 +440,12 @@ a.brand, a.brand:hover { color: inherit; text-decoration: none; }
 @media (max-width: 720px) { .cmp { grid-template-columns: minmax(0, 1fr); } .cmp > .cmp-side:first-child { position: static; } .cmp-photos img { height: 110px; } }
 .modal-head { padding: 18px 20px 0; display: flex; justify-content: space-between; align-items: center; }
 .modal-body { padding: 14px 20px 20px; }
+.action-dialog { margin: 0; padding: 0; border: 0; color: var(--ink); }
+.action-dialog:not([open]) { display: none; }
+.action-dialog::backdrop { background: rgba(2,31,74,.38); }
+.action-dialog-message { margin: 0; white-space: pre-wrap; }
+.action-dialog-buttons { justify-content: flex-end; }
+html:has(.action-dialog[open]) { overflow: hidden; }
 /* a modal's action buttons stay in reach at the bottom while its content scrolls */
 .modal-actions { position: sticky; bottom: -20px; margin: 0 -20px -20px; padding: 12px 20px 20px; background: var(--surface); border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 8px; z-index: 1; }
 .lightbox { position: fixed; inset: 0; z-index: 61; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 16px; animation: fade .15s; }

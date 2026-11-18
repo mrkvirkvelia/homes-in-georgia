@@ -353,7 +353,7 @@ const ACTION_TEXT: Record<string, string> = tmap({
   idle_returned: 'Возвращён в «Новые объявления»: не было действий',
   tg_reposted: 'Пост в Telegram обновлён · старый удалён', tg_removed: 'Посты удалены из Telegram',
   duplicate_merged: 'Сюда перенесён удалённый дубль', deleted_as_duplicate: 'Удалён как дубль',
-  media_added: 'Добавлены фото / видео', media_deleted: 'Файл удалён', checklist: 'Чек-лист комнат', verified: 'Объект проверен оператором',
+  media_added: 'Добавлены фото / видео', media_deleted: 'Файл удалён', media_reordered: 'Изменён порядок файлов', checklist: 'Чек-лист комнат', verified: 'Объект проверен оператором',
   from_deal: 'Создан из сделки', fast_track: 'Собственник согласен · объект показан клиентам',
   agent_bound: 'Собственник закреплён за агентом', agent_released: 'Собственник освобождён',
   listing_linked: 'Найдено объявление этого объекта', exclusive_conflict: 'Эксклюзив висит на другом сайте', ad_removed_checked: 'Проверено: объявление снято',

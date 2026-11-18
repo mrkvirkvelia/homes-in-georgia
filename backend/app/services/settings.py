@@ -60,13 +60,13 @@ def validate(body: dict) -> None:
             n = float(str(v).strip())
         except (TypeError, ValueError):
             n = None
-        if isinstance(v, bool) or n is None or n != int(n) or not 1 <= n <= 1440:
+        if isinstance(v, bool) or n is None or not 1 <= n <= 1440 or not n.is_integer():
             raise DomainError("bad_setting", f"{k} must be a whole number of minutes in 1..1440")
 
 
     if "owner_lease_remind_days" in body:
         v = str(body["owner_lease_remind_days"]).replace(" ", "")
-        if v and not all(x.isdigit() and int(x) <= 365 for x in v.split(",")):
+        if v and any(not x.isdecimal() or int(x) > 365 for x in v.split(",")):
             raise DomainError("bad_setting", "owner_lease_remind_days: days before the lease end, e.g. 30,7")
     if "take_idle_min" in body:
         v = str(body["take_idle_min"]).strip()

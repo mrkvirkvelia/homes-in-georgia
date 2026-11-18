@@ -22,16 +22,19 @@ export function normAuth(x: Any): AuthOut {
   return { ...x, access_token: x.access_token ?? x.token };
 }
 
+const listingText = (value: unknown) => typeof value === 'string' && value.trim().toLowerCase() !== 'null' ? value : null;
+
 export function normListing(x: Any): Listing {
   if (!x) return x;
   let photos: string[] = [];
   if (Array.isArray(x.photos)) photos = x.photos;
   else if (x.photo) photos = [x.photo];
   const price = x.price ?? x.price_usd ?? null;
+  const district = listingText(x.district);
   const beds = x.bedrooms;
-  const title = x.title ?? [x.district, beds !== null && beds !== undefined ? `${beds} ${beds === 1 ? 'спальня' : 'спальни'}` : null, price ? `$${price}` : null].filter(Boolean).join(' · ');
+  const title = listingText(x.title) ?? [district, beds !== null && beds !== undefined ? `${beds} ${beds === 1 ? 'спальня' : 'спальни'}` : null, price ? `$${price}` : null].filter(Boolean).join(' · ');
   return {
-    ...x, photos, price, currency: x.currency || 'USD', title,
+    ...x, photos, price, address: listingText(x.address), district, currency: x.currency || 'USD', title,
     created_at: x.created_at ?? x.first_seen ?? null,
     url: x.url ?? (Array.isArray(x.urls) ? x.urls[0] : null),
     text: x.text ?? x.description ?? null,

@@ -273,8 +273,10 @@ def test_settings_and_user_validation(db, client):
     admin = make_user(db, "admin")
     assert client.put("/api/settings", json={"sla_operator_take_min": 0}, headers=auth(admin)).status_code == 400
     assert client.put("/api/settings", json={"sla_agent_slots_min": "abc"}, headers=auth(admin)).status_code == 400
-    r = client.put("/api/settings", json={"sla_agent_slots_min": 45}, headers=auth(admin))
-    assert r.status_code == 200 and r.json()["sla_agent_slots_min"] == "45"
+    assert client.put("/api/settings", json={"sla_agent_slots_min": "nan"}, headers=auth(admin)).status_code == 400
+    assert client.put("/api/settings", json={"owner_lease_remind_days": "30,366"}, headers=auth(admin)).status_code == 400
+    r = client.put("/api/settings", json={"sla_agent_slots_min": 45, "owner_lease_remind_days": "30,7"}, headers=auth(admin))
+    assert r.status_code == 200 and r.json()["sla_agent_slots_min"] == "45" and r.json()["owner_lease_remind_days"] == "30,7"
     a = make_user(db, "agent", tg_id=111, login="a1")
     b = make_user(db, "agent", tg_id=222)
     assert client.patch(f"/api/users/{b.id}", json={"tg_id": 111}, headers=auth(admin)).status_code == 409

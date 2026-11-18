@@ -1,5 +1,6 @@
 // Property page: stepper (C2–C4), operator review (B7a), the post generator + publish (B7b), and the full object card: gallery, parameters,
 // owner, where it is published, its ads on other sites, deals, history. Used by /objects/:id and /m/properties/:id.
+import { useActionDialog, useConfirm } from '../../components/ActionDialog';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Link, useNavigate } from 'react-router-dom';
@@ -165,6 +166,7 @@ function CallStep({ p }: { p: Property }) {
 
 /** What the owner said, besides "yes": thinking (bot reminds to call back), rented it out himself, won't work with us. */
 function OwnerOutcomes({ p }: { p: Property }) {
+  const ask = useActionDialog();
   const { toast, set } = useProp(p.id);
   const [thinkOpen, setThinkOpen] = useState(false);
   const [until, setUntil] = useState(() => isoToLocal(new Date(Date.now() + 2 * 864e5).toISOString()));
@@ -174,7 +176,10 @@ function OwnerOutcomes({ p }: { p: Property }) {
   const think = useMutation({ mutationFn: () => api.properties.thinking(p.id, localToIso(until)!, comment), onSuccess: done(t('Бот напомнит перезвонить')), onError: fail });
   const [rentedOpen, setRentedOpen] = useState(false);
   const refused = useMutation({ mutationFn: (c: string) => api.properties.refused(p.id, c), onSuccess: done(t('Объект вернулся в ленту: другой агент увидит, что вы звонили')), onError: fail });
-  const ask = (q: string, m: { mutate: (c: string) => void }) => { const c = window.prompt(q, ''); if (c !== null) m.mutate(c); };
+  const refuse = async () => {
+    const comment = await ask(t('Собственник не хочет работать. Комментарий для следующего агента (необязательно):'), { label: t('Комментарий') });
+    if (comment !== null) refused.mutate(comment);
+  };
   return (
     <div className="col gap-sm mt">
       {p.status !== 'shoot_scheduled' && p.status !== 'call_failed' && p.next_call_at && (
@@ -183,7 +188,7 @@ function OwnerOutcomes({ p }: { p: Property }) {
       <div className="row row-wrap gap-sm">
         {p.status !== 'shoot_scheduled' && <Button variant="secondary" size="sm" onClick={() => setThinkOpen(true)}><Clock size={14} />{t('Думает')}</Button>}
         <Button variant="secondary" size="sm" onClick={() => setRentedOpen(true)}><Home size={14} />{t('Сдал сам')}</Button>
-        <Button variant="ghost" size="sm" loading={refused.isPending} onClick={() => ask(t('Собственник не хочет работать. Комментарий для следующего агента (необязательно):'), refused)}><PhoneOff size={14} />{t('Не хочет работать')}</Button>
+        <Button variant="ghost" size="sm" loading={refused.isPending} onClick={refuse}><PhoneOff size={14} />{t('Не хочет работать')}</Button>
       </div>
       {rentedOpen && <OwnerLeaseModal p={p} onClose={() => setRentedOpen(false)} />}
       <Modal open={thinkOpen} onClose={() => setThinkOpen(false)} title={t('Собственник думает')}>
@@ -325,6 +330,7 @@ export function Chips({ options, value, onChange }: { options: Record<string, st
  * Every change is saved (debounced) and the post below is rebuilt by the backend; «Отправить на модерацию» only when
  * nothing required is missing (backend properties.missing_fields). */
 function PostGeneratorStep({ p, canEdit }: { p: Property; canEdit: boolean }) {
+  const confirm = useConfirm();
   const { toast, set, qc } = useProp(p.id);
   const [f, setF] = useState<GenForm>(() => genOf(p));
   const [metroM, setMetroM] = useState<number | null>(null);  // the auto-picked station's distance, shown by the select
@@ -505,15 +511,15 @@ function PostGeneratorStep({ p, canEdit }: { p: Property; canEdit: boolean }) {
 
         <div className="gen-block">
           <span className="gen-title">{t('2 · Объект')}</span>
-          <Field label={t('Тип')}><Chips options={sale ? Object.fromEntries(SALE_TYPES.map((t) => [t, one('prop_type')[t]])) : one('prop_type')} value={pf.prop_type} onChange={(v) => setPf('prop_type', v)} /></Field>
-          <Field label={t('Спальни')}><Chips options={sale ? SALE_BEDROOM_CHIPS : BEDROOM_CHIPS} value={f.bedrooms} onChange={(v) => upd('bedrooms', v ?? '')} /></Field>
-          <Field label={t('Здание')}><Chips options={one('building')} value={pf.building} onChange={(v) => setPf('building', v)} /></Field>
-          {sale && <Field label={t('Состояние')}><Chips options={one('condition')} value={pf.condition} onChange={(v) => setPf('condition', v)} /></Field>}
-          {sale && <Field label={t('Раздел на сайте')}><Chips options={SALE_SERVICE} value={pf.service || 'sale'} onChange={(v) => setPf('service', v ?? 'sale')} /></Field>}
+          <Field group label={t('Тип')}><Chips options={sale ? Object.fromEntries(SALE_TYPES.map((t) => [t, one('prop_type')[t]])) : one('prop_type')} value={pf.prop_type} onChange={(v) => setPf('prop_type', v)} /></Field>
+          <Field group label={t('Спальни')}><Chips options={sale ? SALE_BEDROOM_CHIPS : BEDROOM_CHIPS} value={f.bedrooms} onChange={(v) => upd('bedrooms', v ?? '')} /></Field>
+          <Field group label={t('Здание')}><Chips options={one('building')} value={pf.building} onChange={(v) => setPf('building', v)} /></Field>
+          {sale && <Field group label={t('Состояние')}><Chips options={one('condition')} value={pf.condition} onChange={(v) => setPf('condition', v)} /></Field>}
+          {sale && <Field group label={t('Раздел на сайте')}><Chips options={SALE_SERVICE} value={pf.service || 'sale'} onChange={(v) => setPf('service', v ?? 'sale')} /></Field>}
           {sale && pf.service === 'new' && <Field label={t('Сдача дома')} hint={t('Например: Q4 2027')}><Input value={pf.completion || ''} onChange={(e) => setPf('completion', e.target.value)} /></Field>}
           <div className="form-grid">
             <Field label={t('Площадь (м²)')}><Input type="number" inputMode="decimal" value={f.area} onChange={(e) => upd('area', e.target.value)} /></Field>
-            <Field label={t('Этаж / Всего')}>
+            <Field group label={t('Этаж / Всего')}>
               <div className="row gap-sm" style={{ flexWrap: 'nowrap' }}>
                 <Input type="number" inputMode="numeric" aria-label={t('Этаж')} value={f.floor} onChange={(e) => upd('floor', e.target.value)} />
                 <span className="muted">/</span>
@@ -522,11 +528,11 @@ function PostGeneratorStep({ p, canEdit }: { p: Property; canEdit: boolean }) {
             </Field>
             {!sale && <Field label={t('Жильцы макс.')}><Input type="number" inputMode="numeric" min={1} value={pf.tenants ?? ''} onChange={(e) => setPf('tenants', e.target.value === '' ? undefined : Number(e.target.value))} /></Field>}
           </div>
-          <Field label={t('Дизайн')}><Chips options={one('design')} value={pf.design} onChange={(v) => setPf('design', v)} /></Field>
-          <Field label={t('Ванные комнаты')}><Chips options={one('bathrooms')} value={pf.bathrooms} onChange={(v) => setPf('bathrooms', v)} /></Field>
-          <Field label={t('Отопление')}><Chips options={one('heating')} value={pf.heating} onChange={(v) => setPf('heating', v)} /></Field>
+          <Field group label={t('Дизайн')}><Chips options={one('design')} value={pf.design} onChange={(v) => setPf('design', v)} /></Field>
+          <Field group label={t('Ванные комнаты')}><Chips options={one('bathrooms')} value={pf.bathrooms} onChange={(v) => setPf('bathrooms', v)} /></Field>
+          <Field group label={t('Отопление')}><Chips options={one('heating')} value={pf.heating} onChange={(v) => setPf('heating', v)} /></Field>
           {((sale ? [[t('Удобства'), SALE_AMENITIES]] : [[t('✅/✖️ в посте'), AMENITY_FIXED], [t('Остальные (только ✅ если есть)'), AMENITY_REST]]) as [string, string[]][]).map(([label, keys]) => (
-            <Field key={label} label={label}>
+            <Field group key={label} label={label}>
               <div className="row row-wrap gap-sm">
                 {keys.map((a) => {
                   const on = (pf.amenities || []).includes(a);
@@ -535,7 +541,7 @@ function PostGeneratorStep({ p, canEdit }: { p: Property; canEdit: boolean }) {
               </div>
             </Field>
           ))}
-          {!sale && <Field label={t('Питомцы')}><Chips options={one('pets')} value={pf.pets} onChange={(v) => setPf('pets', v)} /></Field>}
+          {!sale && <Field group label={t('Питомцы')}><Chips options={one('pets')} value={pf.pets} onChange={(v) => setPf('pets', v)} /></Field>}
         </div>
 
         <div className="gen-block">
@@ -546,7 +552,7 @@ function PostGeneratorStep({ p, canEdit }: { p: Property; canEdit: boolean }) {
               <Field label={t('Цена ($)')}><Input type="number" inputMode="numeric" value={f.price} onChange={(e) => setPrice(e.target.value)} /></Field>
               <Field label={t('Депозит ($)')} hint={t('Равен цене, можно изменить. 0 — без депозита')}><Input type="number" inputMode="numeric" min={0} value={pf.deposit ?? f.price} onChange={(e) => setPf('deposit', e.target.value === '' ? undefined : Number(e.target.value))} /></Field>
             </div>
-            <Field label={t('Срок аренды')}>
+            <Field group label={t('Срок аренды')}>
               <div className="row row-wrap gap-sm">
                 {Object.entries(POST_MANY.periods[1]).map(([a, l]) => {
                   const on = (pf.periods || []).includes(a);
@@ -628,7 +634,9 @@ function PostGeneratorStep({ p, canEdit }: { p: Property; canEdit: boolean }) {
           {missing.length > 0 && !dirty && <div className="alert alert-warn" style={{ display: 'block' }}>{t('Чтобы отправить, заполните:')} <b>{missing.join(', ')}</b></div>}
           {fewPhotos(media) && <div className="alert alert-warn" style={{ display: 'block' }}>{fewPhotos(media)}</div>}
           <Button size="lg" variant="ok" disabled={!!fewPhotos(media) || missing.length > 0 || dirty} loading={submit.isPending}
-            onClick={() => { if (window.confirm(t('Отправить объект на модерацию? Пост, фото и видео больше нельзя будет менять.'))) submit.mutate(); }}>
+            onClick={async () => {
+              if (await confirm(t('Отправить объект на модерацию? Пост, фото и видео больше нельзя будет менять.'))) submit.mutate();
+            }}>
             <Send size={18} />{t('Отправить на модерацию')}
           </Button>
         </>
@@ -819,6 +827,7 @@ const srcName = (s?: string | null) => SOURCE_LABEL[s || ''] || s || t('друг
 /** Exclusive still advertised elsewhere: the agent asks the owner to take the ad down, the operator checks and presses
  * «Проверено: снято» (manual on purpose: ss.ge / myhome block server checks). Until then it can't go out as an exclusive. */
 function ExclusiveConflict({ p }: { p: Property }) {
+  const confirm = useConfirm();
   const { isStaff } = useAuth();
   const { toast, set } = useProp(p.id);
   const removed = useMutation({
@@ -837,7 +846,7 @@ function ExclusiveConflict({ p }: { p: Property }) {
           {a.url && <a className="btn btn-secondary btn-sm" href={a.url} target="_blank" rel="noreferrer"><ExternalLink size={14} />{t('Открыть')}</a>}
           {isStaff && (
             <Button size="sm" loading={removed.isPending && removed.variables === a.listing_id}
-              onClick={() => { if (window.confirm(t('Вы открыли ссылку и убедились, что объявление снято с сайта?'))) removed.mutate(a.listing_id); }}>
+              onClick={async () => { if (await confirm(t('Вы открыли ссылку и убедились, что объявление снято с сайта?'))) removed.mutate(a.listing_id); }}>
               {t('Проверено: снято')}
             </Button>
           )}
@@ -868,6 +877,7 @@ function NeedsCheck({ p }: { p: Property }) {
 /** Stage 10: active clients this object fits; owner first: after the call «Показать объект клиентам»
  * opens it to clients with the ad's photos and sends it to them (at most 10, never twice to one client). */
 function Demand({ p }: { p: Property }) {
+  const confirm = useConfirm();
   const { isStaff } = useAuth();
   const { qc, toast, set } = useProp(p.id);
   const { data: d } = useQuery({ queryKey: ['property-demand', p.id], queryFn: () => api.properties.demand(p.id) });
@@ -888,7 +898,7 @@ function Demand({ p }: { p: Property }) {
         <div className="alert alert-ok mt">{t('Собственник согласен · объект показан клиентам {at} · отправлено: {n}', { at: fmtDateTime(d.fast_track_at), n: d.pushed })}</div>
       ) : d.can_fast_track && (
         <div className="col gap-sm mt">
-          <Button variant="ok" loading={m.isPending} onClick={() => { if (window.confirm(t('Собственник согласен показать квартиру клиентам? Объект уйдёт подходящим клиентам в бот.'))) m.mutate(); }}>
+          <Button variant="ok" loading={m.isPending} onClick={async () => { if (await confirm(t('Собственник согласен показать квартиру клиентам? Объект уйдёт подходящим клиентам в бот.'))) m.mutate(); }}>
             <Send size={16} />{t('Показать объект клиентам ({n})', { n: d.count })}
           </Button>
           <div className="muted" style={{ fontSize: 12 }}>{t('Нажимайте, когда собственник согласился на показы: объект уйдёт в бот подходящим клиентам с фото из объявления')}</div>
@@ -1255,16 +1265,22 @@ function Republish({ p }: { p: Property }) {
 function DiscountModal({ p, open, onClose }: { p: Property; open: boolean; onClose: () => void }) {
   const { toast, set } = useProp(p.id);
   const [price, setPrice] = useState('');
+  const sale = p.post_fields?.deal === 'Sale';
+  const currentPrice = (sale && p.post_fields?.sale_price) || p.price;
   const m = useMutation({
-    mutationFn: () => api.properties.update(p.id, { price: Number(price), post_fields: { ...(p.post_fields || {}), discount: true } }),
+    mutationFn: () => {
+      const nextPrice = Number(price);
+      const post_fields = { ...p.post_fields, discount: true, ...(sale ? { sale_price: nextPrice } : {}) };
+      return api.properties.update(p.id, { price: nextPrice, post_fields });
+    },
     onSuccess: (r) => { set(r); toast(r.change_request ? t('Новая цена ушла оператору на проверку') : t('Цена снижена · в посте будет #Discount')); onClose(); },
     onError: (e) => toast(errText(e), true),
   });
-  const ok = Number(price) > 0 && Number(price) < Number(p.price || Infinity);
+  const ok = Number(price) > 0 && Number(price) < Number(currentPrice || Infinity);
   return (
     <Modal open={open} onClose={onClose} title={t('Скидка')}>
       <div className="col gap-lg">
-        <Field label={t('Новая цена, $')} hint={t('Сейчас {price}. В посте появится ❗️#Discount', { price: money(p.price, p.currency || 'USD') })}><Input inputMode="numeric" value={price} onChange={(e) => setPrice(e.target.value.replace(/\D/g, ''))} /></Field>
+        <Field label={t('Новая цена, $')} hint={t('Сейчас {price}. В посте появится ❗️#Discount', { price: money(currentPrice, p.currency || 'USD') })}><Input inputMode="numeric" value={price} onChange={(e) => setPrice(e.target.value.replace(/\D/g, ''))} /></Field>
         {(p.locked_fields || []).length > 0 && <div className="alert alert-info" style={{ fontSize: 13 }}>{t('Объект проверен оператором: новая цена уйдёт оператору, он обновит пост в канале.')}</div>}
         <Button block disabled={!ok} loading={m.isPending} onClick={() => m.mutate()}>{t('Снизить цену')}</Button>
       </div>
@@ -1292,6 +1308,7 @@ function PublishedActions({ p, onArchive }: { p: Property; onArchive: (reason: s
 /** «Опубликовать на сайте» / «Снять с сайта»: hge.ge shows a published object with a photo unless staff hid it
  * (backend properties.set_site); the Telegram post is the other button. */
 function SiteButton({ p }: { p: Property }) {
+  const confirm = useConfirm();
   const { toast, set } = useProp(p.id);
   const m = useMutation({
     mutationFn: (on: boolean) => api.properties.site(p.id, on),
@@ -1302,7 +1319,7 @@ function SiteButton({ p }: { p: Property }) {
     ? <Button variant="ok" loading={m.isPending} onClick={() => m.mutate(true)}><Globe size={16} />{t('Опубликовать на сайте')}</Button>
     : <>
       <a className="btn btn-secondary" href={`https://hge.ge/listing/o${p.id}`} target="_blank" rel="noreferrer"><Globe size={16} />{t('На сайте')}</a>
-      <Button variant="ghost" loading={m.isPending} onClick={() => { if (confirm(t('Снять объект с сайта hge.ge? В базе и в Telegram он останется.'))) m.mutate(false); }}>{t('Снять с сайта')}</Button>
+      <Button variant="ghost" loading={m.isPending} onClick={async () => { if (await confirm(t('Снять объект с сайта hge.ge? В базе и в Telegram он останется.'))) m.mutate(false); }}>{t('Снять с сайта')}</Button>
     </>;
 }
 
@@ -1535,6 +1552,7 @@ function OwnerEditModal({ p, open, onClose }: { p: Property; open: boolean; onCl
 
 /** «В архив» with a mandatory reason; «Дубль» deletes the object (its leads and deals move to the original). After verification the agent's archive is a request. */
 function ArchiveModal({ p, open, onClose, preset = '' }: { p: Property; open: boolean; onClose: () => void; preset?: string }) {
+  const confirm = useConfirm();
   const { toast, set } = useProp(p.id);
   const [reason, setReason] = useState(preset);
   const [comment, setComment] = useState('');
@@ -1565,7 +1583,7 @@ function ArchiveModal({ p, open, onClose, preset = '' }: { p: Property; open: bo
         {owner && <>{L.fields}<Field label={t('Цена, $ (необязательно)')}><Input inputMode="numeric" value={price} onChange={(e) => setPrice(e.target.value.replace(/\D/g, ''))} /></Field></>}
         <Field label={reason === 'other' ? t('Комментарий (обязательно)') : t('Комментарий')}><Input value={comment} onChange={(e) => setComment(e.target.value)} /></Field>
         {(p.locked_fields || []).length > 0 && <div className="alert alert-info" style={{ fontSize: 13 }}>{t('Объект проверен оператором: архивация уйдёт оператору на проверку.')}</div>}
-        <Button block disabled={!ok} loading={m.isPending} onClick={() => { if (reason !== 'duplicate' || window.confirm(t('Объект будет удалён как дубль. Это нельзя отменить'))) m.mutate(); }}><Archive size={16} />{(p.locked_fields || []).length ? t('Отправить запрос') : preset ? t('Подтвердить') : t('В архив')}</Button>
+        <Button block disabled={!ok} loading={m.isPending} onClick={async () => { if (reason !== 'duplicate' || await confirm(t('Объект будет удалён как дубль. Это нельзя отменить'))) m.mutate(); }}><Archive size={16} />{(p.locked_fields || []).length ? t('Отправить запрос') : preset ? t('Подтвердить') : t('В архив')}</Button>
       </div>
     </Modal>
   );

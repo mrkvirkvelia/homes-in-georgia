@@ -1,5 +1,6 @@
 // «Посуточная аренда»: one stay — the form, its expenses, the money split and the report for the owner (ApartFlow's
 // booking screen: «Основное / Расходы / Отчёт»).
+import { useConfirm } from '../../components/ActionDialog';
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Copy, Plus, Trash2 } from 'lucide-react';
@@ -38,6 +39,7 @@ export function BookingModal({ open, apt, prefill, onClose }: {
 }
 
 function BookingBody({ b, start, onClose }: { b?: DrBooking; start: Draft; onClose: () => void }) {
+  const confirm = useConfirm();
   const toast = useToast();
   const refresh = useDrInvalidate();
   const qc = useQueryClient();
@@ -90,7 +92,7 @@ function BookingBody({ b, start, onClose }: { b?: DrBooking; start: Draft; onClo
               ? <><Badge tone="ok">✓ Выплачено {cur.paid_out_at ? new Date(cur.paid_out_at).toLocaleDateString('ru-RU') : ''}</Badge>
                   <Button variant="ghost" size="sm" onClick={() => run(dr.pay({ booking_ids: [cur.id], paid: false }).then(() => dr.booking(cur.id)), 'Выплата отменена')}>Отменить</Button></>
               : <Button variant="ok" disabled={cur.calc.owner <= 0} onClick={() => run(dr.pay({ booking_ids: [cur.id] }).then(() => dr.booking(cur.id)), 'Отмечено: выплачено')}>💸 Выплачено владельцу</Button>)}
-            {cur && <Button variant="ghost" onClick={() => { if (confirm('Удалить проживание вместе с его расходами?')) dr.deleteBooking(cur.id).then(() => { refresh(); toast('Удалено'); onClose(); }, (e) => toast(errText(e), true)); }}><Trash2 size={15} />Удалить</Button>}
+            {cur && <Button variant="ghost" onClick={async () => { if (await confirm('Удалить проживание вместе с его расходами?')) dr.deleteBooking(cur.id).then(() => { refresh(); toast('Удалено'); onClose(); }, (e) => toast(errText(e), true)); }}><Trash2 size={15} />Удалить</Button>}
           </div>
         </>
       )}
@@ -106,6 +108,7 @@ function BookingBody({ b, start, onClose }: { b?: DrBooking; start: Draft; onClo
 }
 
 function Expenses({ b, run }: { b: DrBooking; run: (p: Promise<unknown>, ok?: string) => void }) {
+  const confirm = useConfirm();
   const [e, setE] = useState<Partial<DrExpense>>({ category: 'cleaning', currency: 'GEL', payer: 'platform' });
   const ok = Number(e.amount) > 0;
   return (
@@ -118,7 +121,7 @@ function Expenses({ b, run }: { b: DrBooking; run: (p: Promise<unknown>, ok?: st
               <td>{EXP_LABEL[x.category] || x.category}</td><td>{cm(x.amount, x.currency)}</td>
               <td><Select value={x.payer} onChange={(ev) => run(dr.updateExpense(x.id, { payer: ev.target.value as DrExpense['payer'] }))} options={[{ value: 'platform', label: 'Платформа' }, { value: 'owner', label: 'Собственник' }]} /></td>
               <td className="muted">{x.comment}</td>
-              <td><Button size="sm" variant="ghost" aria-label="Удалить" onClick={() => { if (confirm('Удалить расход?')) run(dr.deleteExpense(x.id)); }}><Trash2 size={14} /></Button></td>
+              <td><Button size="sm" variant="ghost" aria-label="Удалить" onClick={async () => { if (await confirm('Удалить расход?')) run(dr.deleteExpense(x.id)); }}><Trash2 size={14} /></Button></td>
             </tr>
           ))}</tbody>
         </table></div>

@@ -1,6 +1,7 @@
 // Управление → Ключи (admin+): one card per service — AI (provider, model, key, balance, real spend per model), Apify
 // (keys, each key's month), MapTiler, other keys. Settings show in full, secrets masked with «Показать» (logged on the
 // server), «Проверить» makes a cheap live call. Backend: /keys, /keys/{name}/value, /keys/{name}/check, /spend.
+import { useConfirm } from '../components/ActionDialog';
 import { useState, type ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Eye, EyeOff, Pencil, Plus, Trash2, Zap } from 'lucide-react';
@@ -72,6 +73,7 @@ function Tile({ label, value, sub }: { label: string; value: ReactNode; sub?: Re
 const tiles = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 10 } as const;
 
 export function KeysPage() {
+  const confirm = useConfirm();
   const qc = useQueryClient();
   const toast = useToast();
   const q = useQuery({ queryKey: ['keys'], queryFn: api.keys.list });
@@ -87,7 +89,7 @@ export function KeysPage() {
   const other = all.filter((k) => ![...AI_KEYS, ...APIFY_KEYS, ...MAP_KEYS].includes(k.name));
   const rows = (ks: IntegrationKey[]) => ks.map((k) => <KeyRow key={k.name} k={k} onEdit={() => setEdit({ name: k.name, value: '' })}
     deleting={del.isPending && del.variables === k.name}
-    onDelete={() => confirm(t('Удалить ключ {name} из CRM? Останется значение с сервера, если оно есть.', { name: k.name })) && del.mutate(k.name)} />);
+    onDelete={async () => await confirm(t('Удалить ключ {name} из CRM? Останется значение с сервера, если оно есть.', { name: k.name })) && del.mutate(k.name)} />);
   const s = sp.data;
   const ai = s?.ai;
   const sumSub = (x: LlmSum) => t('{calls} вызовов · {tokens} токенов', { calls: num(x.calls), tokens: num(x.prompt + x.completion) });

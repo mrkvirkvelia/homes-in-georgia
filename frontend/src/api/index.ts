@@ -253,7 +253,7 @@ export const api = {
     create: (b: Partial<Deal>) => http.post<Deal>('/deals', b),
     get: (id: number) => http.get<Deal>(`/deals/${id}`),
     confirm: (id: number) => http.post<Deal>(`/deals/${id}/confirm`),
-    cancel: (id: number) => http.post<Deal>(`/deals/${id}/cancel`),
+    cancel: (id: number, reason?: string) => http.post<Deal>(`/deals/${id}/cancel`, { reason }),
     expiring: (days = 30) => http.get<L<Deal>>('/deals/expiring', { days }),
     find: (cadastral: string) => http.get<L<Deal>>('/deals/find', { cadastral }),
   },

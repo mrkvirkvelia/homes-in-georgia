@@ -13,7 +13,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
 JSON_KEYS = {"reply_markup", "media", "allowed_updates", "commands", "entities", "caption_entities", "link_preview_options", "menu_button",
-             "results", "button"}
+             "results", "button", "rich_message"}
 BOT_USER = {"id": 7000000001, "is_bot": True, "first_name": "Homes in Georgia AI", "username": "homes_in_georgia_test_bot"}
 
 
@@ -207,7 +207,7 @@ class FakeTelegram:
                 out.append({"message_id": mid, "date": int(time.time()), "chat": {"id": chat, "type": "private", **named}, **kind})
             self.record(method, p, files, message_id=out[0]["message_id"], message_ids=[m["message_id"] for m in out])
             return out
-        if method in ("sendMessage", "sendPhoto", "sendLocation", "sendDocument", "sendVideo"):
+        if method in ("sendMessage", "sendPhoto", "sendLocation", "sendDocument", "sendVideo", "sendRichMessage"):
             mid = self.next_msg_id(chat)
             self.record(method, p, files, message_id=mid)
             return {"message_id": mid, "date": int(time.time()), "chat": {"id": chat, "type": "private", **named}, "from": BOT_USER,

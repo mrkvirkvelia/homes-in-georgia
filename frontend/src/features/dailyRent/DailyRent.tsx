@@ -1,5 +1,6 @@
 // «Посуточная аренда» (ApartFlow inside the CRM, backend api/daily_rent.py): summary and owner payouts, apartments,
 // the «Шахматка» calendar, cleanings and staff, the change journal. superadmin / admin / daily_rent_manager.
+import { useConfirm } from '../../components/ActionDialog';
 import { useMemo, useState } from 'react';
 import { Link, Navigate, Route, Routes, useNavigate } from 'react-router-dom';
 import { useMutation, useQuery } from '@tanstack/react-query';
@@ -102,6 +103,7 @@ function SummaryPage() {
 
 /** ApartFlow's «К выплате»: per apartment, the owner's money of stays not paid yet; «Выплатить всё» marks the ready ones. */
 function Payouts({ s }: { s: Summary }) {
+  const confirm = useConfirm();
   const toast = useToast();
   const refresh = useDrInvalidate();
   const [open, setOpen] = useState<number | null>(null);
@@ -124,9 +126,9 @@ function Payouts({ s }: { s: Summary }) {
                   {Object.keys(p.ready).length > 0 && <Badge tone="warn">к выплате {mix(p.ready)}</Badge>}
                   {Object.keys(p.waiting).length > 0 && <Badge tone="grey" title="Деньги от гостя ещё не получены">ожидается {mix(p.waiting)}</Badge>}
                   {p.ready_count > 0 && (
-                    <Button size="sm" variant="ok" loading={pay.isPending} onClick={(e) => {
+                    <Button size="sm" variant="ok" loading={pay.isPending} onClick={async (e) => {
                       e.stopPropagation();
-                      if (confirm(`Отметить выплаченными ${p.ready_count} прожив. для «${p.apartment.name}»?\n\nСумма собственнику: ${mix(p.ready)}${p.apartment.owner_account ? `\nСчёт: ${p.apartment.owner_account}` : ''}`)) pay.mutate({ apartment_id: p.apartment.id });
+                      if (await confirm(`Отметить выплаченными ${p.ready_count} прожив. для «${p.apartment.name}»?\n\nСумма собственнику: ${mix(p.ready)}${p.apartment.owner_account ? `\nСчёт: ${p.apartment.owner_account}` : ''}`)) pay.mutate({ apartment_id: p.apartment.id });
                     }}>💸 Выплатить всё</Button>
                   )}
                 </span>
@@ -187,6 +189,7 @@ function ApartmentsPage() {
 }
 
 function CleaningPage() {
+  const confirm = useConfirm();
   const data = useDrData();
   const q = useQuery({ queryKey: ['dr', 'cleanings'], queryFn: dr.cleanings });
   const toast = useToast();
@@ -212,7 +215,7 @@ function CleaningPage() {
               <tbody>{q.data!.items.map((x) => (
                 <tr key={x.id}><td>{dm(x.date)}</td><td>{names.get(x.apartment_id)}</td><td>{x.cleaner}</td>
                   <td>{x.hours ?? '—'}{x.started_at ? <small className="muted"> {x.started_at}–{x.finished_at}</small> : null}</td><td>{cm(x.amount, 'GEL')}</td>
-                  <td><Button size="sm" variant="ghost" aria-label="Удалить" onClick={() => { if (confirm('Удалить уборку?')) run(dr.deleteCleaning(x.id), 'Удалено'); }}><Trash2 size={14} /></Button></td></tr>
+                  <td><Button size="sm" variant="ghost" aria-label="Удалить" onClick={async () => { if (await confirm('Удалить уборку?')) run(dr.deleteCleaning(x.id), 'Удалено'); }}><Trash2 size={14} /></Button></td></tr>
               ))}</tbody>
             </table></div>
           )}

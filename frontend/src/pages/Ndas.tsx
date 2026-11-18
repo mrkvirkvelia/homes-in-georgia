@@ -1,5 +1,6 @@
 // /ndas (staff; no menu item — Управление → Пользователи → «Соглашение (NDA)»): the agreement for new agents (its common text: editions, NdaTextEditor below) (backend services/nda.py, docs/NDA.md). David draws the company's signature once;
 // staff fill in the agent and send him the personal link /nda/<token>; he confirms himself with Telegram and signs.
+import { useConfirm } from '../components/ActionDialog';
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -195,6 +196,7 @@ function TableEdit({ b, langs, onCell, onRows }: { b: Block; langs: Ln[]; onCell
 }
 
 function NdaTextEditor({ mode, onClose }: { mode: Mode; onClose: () => void }) {
+  const confirm = useConfirm();
   const toast = useToast();
   const qc = useQueryClient();
   const n = mode.kind === 'nda' ? mode.n : null;
@@ -245,12 +247,12 @@ function NdaTextEditor({ mode, onClose }: { mode: Mode; onClose: () => void }) {
   // «Перевод готов»: the shown languages count as done (a typo fixed in one language needs no new translation)
   const translated = (b: Block) => patch(b._id!, (x) => ({ ...x, todo: (x.todo || []).filter((l) => !langs.includes(l)), _ch: x._ch?.length ? [...new Set([...x._ch, ...langs])] : x._ch }));
   const add = (after: Block) => { setDirty(true); setBlocks((bs) => { const i = bs!.findIndex((b) => b._id === after._id); const nb: Block = { k: after.k === 'h' ? 'n' : after.k === 't' ? 'p' : after.k, n: '', ka: '', ru: '', en: '', todo: [...ALL], _id: ++uid }; return [...bs!.slice(0, i + 1), nb, ...bs!.slice(i + 1)]; }); };
-  const remove = (b: Block) => { if (window.confirm(t(n ? 'Удалить «{n}» из этого соглашения?' : 'Удалить «{n}» из общего текста?', { n: b.n || (b.ka || '').slice(0, 40) }))) { setDirty(true); setBlocks((bs) => bs!.filter((x) => x._id !== b._id)); } };
-  const submit = () => {
-    if (todo.length && !window.confirm(t('Не переведено пунктов: {n} ({list}). Всё равно сохранить?', { n: todo.length, list: todo.slice(0, 6).map((b) => b.n || KIND[b.k]).join(', ') }))) return;
+  const remove = async (b: Block) => { if (await confirm(t(n ? 'Удалить «{n}» из этого соглашения?' : 'Удалить «{n}» из общего текста?', { n: b.n || (b.ka || '').slice(0, 40) }))) { setDirty(true); setBlocks((bs) => bs!.filter((x) => x._id !== b._id)); } };
+  const submit = async () => {
+    if (todo.length && !await confirm(t('Не переведено пунктов: {n} ({list}). Всё равно сохранить?', { n: todo.length, list: todo.slice(0, 6).map((b) => b.n || KIND[b.k]).join(', ') }))) return;
     save.mutate(false);
   };
-  const close = () => { if (!dirty || window.confirm(t('Закрыть без сохранения? Правки пропадут.'))) onClose(); };
+  const close = async () => { if (!dirty || await confirm(t('Закрыть без сохранения? Правки пропадут.'))) onClose(); };
   const needle = find.trim().toLowerCase();
   const text = (b: Block) => [b.n, ...ALL.map((l) => b[l]), ...[...(b.head || []), ...(b.rows || []).flat()].flatMap((c) => ALL.map((l) => c[l]))];
   const visible = (blocks || []).filter((b) => fits(b) && (!needle || text(b).some((x) => (x || '').toLowerCase().includes(needle))));
@@ -308,7 +310,7 @@ function NdaTextEditor({ mode, onClose }: { mode: Mode; onClose: () => void }) {
             <Button disabled={!n && !dirty} loading={save.isPending && !save.variables} onClick={submit}><Save size={16} />{n ? t('Сохранить текст') : t('Сохранить как новую редакцию')}</Button>
             {!n && <Select value={pvLang} onChange={(e) => setPvLang(e.target.value)} options={LANGS} style={{ width: 'auto' }} aria-label={t('Язык предпросмотра')} />}
             <Button variant="secondary" loading={show.isPending} onClick={() => show.mutate()}><Eye size={16} />{t('Предпросмотр')}</Button>
-            {n && (d?.edited || behind) && <Button variant="ghost" loading={save.isPending && !!save.variables} onClick={() => { if (window.confirm(t('Сделать текст заново по общему тексту (ред. {ed})? Правки этого соглашения пропадут, открытая ссылка попросит агента обновить страницу.', { ed: d?.current ?? '' }))) save.mutate(true); }}><RotateCcw size={16} />{t('По общему тексту (ред. {ed})', { ed: d?.current ?? '' })}</Button>}
+            {n && (d?.edited || behind) && <Button variant="ghost" loading={save.isPending && !!save.variables} onClick={async () => { if (await confirm(t('Сделать текст заново по общему тексту (ред. {ed})? Правки этого соглашения пропадут, открытая ссылка попросит агента обновить страницу.', { ed: d?.current ?? '' }))) save.mutate(true); }}><RotateCcw size={16} />{t('По общему тексту (ред. {ed})', { ed: d?.current ?? '' })}</Button>}
             <Button variant="ghost" onClick={close}>{t('Закрыть')}</Button>
           </div>
         </div>
@@ -342,6 +344,7 @@ function TgSend({ n, label }: { n: Nda; label?: string }) {
 const MISSING: Record<string, string> = { personal_id: 'личный номер', last_name: 'фамилия', ie: 'ИП', phone: 'телефон', email: 'email' };
 
 function Team({ onForm }: { onForm: (p: Preset) => void }) {
+  const confirm = useConfirm();
   const toast = useToast();
   const qc = useQueryClient();
   const q = useQuery({ queryKey: ['nda-team'], queryFn: () => http.get<{ items: Member[]; signed: number; total: number }>('/ndas/team') });
@@ -360,7 +363,7 @@ function Team({ onForm }: { onForm: (p: Preset) => void }) {
     <Card label={q.data ? t('Подписали {signed} из {total}', { signed: q.data.signed, total: q.data.total }) : t('Команда')} title={t('В команде без подписанного соглашения')}>
       {q.isLoading ? <Loading /> : rows.length === 0 ? <Empty text={t('Все в команде подписали соглашение')} icon={<ShieldCheck size={22} />} /> : (
         <div className="col gap-sm">
-          {ready > 0 && <div><Button variant="secondary" loading={all.isPending} onClick={() => { if (window.confirm(t('Сформировать соглашения из профилей и отправить в Telegram: {n} чел. (у кого профиль заполнен и соглашения ещё нет)?', { n: ready }))) all.mutate(); }}><Send size={16} />{t('Сформировать и отправить всем, у кого профиль заполнен ({n})', { n: ready })}</Button></div>}
+          {ready > 0 && <div><Button variant="secondary" loading={all.isPending} onClick={async () => { if (await confirm(t('Сформировать соглашения из профилей и отправить в Telegram: {n} чел. (у кого профиль заполнен и соглашения ещё нет)?', { n: ready }))) all.mutate(); }}><Send size={16} />{t('Сформировать и отправить всем, у кого профиль заполнен ({n})', { n: ready })}</Button></div>}
           {rows.map((r) => (
             <div key={r.user_id} className="card card-pad row row-between row-wrap gap-sm" style={{ padding: 12 }}>
               <span className="col" style={{ gap: 2 }}>
@@ -388,6 +391,7 @@ function Team({ onForm }: { onForm: (p: Preset) => void }) {
 }
 
 function CommonText({ onEdit }: { onEdit: () => void }) {
+  const confirm = useConfirm();
   const { user } = useAuth();
   const toast = useToast();
   const qc = useQueryClient();
@@ -422,7 +426,7 @@ function CommonText({ onEdit }: { onEdit: () => void }) {
                   {h.changes.length > 0 && <span className="muted"> · {t('пункты: {list}', { list: h.changes.slice(0, 12).join(', ') + (h.changes.length > 12 ? ' …' : '') })}</span>}
                   {h.note && <span className="muted"> · «{h.note}»</span>}
                 </span>
-                {admin && h.edition !== d.edition && <Button size="sm" variant="ghost" loading={back.isPending && back.variables?.edition === h.edition} onClick={() => { if (window.confirm(t('Вернуть текст редакции {ed}? Это будет новая редакция {next}; уже отправленные соглашения не изменятся.', { ed: h.edition, next: d.next }))) back.mutate(h); }}><RotateCcw size={14} />{h.default ? t('Вернуть исходный текст') : t('Вернуть')}</Button>}
+                {admin && h.edition !== d.edition && <Button size="sm" variant="ghost" loading={back.isPending && back.variables?.edition === h.edition} onClick={async () => { if (await confirm(t('Вернуть текст редакции {ed}? Это будет новая редакция {next}; уже отправленные соглашения не изменятся.', { ed: h.edition, next: d.next }))) back.mutate(h); }}><RotateCcw size={14} />{h.default ? t('Вернуть исходный текст') : t('Вернуть')}</Button>}
               </div>
             ))}
             {d.history.length > 4 && <div><Button size="sm" variant="ghost" onClick={() => setAll(!all)}>{all ? t('Свернуть') : t('Все редакции ({n})', { n: d.history.length })}</Button></div>}
@@ -436,6 +440,7 @@ function CommonText({ onEdit }: { onEdit: () => void }) {
 const TABS = [{ value: 'sent', label: 'Ждут подписи' }, { value: 'signed', label: 'Подписаны' }, { value: 'all', label: 'Все' }] as const;
 
 export function NdasPage() {
+  const confirm = useConfirm();
   const toast = useToast();
   const { user } = useAuth();
   const admin = !!user && ['superadmin', 'admin'].includes(user.role);
@@ -447,7 +452,12 @@ export function NdasPage() {
   const q = useQuery({ queryKey: ['ndas', tab], queryFn: () => http.get<{ items: Nda[]; total: number }>('/ndas', { status: tab, limit: 100 }) });
   const cancel = useMutation({
     mutationFn: (id: number) => http.post<Nda>(`/ndas/${id}/cancel`),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['ndas'] }); toast('Соглашение отменено, ссылка больше не работает'); },
+    onSuccess: (_, id) => {
+      setMade((current) => current?.id === id ? null : current);
+      qc.invalidateQueries({ queryKey: ['ndas'] });
+      qc.invalidateQueries({ queryKey: ['nda-team'] });
+      toast('Соглашение отменено, ссылка больше не работает');
+    },
     onError: (e) => toast(errText(e), true),
   });
   const pdf = async (n: Nda, amended = false) => {
@@ -493,7 +503,7 @@ export function NdasPage() {
                   {n.status === 'sent' && <TgSend n={n} />}
                   {n.status === 'sent' && <LinkActions n={n} />}
                   {n.status === 'sent' && admin && <Button size="sm" variant="ghost" onClick={() => setEditing({ kind: 'nda', n })}><FileText size={14} />{t('Текст')}</Button>}
-                  {n.status === 'sent' && <Button size="sm" variant="ghost" loading={cancel.isPending} onClick={() => { if (window.confirm(`Отменить соглашение для ${n.full_name}? Ссылка перестанет работать.`)) cancel.mutate(n.id); }}><XCircle size={14} />Отменить</Button>}
+                  {n.status === 'sent' && <Button size="sm" variant="ghost" loading={cancel.isPending} onClick={async () => { if (await confirm(`Отменить соглашение для ${n.full_name}? Ссылка перестанет работать.`)) cancel.mutate(n.id); }}><XCircle size={14} />Отменить</Button>}
                   {n.status === 'signed' && !n.details?.superseded_by && <Button size="sm" variant="ghost" onClick={() => { setPreset(fromSigned(n)); document.getElementById('nda-form')?.scrollIntoView({ behavior: 'smooth' }); }}><FileText size={14} />{t('Исправить')}</Button>}
                   {n.has_pdf && <Button size="sm" variant="secondary" onClick={() => pdf(n).catch((e) => toast(errText(e), true))}><Download size={14} />PDF</Button>}
                   {n.details?.ie_amended && <Button size="sm" variant="secondary" title={t('Подписанное соглашение + дополнение: номер ИП {ie} из профиля', { ie: n.details.ie_amended.ie })} onClick={() => pdf(n, true).catch((e) => toast(errText(e), true))}><Download size={14} />{t('PDF + ИП')}</Button>}

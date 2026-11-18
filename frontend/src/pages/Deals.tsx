@@ -6,12 +6,14 @@ import { CheckCircle2, FileText, Plus, XCircle } from 'lucide-react';
 import { api } from '../api';
 import { itemsOf } from '../api/client';
 import type { Deal } from '../api/types';
-import { FIELD_FILTER } from '../api/types';
+import { FIELD_FILTER, atLeast } from '../api/types';
 import { useAuth } from '../auth/AuthContext';
+import { useActionDialog } from '../components/ActionDialog';
 import { errText, useToast } from '../components/toast';
 import { Badge, Button, Card, Drawer, Empty, ErrorBox, Field, KV, Loading, PageHead, Seg, Select, Stat, Switch, Tabs, Textarea } from '../components/ui';
 import { DealForm, H2O } from '../features/deals/DealForm';
 import { fmtDate, fmtDateTime, lastMonths, money, monthKey, monthLabel } from '../lib/format';
+import { t } from '../lib/i18n';
 import { useUserNames } from '../lib/useUserNames';
 
 const STATUS: Record<string, string> = { pending: 'Ждёт подтверждения', confirmed: 'Подтверждена', cancelled: 'Отменена' };
@@ -52,7 +54,8 @@ function EvalForm({ deal, kind, onDone }: { deal: Deal; kind: 't0' | 't14'; onDo
 }
 
 export function DealView({ id, onClose, initialEval }: { id: number; onClose: () => void; initialEval?: 't0' | 't14' | null }) {
-  const { isStaff } = useAuth();
+  const { user, isStaff } = useAuth();
+  const ask = useActionDialog();
   const loc = useLocation();
   const qc = useQueryClient();
   const toast = useToast();
@@ -62,9 +65,27 @@ export function DealView({ id, onClose, initialEval }: { id: number; onClose: ()
   const nameOf = useUserNames();
   const refresh = () => { qc.invalidateQueries({ queryKey: ['deal', id] }); qc.invalidateQueries({ queryKey: ['deals'] }); qc.invalidateQueries({ queryKey: ['evals', id] }); };
   const confirm = useMutation({ mutationFn: () => api.deals.confirm(id), onSuccess: () => { refresh(); qc.invalidateQueries({ queryKey: ['lead'] }); qc.invalidateQueries({ queryKey: ['leads'] }); toast('Сделка подтверждена'); }, onError: (e) => toast(errText(e), true) });
-  const cancel = useMutation({ mutationFn: () => api.deals.cancel(id), onSuccess: () => { refresh(); toast('Сделка отменена'); onClose(); }, onError: (e) => toast(errText(e), true) });
+  const cancel = useMutation({
+    mutationFn: (reason: string) => api.deals.cancel(id, reason || undefined),
+    onSuccess: () => {
+      refresh();
+      qc.invalidateQueries({ queryKey: ['lead'] });
+      qc.invalidateQueries({ queryKey: ['leads'] });
+      qc.invalidateQueries({ queryKey: ['property', d?.property_id] });
+      qc.invalidateQueries({ queryKey: ['properties'] });
+      qc.invalidateQueries({ queryKey: ['contracts'] });
+      toast(t('Сделка отменена'));
+      onClose();
+    },
+    onError: (e) => toast(errText(e), true),
+  });
   if (error) return <ErrorBox error={error} />;
   if (isLoading || !d) return <Loading />;
+  const canCancel = isStaff ? d.status !== 'cancelled' : atLeast(user, 'agent') && user?.id === d.agent_id && d.status === 'pending';
+  const cancelDeal = async () => {
+    const reason = await ask(t('Отменить сделку?'), { label: t('Причина отмены'), required: !isStaff });
+    if (reason !== null) cancel.mutate(reason.trim());
+  };
   return (
     <div className="col gap-lg">
       <div className="row row-between"><DealStatusBadge s={d.status} />{d.is_exclusive && <Badge tone="solid">эксклюзив</Badge>}</div>
@@ -89,10 +110,10 @@ export function DealView({ id, onClose, initialEval }: { id: number; onClose: ()
         ['Создана', fmtDateTime(d.created_at)], ['Заявка', d.lead_id ? `#${d.lead_id}` : '—'],
       ]} />
       <Link to={`${loc.pathname.startsWith('/m/') ? '/m' : ''}/contracts?${d.lead_id ? `lead_id=${d.lead_id}` : `deal_id=${d.id}`}`} className="btn btn-secondary"><FileText size={16} />Подготовить договор</Link>
-      {isStaff && d.status === 'pending' && (
+      {((isStaff && d.status === 'pending') || canCancel) && (
         <div className="row row-wrap">
-          <Button variant="ok" loading={confirm.isPending} disabled={!!d.property?.needs_check} onClick={() => confirm.mutate()}><CheckCircle2 size={16} />Подтвердить сделку</Button>
-          <Button variant="danger" loading={cancel.isPending} onClick={() => cancel.mutate()}><XCircle size={16} />Отменить</Button>
+          {isStaff && d.status === 'pending' && <Button variant="ok" loading={confirm.isPending} disabled={!!d.property?.needs_check || cancel.isPending} onClick={() => confirm.mutate()}><CheckCircle2 size={16} />Подтвердить сделку</Button>}
+          {canCancel && <Button variant="danger" loading={cancel.isPending} disabled={confirm.isPending} onClick={cancelDeal}><XCircle size={16} />{t('Отменить')}</Button>}
         </div>
       )}
       <Card label="Оценки" title="День 0 / День 14" actions={<>

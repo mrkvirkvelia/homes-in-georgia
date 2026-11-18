@@ -1,6 +1,7 @@
 // Stored contracts (backend services/contracts.py): the list, one contract with its PDF and lifecycle actions.
 // PDF: open in the browser's viewer (Telegram: the expiring share link in the external browser), download.
 // No «Поделиться» (Irakli 11-13): the parties get the contract via the e-sign links or «Отправить клиенту в Telegram».
+import { useConfirm } from '../../components/ActionDialog';
 import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -88,6 +89,7 @@ export function ContractActions({ c, onChange }: { c: Contract; onChange: (c: Co
 /** «Отправить клиенту в Telegram» (11-13): the PDF + the registry extract from the operator's account (userbot), only on
  *  this click; to the lead's client, or to the @username / phone the agent types. A re-send asks first. */
 function SendToClient({ c, onChange }: { c: Contract; onChange: (c: Contract) => void }) {
+  const confirm = useConfirm();
   const toast = useToast();
   const [edit, setEdit] = useState(false);
   const [to, setTo] = useState('');
@@ -98,9 +100,9 @@ function SendToClient({ c, onChange }: { c: Contract; onChange: (c: Contract) =>
     onSuccess: (x) => { onChange(x); setEdit(false); toast(t('Договор отправлен клиенту: {to}', { to: x.sent_to_client?.to ?? '' })); },
     onError: (e) => toast(errText(e), true),
   });
-  const go = () => {
+  const go = async () => {
     if (manual && !to.trim()) { toast(t('Укажите @username в Telegram или телефон клиента'), true); return; }
-    if (sent && !window.confirm(t('Договор уже отправлен клиенту {at} ({to}). Отправить ещё раз?', { at: fmtDateTime(sent.at), to: sent.to }))) return;
+    if (sent && !await confirm(t('Договор уже отправлен клиенту {at} ({to}). Отправить ещё раз?', { at: fmtDateTime(sent.at), to: sent.to }))) return;
     m.mutate();
   };
   return (
@@ -126,6 +128,7 @@ function SendToClient({ c, onChange }: { c: Contract; onChange: (c: Contract) =>
 /** Electronic signing (backend services/esign.py): a personal link for the owner and one for the tenant; when both
  *  have signed, the signed PDF replaces the draft and the contract becomes «Договор подписан» by itself. */
 function ESignBlock({ c, onChange }: { c: Contract; onChange: (c: Contract) => void }) {
+  const confirm = useConfirm();
   const toast = useToast();
   const tg = insideTelegram();
   const es = c.esign;
@@ -185,8 +188,8 @@ function ESignBlock({ c, onChange }: { c: Contract; onChange: (c: Contract) => v
       {c.status === 'draft' && (
         <>
           <p className="muted" style={{ fontSize: 12, margin: 0 }}>{t('Ссылки личные: каждая сторона видит договор, вводит ФИО, личный номер, телефон и расписывается. Собственник получает сообщение и страницу на грузинском, арендатор — на английском (язык на странице можно переключить). Правка текста отменяет неподписанные ссылки.')}</p>
-          <Button size="sm" variant="ghost" style={{ alignSelf: 'flex-start' }} loading={m.isPending} onClick={() => {
-            if (window.confirm(es.signers.some((s) => s.signed_at) ? t('Отменить подписание? Уже данные подписи будут удалены.') : t('Отменить ссылки на подпись?'))) m.mutate(() => api.contracts.esignCancel(c.id));
+          <Button size="sm" variant="ghost" style={{ alignSelf: 'flex-start' }} loading={m.isPending} onClick={async () => {
+            if (await confirm(es.signers.some((s) => s.signed_at) ? t('Отменить подписание? Уже данные подписи будут удалены.') : t('Отменить ссылки на подпись?'))) m.mutate(() => api.contracts.esignCancel(c.id));
           }}><XCircle size={14} />{t('Отменить подписание')}</Button>
         </>
       )}

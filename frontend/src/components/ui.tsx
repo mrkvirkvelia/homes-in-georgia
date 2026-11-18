@@ -11,7 +11,7 @@ export function Button({ variant = 'primary', size, block, loading, children, cl
   ButtonHTMLAttributes<HTMLButtonElement> & { variant?: BtnVariant; size?: 'sm' | 'lg'; block?: boolean; loading?: boolean }) {
   const cls = ['btn', variant !== 'primary' && `btn-${variant}`, size && `btn-${size}`, block && 'btn-block', className].filter(Boolean).join(' ');
   return (
-    <button type="button" className={cls} disabled={loading || rest.disabled} {...rest}>
+    <button type="button" className={cls} {...rest} disabled={loading || rest.disabled}>
       {loading ? <span className="spinner" style={{ width: 16, height: 16, borderWidth: 2 }} /> : null}
       {children}
     </button>
@@ -51,13 +51,14 @@ export function Stat({ label, value, sub, blue, icon }: { label: string; value: 
   );
 }
 
-export function Field({ label, children, className = '', hint }: { label: string; children: ReactNode; className?: string; hint?: ReactNode }) {
+export function Field({ label, children, className = '', hint, group = false }: { label: string; children: ReactNode; className?: string; hint?: ReactNode; group?: boolean }) {
+  const Container = group ? 'div' : 'label';
   return (
-    <label className={`field ${className}`}>
+    <Container className={`field ${className}`} role={group ? 'group' : undefined} aria-label={group ? label : undefined}>
       <span className="label">{label}</span>
       {children}
       {hint && <span className="faint" style={{ fontSize: 12 }}>{hint}</span>}
-    </label>
+    </Container>
   );
 }
 /** inputMode="tel" (the phoneInput fields): «+995 » appears on focus, a bare one is cleared on blur */

@@ -1,3 +1,4 @@
+import { useConfirm } from '../components/ActionDialog';
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ChevronDown, ChevronUp, Copy, FilePen, Plus, Send, ShieldCheck, Trash2, UserPlus } from 'lucide-react';
@@ -139,6 +140,7 @@ function InviteForm({ onDone }: { onDone: () => void }) {
 }
 
 function Invites() {
+  const confirm = useConfirm();
   const qc = useQueryClient();
   const toast = useToast();
   const [shown, setShown] = useState<Invite | null>(null);
@@ -161,7 +163,7 @@ function Invites() {
               <td className="hide-mobile muted">{fmtDateTime(i.used_at || i.expires_at)}</td>
               <td>{i.status === 'pending' && <div className="row gap-sm">
                 <Button variant="secondary" size="sm" onClick={() => setShown(i)}>{t('Ссылка')}</Button>
-                <Button variant="ghost" size="sm" loading={revoke.isPending && revoke.variables === i.id} onClick={() => confirm(t('Отозвать приглашение? Ссылка перестанет работать')) && revoke.mutate(i.id)}>{t('Отозвать')}</Button>
+                <Button variant="ghost" size="sm" loading={revoke.isPending && revoke.variables === i.id} onClick={async () => await confirm(t('Отозвать приглашение? Ссылка перестанет работать')) && revoke.mutate(i.id)}>{t('Отозвать')}</Button>
               </div>}</td>
             </tr>))}
           </tbody>
@@ -173,6 +175,7 @@ function Invites() {
 }
 
 function Users() {
+  const confirm = useConfirm();
   const [role, setRole] = useState('');
   const [open, setOpen] = useState<User | 'new' | null>(null);
   const [inviting, setInviting] = useState(false);
@@ -205,7 +208,7 @@ function Users() {
                   <td onClick={(e) => e.stopPropagation()}><div className="row" style={{ gap: 6, flexWrap: 'nowrap' }}>
                     <Switch checked={u.is_active} onChange={() => toggle.mutate(u)} />
                     {!u.is_active && u.role !== 'superadmin' && <Button size="sm" variant="ghost" aria-label={t('Удалить')} title={t('Удалить')} loading={remove.isPending && remove.variables?.id === u.id}
-                      onClick={() => confirm(t('Удалить {name}? Пропадёт из списков, его объекты перейдут Платформе. Сделки и история останутся.', { name: u.name })) && remove.mutate(u)}><Trash2 size={14} /></Button>}
+                      onClick={async () => await confirm(t('Удалить {name}? Пропадёт из списков, его объекты перейдут Платформе. Сделки и история останутся.', { name: u.name })) && remove.mutate(u)}><Trash2 size={14} /></Button>}
                   </div></td>
                 </tr>);
   return (
@@ -385,6 +388,7 @@ const METRICS: [string, string][] = [['deals', t('Сделки')], ['platform', 
 
 /** The operator's Telegram account for the userbot (DMs with clients, slot cards): log in by a QR code from here. */
 function OperatorAccount() {
+  const confirm = useConfirm();
   const qc = useQueryClient();
   const toast = useToast();
   const [pw, setPw] = useState('');
@@ -406,7 +410,7 @@ function OperatorAccount() {
     <div className="col gap-sm">
       <div>{t('Подключён:')} <b>{st.me.name}</b>{st.me.username && <span className="muted"> @{st.me.username}</span>}</div>
       <div className="muted" style={{ fontSize: 12 }}>{t('С этого аккаунта уходят сообщения клиентам и карточки времени просмотра, его входящие попадают в заявки.')}</div>
-      <div><Button variant="secondary" loading={logout.isPending} onClick={() => { if (confirm(t('Отключить аккаунт оператора? Сеанс завершится в Telegram, сообщения клиентам перестанут уходить.'))) logout.mutate(); }}>{t('Отключить')}</Button></div>
+      <div><Button variant="secondary" loading={logout.isPending} onClick={async () => { if (await confirm(t('Отключить аккаунт оператора? Сеанс завершится в Telegram, сообщения клиентам перестанут уходить.'))) logout.mutate(); }}>{t('Отключить')}</Button></div>
     </div>
   );
   else if (l === 'qr' && st.login?.qr_svg) body = (

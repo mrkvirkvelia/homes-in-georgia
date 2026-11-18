@@ -1,4 +1,5 @@
 // Funnel 1 lists: new listings (C1), kanban (by status), my objects. Shared by desktop and /m.
+import { useConfirm } from '../../components/ActionDialog';
 import { createContext, useContext, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -112,6 +113,7 @@ export function CompetitorListings({ base = '' }: { base?: string }) {
 }
 
 function RentListings({ base = '', competitor = false }: { base?: string; competitor?: boolean }) {
+  const confirm = useConfirm();
   const pk = competitor ? 'rival' : 'feed';
   const [f, setF0] = usePageState<ListingFilter>(`${pk}-filter`, { q: '', flag: '' });
   const [limit, setLimit] = usePageState(`${pk}-limit`, PAGE);
@@ -198,7 +200,7 @@ function RentListings({ base = '', competitor = false }: { base?: string; compet
                     <div className="row">
                       <Button size="sm" variant="secondary" block disabled={lockedByOther} onClick={() => setAgentFor(l.id)}>{t('Агент')}</Button>
                       <Button size="sm" variant="secondary" block disabled={lockedByOther} loading={dismiss.isPending && dismiss.variables === l.id}
-                        onClick={() => { if (window.confirm(t('Объявление удалено или неактуально? Оно уйдёт из ленты.'))) dismiss.mutate(l.id); }}>{t('Неактуально')}</Button>
+                        onClick={async () => { if (await confirm(t('Объявление удалено или неактуально? Оно уйдёт из ленты.'))) dismiss.mutate(l.id); }}>{t('Неактуально')}</Button>
                     </div>
                   </div>
                 } />
@@ -371,6 +373,7 @@ const WHO: PropertyStatus[] = ['owner_confirmed', 'agent_marked'];
  * shoot date, photos, operator's review) open the object card; any other move is refused with a toast.
  * Agents: «Опубликован» is collapsed until «Показать» (it only grows and clutters the working columns). */
 export function PropertyBoard({ base = '', statusBar }: { base?: string; statusBar?: boolean }) {
+  const confirm = useConfirm();
   const deal = useDeal();
   const { data, isLoading, error } = useQuery({ queryKey: ['properties', 'board', deal], queryFn: () => api.properties.board(deal), refetchInterval: 30_000 });
   const { isStaff } = useAuth();
@@ -437,7 +440,7 @@ export function PropertyBoard({ base = '', statusBar }: { base?: string; statusB
               {(s === 'published' || s === 'rented') && items.length > 0 && (!collapsed) && (
                 <Button size="sm" variant="ghost" block disabled={hide.isPending}
                   title={t('Объекты остаются в канале, боте и списках; карточка вернётся на доску при смене статуса')}
-                  onClick={() => { if (confirm(t('Убрать с доски все карточки «{s}» ({n})? Объекты останутся в канале, боте и списках.', { s: PROPERTY_STATUS[s], n: items.length }))) hide.mutate(s); }}>
+                  onClick={async () => { if (await confirm(t('Убрать с доски все карточки «{s}» ({n})? Объекты останутся в канале, боте и списках.', { s: PROPERTY_STATUS[s], n: items.length }))) hide.mutate(s); }}>
                   <Archive size={14} />{t('Убрать с доски')}
                 </Button>
               )}

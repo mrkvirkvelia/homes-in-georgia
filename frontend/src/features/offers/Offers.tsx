@@ -1,6 +1,7 @@
 // «Авто»: hge.ge's cars (backend api/offers.py, services/offers.py). Sales are objects now («Объекты» → Продажа).
 // The form follows the rent objects' generator (chips, the place on the map); photos and video sort and open as on an
 // object (MediaGrid + Lightbox); one «Опубликовать» to the checked targets: the site and / or Telegram (Stanislav 11-15).
+import { useConfirm } from '../../components/ActionDialog';
 import { useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -133,6 +134,7 @@ function CarForm({ d, set }: { d: Draft; set: (patch: Draft) => void }) {
 
 /** Photos and video as on an object: up to 9 photos + 1 video, drag to sort, a tap opens the Lightbox. */
 function Media({ o, onChange }: { o: Offer; onChange: (o: Offer) => void }) {
+  const confirm = useConfirm();
   const toast = useToast();
   const file = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState<Record<number, number>>({});
@@ -160,7 +162,7 @@ function Media({ o, onChange }: { o: Offer; onChange: (o: Offer) => void }) {
         {pending.length > 0 && <div className="muted" style={{ fontSize: 12 }}>Загружаем: {pending.map((p) => `${p}%`).join(' · ')}</div>}
         <MediaGrid items={shots(o)} grouped
           onOrder={(ids) => run(api.offers.order(KIND, o.id, ids.map(String).filter((k) => k !== o.video)))}
-          onDelete={(k) => { if (confirm('Удалить файл?')) run(api.offers.deleteFile(KIND, o.id, String(k))); }} />
+          onDelete={async (k) => { if (await confirm('Удалить файл?')) run(api.offers.deleteFile(KIND, o.id, String(k))); }} />
       </div>
     </Card>
   );
@@ -169,6 +171,7 @@ function Media({ o, onChange }: { o: Offer; onChange: (o: Offer) => void }) {
 /** Where the car is (site / Telegram) and one «Опубликовать» to the checked targets; the post text and its files picked
  * as on an object (drag, the checkbox, a tap opens it). Telegram: operators, as for objects. */
 function Publish({ o, dirty, onChange }: { o: Offer; dirty: boolean; onChange: (o: Offer) => void }) {
+  const confirm = useConfirm();
   const toast = useToast();
   const { isStaff } = useAuth();
   const post = useQuery({ queryKey: ['offer-post', KIND, o.id, o.updated_at], queryFn: () => api.offers.post(KIND, o.id) });
@@ -203,7 +206,7 @@ function Publish({ o, dirty, onChange }: { o: Offer; dirty: boolean; onChange: (
           {o.public ? <a href={siteUrl(o)} target="_blank" rel="noreferrer"><Badge tone="ok">на сайте hge.ge</Badge></a> : <Badge tone={SITE[o.status][1]}>{SITE[o.status][0]}</Badge>}
           {o.post_url ? <a href={o.post_url} target="_blank" rel="noreferrer"><Badge tone="ok">в Telegram</Badge></a> : <Badge tone="grey">нет поста в Telegram</Badge>}
           {o.status === 'published' && <Button size="sm" variant="ghost" loading={status.isPending} onClick={() => status.mutate('draft')}>Снять с сайта</Button>}
-          {o.status !== 'archived' && <Button size="sm" variant="ghost" loading={status.isPending} onClick={() => { if (confirm('Убрать в архив? С сайта пропадёт.')) status.mutate('archived'); }}>В архив</Button>}
+          {o.status !== 'archived' && <Button size="sm" variant="ghost" loading={status.isPending} onClick={async () => { if (await confirm('Убрать в архив? С сайта пропадёт.')) status.mutate('archived'); }}>В архив</Button>}
         </div>
         {dirty && <div className="alert alert-warn">Есть несохранённые правки — сначала «Сохранить».</div>}
         {noPhoto && <div className="alert alert-warn">Чтобы опубликовать, добавьте хотя бы одно фото.</div>}
@@ -225,7 +228,7 @@ function Publish({ o, dirty, onChange }: { o: Offer; dirty: boolean; onChange: (
         )}
         <PublishTargets site={toSite} tg={tg} onSite={setToSite} onTg={setToTg} tgLocked={isStaff ? undefined : 'В Telegram публикует оператор'} />
         <Button variant="ok" size="lg" loading={publish.isPending} disabled={dirty || noPhoto || (!toSite && !tg) || (tg && !picked.length)}
-          onClick={() => { if (!tg || !o.post_url || confirm('Пост уже есть в канале. Опубликовать ещё раз?')) publish.mutate(); }}>
+          onClick={async () => { if (!tg || !o.post_url || await confirm('Пост уже есть в канале. Опубликовать ещё раз?')) publish.mutate(); }}>
           <Send size={18} />Опубликовать
         </Button>
       </div>

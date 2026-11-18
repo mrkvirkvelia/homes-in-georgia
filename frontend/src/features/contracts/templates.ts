@@ -41,6 +41,7 @@ export interface CxData {
   transfer_date: string;
   with_pets: boolean;
   pet_deposit: string;
+  bank_account?: string; // 11-18 (David): the landlord's bank details, printed in clause 2.8 ([[bank_account]])
   extract_url?: string;  // the registry extract's link the agent pasted (OwnerLookup ExtractLink)
   extract_file?: string; // its PDF saved by the server (GET /contracts/{id}/extract)
 }
@@ -83,7 +84,7 @@ export function reviewLabels(type: CxType): [keyof CxData | 'one_month', string]
   head.push(['cadastral_code', 'Кадастровый код'], ['street_house', 'Адрес'], ['street_house_en', 'Адрес (ENG)'], ['floor', 'Этаж'], ['apartment_number', 'Квартира №'], ['apartment_area', 'Площадь, м²']);
   if (sale) return [...head, ['sale_price', 'Цена продажи, USD'], ['transfer_date', 'Дата передачи']];
   const rent: [keyof CxData | 'one_month', string][] = [['start_rent', 'Начало аренды'], ['end_rent', 'Окончание аренды'], ['rent_duration_months', 'Срок, мес.'],
-    ['price_usd', 'Цена в месяц, USD'], ['deposit_usd', 'Депозит, USD'], ['pay_day', 'День оплаты'], ['one_month', 'Первый платёж за период до']];
+    ['price_usd', 'Цена в месяц, USD'], ['deposit_usd', 'Депозит, USD'], ['pay_day', 'День оплаты'], ['one_month', 'Первый платёж за период до'], ['bank_account', 'Банковский счёт собственника']];
   return [...head, ...rent];
 }
 
@@ -119,7 +120,7 @@ export function addMonthsIso(iso: string, n: number): string {
 // ---------------------------------------------------------------- David's drafts (data in templates-david.ts)
 
 /** Paragraph ("**bold**" marks bold runs) | aligned paragraph | table (cell = blocks, or {s: colspan, c: blocks}). */
-export type DraftBlock = string | { p: string; a?: 'c' | 'r' } | { t: DraftCell[][] };
+export type DraftBlock = string | { p: string; a?: 'c' | 'r'; k?: string } | { t: DraftCell[][] };
 export type DraftCell = DraftBlock[] | { s: number; c: DraftBlock[] };
 export interface DraftDoc { header: string[]; footer: string[]; body: DraftBlock[] }
 export type DraftKey = 'rent_GEO' | 'rent_RU' | 'rent_EN' | 'pet_GEO' | 'pet_RU' | 'pet_EN' | 'comm_GEO' | 'comm_RU' | 'sale_GEO';
@@ -155,6 +156,7 @@ export function draftValues(d: CxData): Record<string, string> {
   // 11-13: GEO prints [[street_house]] (Georgian); the Russian / English halves of the bilingual drafts print
   // [[street_house_en]] — the English line, or the address as typed when there is none (typed in English / Russian)
   v.street_house_en = d.street_house_en?.trim() || d.street_house;
+  v.bank_account = d.bank_account?.trim() || '________________________________________';  // empty: the blank line, as before
   return v;
 }
 
@@ -168,13 +170,69 @@ function fillBlock(b: DraftBlock, f: (s: string) => string): DraftBlock {
   return { ...b, p: f(b.p) };
 }
 
-export function buildContract(drafts: Record<DraftKey, DraftDoc>, type: CxType, lang: CxLang, d: CxData): ContractDoc {
+// ---------------------------------------------------------------- clause edits (David 11-18)
+// The agent changes, removes or adds paragraphs of one contract without touching the drafts. Stored with the contract
+// (data._edits), applied to the draft before the fields are filled, so «Обновить PDF» after a data change keeps them.
+// Key `${draftKey}:${path}`: path = the paragraph's index in the body ("12"), or in a column of the bilingual table
+// ("8.0.41" = body[8], Georgian column, paragraph 41; "8.1.41" = the Russian / English column). Value: the new text,
+// null = removed. `${draftKey}:${path}+` = the paragraphs added after it (in order).
+export type CxEdits = Record<string, string | null | string[]>;
+export type ClauseOp = { text: string } | { del: true } | { add: string } | { reset: true };
+
+const isCols = (b: DraftBlock): b is { t: DraftCell[][] } => typeof b === 'object' && 't' in b && b.t.length === 1 && b.t[0].length === 2;
+
+function editSection(bs: DraftBlock[], pre: string, e: CxEdits, key: string): DraftBlock[] {
+  const out: DraftBlock[] = [];
+  bs.forEach((b, i) => {
+    const k = pre + i;
+    if (typeof b === 'string' || 'p' in b) {
+      const x = e[`${key}:${k}`];
+      if (x !== null) out.push({ p: typeof x === 'string' ? x : typeof b === 'string' ? b : b.p, a: typeof b === 'string' ? undefined : b.a, k });
+      const added = e[`${key}:${k}+`];
+      if (Array.isArray(added)) added.forEach((p, n) => out.push({ p, k: `${k}+${n}` }));
+    } else if (isCols(b)) {
+      out.push({ t: [b.t[0].map((c, ci) => (Array.isArray(c) ? editSection(c, `${k}.${ci}.`, e, key) : c))] });
+    } else out.push(b);  // the signature grid: not a clause
+  });
+  return out;
+}
+
+/** One change of a paragraph (k = its path from the rendered doc, «12» or an added «12+0»). Pure: a new CxEdits. */
+export function editClause(e: CxEdits, key: DraftKey, k: string, op: ClauseOp): CxEdits {
+  const n = { ...e };
+  const [base, added] = k.split('+');
+  const listKey = `${key}:${base}+`;
+  const list = Array.isArray(n[listKey]) ? [...(n[listKey] as string[])] : [];
+  const at = added === undefined ? -1 : Number(added);  // -1: the template's own paragraph
+  if ('add' in op) list.splice(at + 1, 0, op.add);
+  else if (at >= 0) {
+    if ('text' in op) list[at] = op.text;
+    else list.splice(at, 1);  // del / reset of an added paragraph: gone
+  } else if ('text' in op) n[`${key}:${base}`] = op.text;
+  else if ('del' in op) n[`${key}:${base}`] = null;
+  else delete n[`${key}:${base}`];
+  if (list.length) n[listKey] = list; else delete n[listKey];
+  return n;
+}
+
+/** The paragraph's language in the document: the bilingual table's columns are Georgian | Russian / English. */
+export function clauseLang(doc: ContractDoc, k: string): CxLang {
+  const col = /^\d+\.(\d)\./.exec(k)?.[1];
+  return col === '1' ? doc.lang : 'GEO';
+}
+
+/** Whether the paragraph is changed / added / the template's own (for «Вернуть как в шаблоне»). */
+export function clauseEdited(e: CxEdits, key: DraftKey, k: string): boolean {
+  return k.includes('+') || `${key}:${k}` in e;
+}
+
+export function buildContract(drafts: Record<DraftKey, DraftDoc>, type: CxType, lang: CxLang, d: CxData, edits: CxEdits = {}): ContractDoc {
   const key = draftKey(type, lang, type === 'rent' && d.with_pets);
   const v = draftValues(d);
   const f = (s: string) => s.replace(PH, (m, k: string) => (k in v ? v[k] : m));
   const src = drafts[key];
   return {
     lang: key.endsWith('_GEO') ? 'GEO' : lang, key, title: DRAFT_NAMES[key],
-    header: src.header.map(f), footer: src.footer.map(f), body: src.body.map((b) => fillBlock(b, f)),
+    header: src.header.map(f), footer: src.footer.map(f), body: editSection(src.body, '', edits, key).map((b) => fillBlock(b, f)),
   };
 }

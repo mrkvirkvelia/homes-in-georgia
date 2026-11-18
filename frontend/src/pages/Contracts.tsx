@@ -13,15 +13,15 @@ import { atLeast, type Contract, type Deal, type LeadContract } from '../api/typ
 import { ContractActions, ContractList, ContractStatusBadge, ContractView } from '../features/contracts/ContractCard';
 import { insideTelegram, tgWebApp, useAuth } from '../auth/AuthContext';
 import { errText, useToast } from '../components/toast';
-import { Badge, Button, Card, Field, Input, Modal, PageHead, Select, Switch, Tabs } from '../components/ui';
+import { Badge, Button, Card, Field, Input, Modal, PageHead, Select, Switch, Tabs, Textarea } from '../components/ui';
 import { useSettledId } from '../components/RegistryApps';
 import { useDebounced } from '../features/deals/DealForm';
 import { OwnerLookup, parseRegistryText, useKnownObjects, type ExtractFields, type KnownObject } from '../features/contracts/OwnerLookup';
 import { CONTRACT_STAGES, LEAD_STATUS, todayStr } from '../lib/format';
 import { t, lx, LOCALE } from '../lib/i18n';
 import {
-  CX_LANGS, CX_TYPES, DATE_FIELDS, EMPTY, addMonthsIso, buildContract, cxFmt, cxOnem, langsFor, monthsBetween, requiredFields, reviewLabels,
-  type ContractDoc, type CxData, type CxLang, type CxType, type DraftBlock, type DraftCell, type DraftDoc, type DraftKey, ENABLED_TYPES } from '../features/contracts/templates';
+  CX_LANGS, CX_TYPES, DATE_FIELDS, EMPTY, addMonthsIso, buildContract, clauseEdited, clauseLang, cxFmt, cxOnem, editClause, langsFor, monthsBetween, requiredFields, reviewLabels,
+  type ClauseOp, type ContractDoc, type CxEdits, type CxData, type CxLang, type CxType, type DraftBlock, type DraftCell, type DraftDoc, type DraftKey, ENABLED_TYPES } from '../features/contracts/templates';
 
 const STEPS = [t('Тип'), t('Язык'), t('Данные'), t('Проверка'), t('Документ')];
 const TYPE_ICON: Record<CxType, typeof Home> = { rent: Home, comm: Building2, sale: KeyRound };
@@ -54,8 +54,9 @@ const inline = (s: string) => esc(s).split('**').map((x, i) => (i % 2 ? `<b>${x}
 
 /** One paragraph. David's drafts push the date / the second signature to the right with long runs of spaces:
  *  those become a space-between row (bold markers carried across the split). */
-function para(text: string, a?: 'c' | 'r'): string {
-  if (!text) return '<div class="cd-gap"></div>';
+function para(text: string, a?: 'c' | 'r', k?: string): string {
+  const dk = k ? ` data-k="${k}"` : '';  // the clause's path (templates.ts editSection): a click opens its editor
+  if (!text) return `<div class="cd-gap"${dk}></div>`;
   let open = false;
   const parts = text.split(/ {8,}/).map((x) => {
     const y = (open ? '**' : '') + x;
@@ -63,13 +64,13 @@ function para(text: string, a?: 'c' | 'r'): string {
     return y;
   }).filter((x) => x.replace(/\*\*/g, '').trim());
   const body = parts.length > 1 ? `<span class="cd-spread">${parts.map((x) => `<span>${inline(x)}</span>`).join('')}</span>` : inline(parts[0] ?? '');
-  return `<p class="cd-p${a ? ` cd-${a}` : ''}">${body}</p>`;
+  return `<p class="cd-p${a ? ` cd-${a}` : ''}"${dk}>${body}</p>`;
 }
 
 function blocks(bs: DraftBlock[]): string {
   return bs.map((b) => {
     if (typeof b === 'string') return para(b);
-    if ('p' in b) return para(b.p, b.a);
+    if ('p' in b) return para(b.p, b.a, b.k);
     // the bilingual drafts are one two-column table (Georgian | Russian/English); others are bordered grids
     const cols = b.t.every((r) => r.length === 2);
     const cell = (c: DraftCell) => (Array.isArray(c) ? `<td>${blocks(c)}</td>` : `<td colspan="${c.s}">${blocks(c.c)}</td>`);
@@ -125,28 +126,43 @@ function pageCss(doc: ContractDoc): string {
 .contract-doc{font-size:${pg.pt}pt;background:none}.contract-doc .cd-cols td:first-child,.contract-doc .cd-body>.cd-p{line-height:${pg.ka}}.contract-doc .cd-head,.contract-doc .cd-foot{display:none}${wm}}`;
 }
 
-export function ContractDocument({ doc, editable }: { doc: ContractDoc; editable?: boolean }) {
+export function ContractDocument({ doc, onClause }: { doc: ContractDoc; onClause?: (k: string) => void }) {
   return (
     <article className="contract-doc" lang="ka">
-      <style>{DOC_CSS + pageCss(doc)}</style>
-      {/* editable before printing / downloading: a clause can be changed for one client without touching the drafts */}
-      <div className="cd-body" contentEditable={editable} suppressContentEditableWarning spellCheck={false}
-           dangerouslySetInnerHTML={{ __html: docInner(doc) }} />
+      <style>{DOC_CSS + pageCss(doc) + (onClause ? EDIT_CSS : '')}</style>
+      {/* 11-18 (David): a click on a clause opens its editor; the change is stored with the contract (data._edits) */}
+      <div className="cd-body" onClick={onClause && ((e) => {
+        const k = (e.target as HTMLElement).closest<HTMLElement>('[data-k]')?.dataset.k;
+        if (k) onClause(k);
+      })} dangerouslySetInnerHTML={{ __html: docInner(doc) }} />
     </article>
   );
+}
+const EDIT_CSS = `@media screen{.contract-doc [data-k]{cursor:pointer;border-radius:3px}.contract-doc [data-k]:hover{background:rgba(255,200,0,.18);outline:1px dashed rgba(0,0,0,.25)}}`;
+
+/** The text of the paragraph at path k (as filled in), or null. */
+function clauseText(bs: DraftBlock[], k: string): string | null {
+  for (const b of bs) {
+    if (typeof b === 'string') continue;
+    if ('p' in b) { if (b.k === k) return b.p; continue; }
+    for (const r of b.t) for (const c of r) {
+      const x = clauseText(Array.isArray(c) ? c : c.c, k);
+      if (x !== null) return x;
+    }
+  }
+  return null;
 }
 
 /** Standalone HTML (opens in Word / LibreOffice as an editable document, like the old «Редактировать DOC»). */
 function docHtml(doc: ContractDoc): string {
-  // the text as edited in the preview (Irakli: «иногда приходится редактировать договоры»), else as generated
-  const inner = document.querySelector('.contract-doc .cd-body')?.innerHTML || docInner(doc);
+  const inner = docInner(doc);  // clause edits are in the doc itself (buildContract + data._edits)
   return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(doc.title)}</title><style>body{font-family:${DOC_FONT};font-size:${pageOf(doc).pt}pt;line-height:normal}${DOC_CSS}</style></head><body><div class="contract-doc">${inner}</div></body></html>`;
 }
 
 /** The page the server prints to PDF: the edited text + the print CSS of «Печать» (header, page numbers, initials,
  *  watermark). Brand images stay /brand/… links: the server inlines them. */
 function pdfHtml(doc: ContractDoc): string {
-  const inner = document.querySelector('.contract-doc .cd-body')?.innerHTML || docInner(doc);
+  const inner = docInner(doc);
   const base = `body{margin:0;background:#fff;color:#000}.contract-doc{font-size:${pageOf(doc).pt}pt}`;
   return `<!doctype html><html lang="ka"><head><meta charset="utf-8"><title>${esc(doc.title)}</title><style>${base}${DOC_CSS}${pageCss(doc)}</style></head><body><article class="contract-doc" lang="ka"><div class="cd-body">${inner}</div></article></body></html>`;
 }
@@ -190,6 +206,8 @@ export function ContractWizard({ compact }: { compact?: boolean }) {
   const [missing, setMissing] = useState<Set<keyof CxData>>(new Set());
   const [prefilled, setPrefilled] = useState<{ key: string; text: string } | null>(null);
   const [petTouched, setPetTouched] = useState(false);
+  const [edits, setEdits] = useState<CxEdits>({});  // clause edits (templates.ts editClause), autosaved as data._edits
+  const [clause, setClause] = useState<{ k: string; text: string; add?: boolean } | null>(null);  // the clause editor
 
   // ---- the contract lives in the deal: the form autosaves into it (contracts.autosave) and reopens from it
   const [contract, setContract] = useState<Contract | null>(null);  // the server's copy: status, PDF, versions
@@ -234,6 +252,7 @@ export function ContractWizard({ compact }: { compact?: boolean }) {
     setType(c.kind && ENABLED_TYPES.includes(c.kind) ? c.kind : '');
     setLang(c.lang || '');
     setD({ ...EMPTY, timestamp: todayStr(), ...data });
+    setEdits(x._edits && typeof x._edits === 'object' ? x._edits as CxEdits : {});
     setDepTouched(!!x._dep); setEndTouched(!!x._end);
     setStep(c.has_pdf ? 3 : Math.min(5, Number(x._step) || (c.kind ? 2 : 1)));
     sess.current.id = c.id;
@@ -317,7 +336,7 @@ export function ContractWizard({ compact }: { compact?: boolean }) {
   }
 
   // ---- autosave: debounced, from a partly filled form; the wizard's step / sync flags go along (_step, _dep, _end)
-  const payloadData = () => ({ ...d, _step: step, _dep: depTouched, _end: endTouched });
+  const payloadData = () => ({ ...d, _step: step, _dep: depTouched, _end: endTouched, ...(Object.keys(edits).length ? { _edits: edits } : {}) });
   useEffect(() => {
     if (!touched.current || locked) return;  // a standalone contract (no lead / deal) autosaves too (11-13)
     const t = setTimeout(() => {
@@ -338,7 +357,7 @@ export function ContractWizard({ compact }: { compact?: boolean }) {
       }, (e) => { if (s === sess.current) setAutoState({ err: errText(e) }); }));
     }, AUTOSAVE_MS);
     return () => clearTimeout(t);
-  }, [type, lang, d, depTouched, endTouched, step]);  // eslint-disable-line react-hooks/exhaustive-deps
+  }, [type, lang, d, depTouched, endTouched, step, edits]);  // eslint-disable-line react-hooks/exhaustive-deps
 
   // ---- field updates with the old auto-sync rules
   const set = (k: keyof CxData, v: string | boolean) => {
@@ -409,7 +428,14 @@ export function ContractWizard({ compact }: { compact?: boolean }) {
     toast(t('Кадастровый код из базы CRM: {code} ({source})', { code: first.cadastral, source: first.source }));
   }, [known.data, ownerPid]);  // eslint-disable-line react-hooks/exhaustive-deps
   const drafts = useDrafts();
-  const doc = useMemo(() => (drafts && type && lang ? buildContract(drafts, type, lang, d) : null), [drafts, type, lang, d]);
+  const doc = useMemo(() => (drafts && type && lang ? buildContract(drafts, type, lang, d, edits) : null), [drafts, type, lang, d, edits]);
+  function changeClause(op: ClauseOp) {
+    if (!doc || !clause) return;
+    if ('text' in op && op.text === clauseText(doc.body, clause.k)) { setClause(null); return; }  // unchanged: the fields stay live
+    touched.current = true;
+    setEdits((e) => editClause(e, doc.key, clause.k, op));
+    setClause(null);
+  }
   // David has no Commercial GEO+ENG and only a Georgian sale draft: drop a language the chosen type doesn't have
   useEffect(() => { if (type && lang && !langsFor(type).includes(lang)) setLang(''); }, [type, lang]);
 
@@ -450,7 +476,7 @@ export function ContractWizard({ compact }: { compact?: boolean }) {
   function reset() {
     // the current draft stays in its deal (Кабинет → Договоры); the form starts a new one
     sess.current = newSession(0); restored.current = 0; touched.current = false; setContract(null); setAutoState({});
-    setType(''); setLang(''); setD({ ...EMPTY, timestamp: todayStr() }); setDepTouched(false); setPetTouched(false);
+    setType(''); setLang(''); setD({ ...EMPTY, timestamp: todayStr() }); setEdits({}); setDepTouched(false); setPetTouched(false);
     setStep(1); setErr(''); setMissing(new Set()); setPrefilled(null);
     setParams({ new: '1' }, { replace: true });
   }
@@ -675,6 +701,8 @@ export function ContractWizard({ compact }: { compact?: boolean }) {
               <div className="form-grid">
                 {F({ k: 'start_rent', label: t('Начало аренды'), type: 'date' })}
                 {F({ k: 'end_rent', label: t('Окончание аренды'), type: 'date' })}
+                {/* 11-18 (David): printed in clause 2.8 of every language; empty = the blank line */}
+                <div className="span2">{F({ k: 'bank_account', label: t('Банковский счёт собственника'), placeholder: t('Банк, IBAN, получатель — для пункта 2.8') })}</div>
               </div>
               <div className="muted" style={{ fontSize: 13 }}>
                 {d.start_rent ? `${t('Первый платёж за период {from} – {to}.', { from: cxFmt(d.start_rent), to: cxOnem(d.start_rent) })} ` : ''}
@@ -717,8 +745,22 @@ export function ContractWizard({ compact }: { compact?: boolean }) {
               <ContractActions c={saved} onChange={setContract} />
             </Card>
           )}
-          <div className="muted no-print" style={{ fontSize: 12 }}>{saved ? t('Текст договора можно поправить прямо здесь: правка уйдёт в PDF (нажмите «Обновить PDF»), в печать и в .doc.') : t('Текст договора можно поправить прямо здесь: правка уйдёт в PDF, в печать и в .doc.')}</div>
-          <div className="contract-paper-wrap"><ContractDocument doc={doc} editable /></div>
+          <div className="muted no-print" style={{ fontSize: 12 }}>{saved ? t('Нажмите на пункт договора, чтобы изменить, удалить его или добавить новый после него. Правки сохраняются в договоре и уйдут в PDF (нажмите «Обновить PDF»), в печать и в .doc.') : t('Нажмите на пункт договора, чтобы изменить, удалить его или добавить новый после него. Правки сохраняются в договоре и уйдут в PDF, в печать и в .doc.')}</div>
+          <div className="contract-paper-wrap"><ContractDocument doc={doc} onClause={(k) => setClause({ k, text: clauseText(doc.body, k) ?? '' })} /></div>
+          <Modal open={!!clause} onClose={() => setClause(null)} title={clause?.add ? t('Новый пункт') : t('Пункт договора')}>
+            {clause && <div className="col gap-sm no-print">
+              <span className="faint" style={{ fontSize: 12 }}>{CX_LANGS[clauseLang(doc, clause.k)].title.split(' + ').pop()} · {t('**текст** между звёздочками печатается жирным')}</span>
+              <Textarea rows={8} value={clause.text} autoFocus onChange={(e) => setClause({ ...clause, text: e.target.value })} />
+              <div className="row row-wrap gap-sm">
+                <Button onClick={() => changeClause(clause.add ? { add: clause.text } : { text: clause.text })}><Save size={16} />{t('Сохранить')}</Button>
+                {!clause.add && <>
+                  <Button variant="secondary" onClick={() => setClause({ ...clause, text: '', add: true })}><Plus size={16} />{t('Добавить пункт после')}</Button>
+                  <Button variant="ghost" onClick={() => changeClause({ del: true })}>{t('Удалить пункт')}</Button>
+                  {clauseEdited(edits, doc.key, clause.k) && !clause.k.includes('+') && <Button variant="ghost" onClick={() => changeClause({ reset: true })}><RotateCcw size={16} />{t('Вернуть текст шаблона')}</Button>}
+                </>}
+              </div>
+            </div>}
+          </Modal>
         </>
       )}
 

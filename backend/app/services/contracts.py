@@ -312,7 +312,28 @@ def _data(data) -> dict | None:
     """The wizard's CxData (scalars only), kept for the restore and the deal prefill; not a dict = left as is."""
     if not isinstance(data, dict):
         return None
-    return {str(k)[:64]: v for k, v in data.items() if isinstance(v, (str, int, float, bool)) and len(str(v)) <= (2000 if k == "extract_url" else 500)}
+    out = {str(k)[:64]: v for k, v in data.items() if isinstance(v, (str, int, float, bool)) and len(str(v)) <= (2000 if k == "extract_url" else 500)}
+    edits = _edits(data.get("_edits"))
+    if edits:
+        out["_edits"] = edits
+    return out
+
+
+def _edits(e) -> dict | None:
+    """The wizard's clause edits (11-18, frontend templates.ts CxEdits): {"<draft>:<path>": text | null (removed),
+    "<draft>:<path>+": [added paragraphs]}. Text only; bounded so a contract's data stays small."""
+    if not isinstance(e, dict):
+        return None
+    ok = lambda s: isinstance(s, str) and len(s) <= 10_000  # noqa: E731
+    out = {}
+    for k, v in list(e.items())[:500]:
+        if not isinstance(k, str) or len(k) > 64:
+            continue
+        if v is None or ok(v):
+            out[k] = v
+        elif isinstance(v, list) and k.endswith("+"):
+            out[k] = [x for x in v[:50] if ok(x)]
+    return out
 
 
 def _fields(db: Session, body: dict, user: User) -> dict:

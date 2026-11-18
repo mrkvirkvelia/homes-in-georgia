@@ -135,6 +135,8 @@ FIXES = [
     ('Guarantee deposits', 'Security Deposit'), ('Guarantee deposit', 'Security Deposit'),  # one term, as clause 2.3
     ('Guarantee Deposit', 'Security Deposit'),
 ]
+# 11-18 (David): clause 2.8 ends with «to the bank account:» and a blank (none in RU): the landlord's bank details field
+BANK = re.compile(r'(ჩარიცხვის გზით:|following bank account:|банковский счет:)(?: +_{5,})?')
 MERGED = re.compile(r'([;.]) (4\.1\.8|4\.2\.2|4\.2\.4|5\.2|5\.4)\. ')
 
 
@@ -142,6 +144,7 @@ def fix(ts):
     for old, new in FIXES:
         ts = ts.replace(old, new)
     ts = MERGED.sub(r'\1\\n\2. ', ts)
+    ts = BANK.sub(r'\1 [[bank_account]]', ts)
     i, j = ts.index('  comm_GEO: {'), ts.index('  comm_RU: {')  # its page header said SALE IN TBILISI
     return ts[:i] + ts[i:j].replace('header: ["SALE IN TBILISI"]', 'header: ["RENT IN TBILISI"]') + ts[j:]
 

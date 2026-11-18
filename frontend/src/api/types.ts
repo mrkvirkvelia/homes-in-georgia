@@ -410,8 +410,8 @@ export interface Contract extends ContractSummary {
   lead_status?: string | null;
   /** the lead's deal while it is pending (deal_id comes with its confirm) */
   lead_deal_id?: number | null;
-  /** the wizard's CxData + _step/_dep/_end (full payloads) */
-  data?: Record<string, string | number | boolean> | null;
+  /** the wizard's CxData + _step/_dep/_end, _edits = clause edits (templates.ts CxEdits) (full payloads) */
+  data?: Record<string, string | number | boolean | object | null> | null;
   title?: string | null;
   cadastral?: string | null;
   address?: string | null;
@@ -437,7 +437,7 @@ export interface Contract extends ContractSummary {
 }
 export interface ContractDraftIn {
   id?: number | null; kind?: Contract['kind'] | ''; lang?: Contract['lang'] | ''; lead_id?: number | null; deal_id?: number | null; property_id?: number | null;
-  data: Record<string, string | number | boolean>;
+  data: Record<string, string | number | boolean | object>;
 }
 export interface ContractESign {
   complete: boolean;

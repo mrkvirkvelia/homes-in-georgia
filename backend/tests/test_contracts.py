@@ -356,3 +356,24 @@ def test_deal_from_contract_reuses_lead(db, client):
     assert client.post(f"/api/contracts/{x['id']}/deal-lead", headers=auth(ag)).status_code == 409  # a draft
     client.post(f"/api/contracts/{x['id']}/sign", headers=auth(ag))
     assert client.post(f"/api/contracts/{x['id']}/deal-lead", headers=auth(ag)).json()["lead_id"] == lead.id
+
+
+def test_clause_edits_kept_with_the_draft(db, client):
+    """11-18 (David): the wizard's clause edits (data._edits) are stored, bounded, kept on regeneration, and an edit marks
+    a generated PDF stale like a field change."""
+    ag = make_user(db, "agent")
+    lead = _lead(db, ag)
+    h = auth(ag)
+    edits = {"rent_RU:8.1.41": "2.8. Безналичный расчёт: TBC GE00TB0000000000000000", "rent_RU:8.0.3": None,
+             "rent_RU:8.1.41+": ["2.8.1. Новый пункт", {"bad": 1}], "x" * 80: "too long a key", "rent_RU:1": "y" * 20_000}
+    data = {"owner_full_name": "Нино", "bank_account": "TBC GE00TB0000000000000000", "_edits": edits}
+    d = client.post("/api/contracts/draft", json={"lead_id": lead.id, "kind": "rent", "lang": "RU", "data": data}, headers=h).json()
+    assert d["data"]["bank_account"] == "TBC GE00TB0000000000000000"
+    assert d["data"]["_edits"] == {"rent_RU:8.1.41": edits["rent_RU:8.1.41"], "rent_RU:8.0.3": None, "rent_RU:8.1.41+": ["2.8.1. Новый пункт"]}
+    body = {"kind": "rent", "lang": "RU", "html": PAGE, "lead_id": lead.id, "data": data}
+    g = client.put(f"/api/contracts/{d['id']}", json=body, headers=h).json()
+    assert g["pdf_stale"] is False and g["data"]["_edits"]["rent_RU:8.0.3"] is None
+    more = {**data, "_edits": {**edits, "rent_RU:8.1.50": "changed"}}
+    assert client.post("/api/contracts/draft", json={"id": d["id"], "kind": "rent", "lang": "RU", "data": more}, headers=h).json()["pdf_stale"]
+    r = client.put(f"/api/contracts/{d['id']}", json={**body, "data": more}, headers=h).json()
+    assert r["data"]["_edits"]["rent_RU:8.1.50"] == "changed" and len(r["versions"]) == 1

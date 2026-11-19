@@ -254,6 +254,7 @@ def properties_create(body: PropertyIn, db: Session = Depends(get_db, scope="fun
     data = body.model_dump(exclude_none=True)
     listing_id = data.pop("listing_id", None)
     force = data.pop("force", False)
+    phones = data.pop("owner_phones", None)  # Irakli 11-19: «+ Ещё номер» in «Объект вручную»
     walk_in = not listing_id and data.get("owner_phone")  # «Объект вручную»: the owner came himself, no call step
     # «Беру в работу» on an ad that may already be our object (Stanislav 11-17: never work one flat twice): the agent
     # sees the objects first; «Это другой объект — беру» (force) records them as not this one and takes it
@@ -266,7 +267,7 @@ def properties_create(body: PropertyIn, db: Session = Depends(get_db, scope="fun
         similar.mark_different(db, similar.key("l", listing_id), [x["key"] for x in warn], user)
         db.commit()
     if walk_in:  # one transaction: a bad phone leaves no half-made object behind
-        p = P.owner_or_agent(db, p.id, user, True, data.get("owner_name"), data["owner_phone"])
+        p = P.owner_or_agent(db, p.id, user, True, data.get("owner_name"), data["owner_phone"], phones)
     return P.out(db, p, user, full=True)
 
 

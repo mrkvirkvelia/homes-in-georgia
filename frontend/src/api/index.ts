@@ -89,7 +89,7 @@ export const api = {
     boardHide: (status: 'published' | 'rented') => http.post<{ hidden: number }>('/properties/board/hide', { status }),
     /** force: «Это другой объект — беру» after a possible_duplicate answer (its data.items: SimilarItem[]) */
     take: (listing_id: string, force?: boolean) => http.post<Property>('/properties', force ? { listing_id, force } : { listing_id }),
-    create: (b: Partial<Property> & { owner_name?: string }) => http.post<Property>('/properties', b),
+    create: (b: Partial<Property> & { owner_name?: string; owner_phone?: string; owner_phones?: PhoneRow[] }) => http.post<Property>('/properties', b),
     get: (id: number) => then(http.get<Property>(`/properties/${id}`), normProperty),
     update: (id: number, b: Partial<Property> & { owner_name?: string; owner_phone?: string; owner_phones?: PhoneRow[]; owner_separate?: boolean; reason?: string }) => http.patch<Property>(`/properties/${id}`, b),
     call: (id: number, reached: boolean) => http.post<Property>(`/properties/${id}/call`, { reached }),

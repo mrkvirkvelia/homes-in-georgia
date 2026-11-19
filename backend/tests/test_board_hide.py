@@ -43,9 +43,14 @@ def test_manual_object_with_owner_skips_the_call(db, client):
                                              "owner_phone": "+995 555 11 22 33"}, headers=auth(ag))
     assert r.status_code == 200, r.text
     assert r.json()["status"] == "owner_confirmed" and r.json()["owner"]["name"] == "Нино"
+    two = client.post("/api/properties", json={"source_type": "direct", "owner_name": "Гиорги", "owner_phone": "+995 555 44 55 66",
+                                               "owner_phones": [{"phone": "+995 555 44 55 66"}, {"phone": "+7 916 123 45 67", "note": "сестра"}]},
+                      headers=auth(ag))  # Irakli 11-19: «+ Ещё номер» in «Объект вручную»
+    assert two.status_code == 200, two.text
+    assert [x.get("note") for x in two.json()["owner"]["phones"]] == [None, "сестра"]
     bad = client.post("/api/properties", json={"source_type": "direct", "owner_name": "X", "owner_phone": "12"}, headers=auth(ag))
     if bad.status_code >= 400:  # a rejected phone leaves no half-made object
-        assert db.query(Property).count() == 1
+        assert db.query(Property).count() == 2
 
 
 def test_platform_filter_lists_objects_without_agent(db, client):

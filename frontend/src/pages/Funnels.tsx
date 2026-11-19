@@ -15,7 +15,8 @@ import { LeadDetail } from '../features/leads/LeadDetail';
 import { CompetitorListings, DealContext, MyProperties, NewListings, PropertyList, WorkProperties, type Deal } from '../features/properties/lists';
 import { metroLabel, PropertyDetail } from '../features/properties/PropertyDetail';
 import { ChangeRequestQueue } from '../features/properties/requests';
-import { distLabel, phoneInput } from '../lib/format';
+import { distLabel } from '../lib/format';
+import { cleanPhones, PhonesField, phoneRows } from '../components/PhonesField';
 import { useNavigate } from 'react-router-dom';
 import { t } from '../lib/i18n';
 
@@ -24,13 +25,13 @@ type ObjTab = 'new' | 'board' | 'review' | 'requests' | 'mine' | 'all' | 'archiv
 /** «Объект вручную»: the owner came to the office himself. His contact makes the object «Собственник» at once (no call
  * step); the card then opens the post generator, where the agent fills everything (address, price, photos...). */
 export function ManualProperty({ open, onClose, base = '', deal = 'rent' }: { open: boolean; onClose: () => void; base?: string; deal?: Deal }) {
-  const empty = { owner_name: '', owner_phone: '', address: '', district: '', point: null as Point | null, facts: null as PointFacts | null };
+  const empty = { owner_name: '', phones: phoneRows(), address: '', district: '', point: null as Point | null, facts: null as PointFacts | null };
   const [f, setF] = useState(empty);
   const qc = useQueryClient();
   const toast = useToast();
   const navigate = useNavigate();
   const m = useMutation({
-    mutationFn: () => api.properties.create({ address: f.address || null, district: f.district || null, lat: f.point?.lat ?? null, lng: f.point?.lng ?? null, post_fields: { ...(f.facts?.metro ? { metro: f.facts.metro } : {}), ...(deal === 'sale' ? { deal: 'Sale', prop_type: 'Apartment' } : {}) }, source_type: 'direct', owner_name: f.owner_name, owner_phone: f.owner_phone }),
+    mutationFn: () => api.properties.create({ address: f.address || null, district: f.district || null, lat: f.point?.lat ?? null, lng: f.point?.lng ?? null, post_fields: { ...(f.facts?.metro ? { metro: f.facts.metro } : {}), ...(deal === 'sale' ? { deal: 'Sale', prop_type: 'Apartment' } : {}) }, source_type: 'direct', owner_name: f.owner_name, owner_phone: cleanPhones(f.phones)[0]?.phone, owner_phones: cleanPhones(f.phones) }),
     onSuccess: (p) => { qc.invalidateQueries({ queryKey: ['properties'] }); onClose(); setF(empty); navigate(`${base}/objects/${p.id}`); },
     onError: (e) => toast(errText(e), true),
   });
@@ -39,14 +40,14 @@ export function ManualProperty({ open, onClose, base = '', deal = 'rent' }: { op
       <div className="muted" style={{ fontSize: 13, marginBottom: 12 }}>{t('Собственник пришёл сам: объект сразу в статусе «Собственник», дальше откроется пост-генератор — там цена, параметры и фото.')}</div>
       <div className="form-grid">
         <Field label={t('Имя собственника')}><Input value={f.owner_name} onChange={(e) => setF({ ...f, owner_name: e.target.value })} /></Field>
-        <Field label={t('Телефон собственника')}><Input type="tel" inputMode="tel" placeholder="+995 5XX XXX XXX" value={f.owner_phone} onChange={(e) => setF({ ...f, owner_phone: phoneInput(e) })} /></Field>
+        <PhonesField label={t('Телефон собственника')} value={f.phones} onChange={(phones) => setF({ ...f, phones })} />
         <div className="field span2"><span className="label">{t('Адрес (можно позже)')}</span>
           <AddressField value={f.address} onChange={(address) => setF((x) => ({ ...x, address }))} point={f.point} onPoint={(point) => setF((x) => ({ ...x, point }))}
             onFacts={(facts) => setF((x) => ({ ...x, facts, district: facts.district || x.district }))} />
           {f.facts && <span className="faint" style={{ fontSize: 13 }}>🚇 {f.facts.metro ? `${metroLabel(f.facts.metro)} · ≈ ${distLabel(f.facts.metro_m ?? 0)}` : t('метро не найдено (точка за городом)')}</span>}</div>
         <Field label={t('Район')}><DistrictSelect value={f.district} onChange={(district) => setF({ ...f, district })} /></Field>
       </div>
-      <Button className="mt-lg" disabled={!f.owner_name.trim() || !f.owner_phone.trim()} loading={m.isPending} onClick={() => m.mutate()}>{t('Создать и заполнить пост')}</Button>
+      <Button className="mt-lg" disabled={!f.owner_name.trim() || !cleanPhones(f.phones).length} loading={m.isPending} onClick={() => m.mutate()}>{t('Создать и заполнить пост')}</Button>
     </Modal>
   );
 }

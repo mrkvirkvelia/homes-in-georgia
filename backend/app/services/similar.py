@@ -6,8 +6,8 @@ outside ads (ss / myhome / livo / korter / Facebook / Telegram, competitors' too
 linked ad is its object). Signals, each with a reason in Russian for the agent:
 - strong («почти точно»): the same link, the same cadastral code, 2+ shared photos (dHash), the owner's phone and the
   same house / floor, a pair someone already marked «Дубль»;
-- medium: one shared photo, the owner's phone alone, the same owner name, the same house, a pin within NEAR_M,
-  the same author on the same site;
+- medium: one shared photo, the owner's phone alone, the same house, a pin within NEAR_M, the same author on the
+  same site; the owner's full name only adds weight to a candidate shown for another reason (Irakli 11-19);
 - parameters: bedrooms, floor, area (±AREA_TOL), price (±PRICE_TOL), district.
 Shown: anything strong; one shared photo or the owner's phone alone; another medium signal with 1+ matching
 parameter; or a «twin» nearby (the same district or within TWIN_KM, bedrooms and area agree, and the floor or the
@@ -247,8 +247,10 @@ def compare(s: dict, c: dict, shared: int = 0) -> tuple[str | None, float, list[
         strong.append("тот же телефон собственника" + (" и дом" if same_house else " и этаж"))
     elif phone:
         medium.append("тот же телефон собственника")
-    if s["names"] and c["names"] and len(s["names"] & c["names"]) >= min(2, len(s["names"]), len(c["names"])):
-        medium.append("то же имя собственника")
+    # the owner's name names no flat (Irakli 11-19: dozens of other flats «то же имя собственника» — a common first
+    # name, or the agent's own typed as the owner's): only the full name (2+ words in common), and only as weight on
+    # a candidate that is one already by something real
+    same_name = len(s["names"] & c["names"]) >= 2
     if s["author"] and s["author"] == c["author"]:
         medium.append("тот же автор объявления")
     if same_house and not phone:
@@ -290,6 +292,8 @@ def compare(s: dict, c: dict, shared: int = 0) -> tuple[str | None, float, list[
             params.append("тот же район")
     else:
         return None, 0.0, []
+    if same_name:
+        medium.append("то же имя собственника")
     score = 10 * len(strong) + 3 * len(medium) + n_core + (shared or 0)
     return level, float(score), strong + medium + params
 

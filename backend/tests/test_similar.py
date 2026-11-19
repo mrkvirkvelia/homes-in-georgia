@@ -4,6 +4,7 @@ import json
 
 from app.models import Property, PropertyListing, SimilarDecision
 from app.services import similar
+from app.services.dedup import street_house
 from tests.conftest import auth, make_listing, make_user
 
 H = [0x0F0F0F0F0F0F0F0F, 0x123456789ABCDEF0, 0x0FEDCBA987654321, 0x5555AAAA5555AAAA]
@@ -86,6 +87,20 @@ def test_compare_twin_and_nothing():
     phone = {**other, "phones": ["+995 555 12 34 56"], "floor": 4}
     assert similar.compare({**base, "phones": ["555123456"]}, phone)[0] == "same"  # the owner's phone and the floor
 
+
+
+def test_owner_name_alone_is_no_duplicate():
+    """Irakli 11-19: dozens of other flats listed «то же имя собственника» — the name only weighs a real candidate."""
+    a = {"urls": set(), "phones": [], "names": frozenset({"нино", "беридзе"}), "author": None, "cads": set(), "hashes": [],
+         "house": street_house("5 Eredvi Street, Dighomi"), "street": frozenset(), "at": (41.75, 44.75), "district": "Дигоми",
+         "floor": None, "area": None, "bedrooms": None, "price_usd": 500.0}
+    other = {**a, "house": street_house("21 Zurab Sakandelidze"), "at": (41.71, 44.76), "district": "Ваке",
+             "area": 120.0, "price_usd": 1000.0}
+    assert similar.compare(a, other)[0] is None  # the same full name, nothing else in common
+    assert similar.compare({**a, "names": frozenset({"нино"})}, {**other, "names": frozenset({"нино"})})[0] is None
+    level, _, why = similar.compare(a, {**a})  # the same name and the same house: shown, the name adds weight
+    assert level == "maybe" and "тот же дом" in why and "то же имя собственника" in why
+    assert "то же имя собственника" not in similar.compare({**a, "names": frozenset({"нино"})}, {**a})[2]  # first name only
 
 def test_object_photos_are_hashed_and_found(db, client, monkeypatch):
     """An object shot by our agent (no ad photos): its own photos are hashed by the worker and an ad with them is found."""

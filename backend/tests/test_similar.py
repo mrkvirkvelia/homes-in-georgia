@@ -102,6 +102,18 @@ def test_owner_name_alone_is_no_duplicate():
     assert level == "maybe" and "тот же дом" in why and "то же имя собственника" in why
     assert "то же имя собственника" not in similar.compare({**a, "names": frozenset({"нино"})}, {**a})[2]  # first name only
 
+
+def test_same_author_alone_is_no_duplicate():
+    """Stanislav 11-19: an agent's account posts many flats — the same author only weighs a real candidate."""
+    a = {"urls": set(), "phones": [], "names": frozenset(), "author": ("ss", "u42"), "cads": set(), "hashes": [],
+         "house": street_house("5 Eredvi Street, Dighomi"), "street": frozenset(), "at": (41.75, 44.75), "district": "Дигоми",
+         "floor": None, "area": None, "bedrooms": None, "price_usd": 500.0}
+    other = {**a, "house": street_house("21 Zurab Sakandelidze"), "at": (41.71, 44.76), "district": "Ваке",
+             "area": 120.0, "price_usd": 1000.0}
+    assert similar.compare(a, other)[0] is None
+    level, _, why = similar.compare(a, {**a})
+    assert level == "maybe" and "тот же дом" in why and "тот же автор объявления" in why
+
 def test_object_photos_are_hashed_and_found(db, client, monkeypatch):
     """An object shot by our agent (no ad photos): its own photos are hashed by the worker and an ad with them is found."""
     import io

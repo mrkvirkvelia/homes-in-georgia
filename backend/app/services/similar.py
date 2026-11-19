@@ -6,8 +6,9 @@ outside ads (ss / myhome / livo / korter / Facebook / Telegram, competitors' too
 linked ad is its object). Signals, each with a reason in Russian for the agent:
 - strong («почти точно»): the same link, the same cadastral code, 2+ shared photos (dHash), the owner's phone and the
   same house / floor, a pair someone already marked «Дубль»;
-- medium: one shared photo, the owner's phone alone, the same house, a pin within NEAR_M, the same author on the
-  same site; the owner's full name only adds weight to a candidate shown for another reason (Irakli 11-19);
+- medium: one shared photo, the owner's phone alone, the same house, a pin within NEAR_M; the owner's full name
+  (Irakli 11-19) and the same author on the same site (Stanislav 11-19) only add weight to a candidate shown for
+  another reason;
 - parameters: bedrooms, floor, area (±AREA_TOL), price (±PRICE_TOL), district.
 Shown: anything strong; one shared photo or the owner's phone alone; another medium signal with 1+ matching
 parameter; or a «twin» nearby (the same district or within TWIN_KM, bedrooms and area agree, and the floor or the
@@ -251,8 +252,7 @@ def compare(s: dict, c: dict, shared: int = 0) -> tuple[str | None, float, list[
     # name, or the agent's own typed as the owner's): only the full name (2+ words in common), and only as weight on
     # a candidate that is one already by something real
     same_name = len(s["names"] & c["names"]) >= 2
-    if s["author"] and s["author"] == c["author"]:
-        medium.append("тот же автор объявления")
+    same_author = bool(s["author"]) and s["author"] == c["author"]  # an agent's account posts many flats: weight only
     if same_house and not phone:
         medium.append("тот же дом")
     elif rel and not same_house:
@@ -294,6 +294,8 @@ def compare(s: dict, c: dict, shared: int = 0) -> tuple[str | None, float, list[
         return None, 0.0, []
     if same_name:
         medium.append("то же имя собственника")
+    if same_author:
+        medium.append("тот же автор объявления")
     score = 10 * len(strong) + 3 * len(medium) + n_core + (shared or 0)
     return level, float(score), strong + medium + params
 

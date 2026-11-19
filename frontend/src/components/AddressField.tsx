@@ -1,8 +1,9 @@
 // The object's address with an OSM check (Stanislav 11-11): typed or pasted (often from Google Maps) → suggestions from
 // GET /geo/search, a pick puts the point on a small map; the agent drags the marker (or taps the map) to correct it.
 // A pasted Google Maps link / «lat, lng» is the point itself; OSM only names the address there.
-// A tap / drag on the map names the address there (David 11-18): an empty field or the last tap's text is replaced, an
-// address the agent typed or picked is kept and «Подставить адрес точки» offered instead.
+// A tap / drag on the map names the address there (David 11-18): the field takes the point's address unless the agent
+// typed it by hand here — then it is kept and «Подставить адрес точки» offered (Irakli 11-19: a picked / saved address
+// was kept too, so the pin moved and the address never followed). No answer in 15 s → «не нашли», not an endless «Ищем…».
 import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { t } from '../lib/i18n';
@@ -76,14 +77,16 @@ export function AddressField({ value, onChange, point, onPoint, onFacts, disable
   const asked = useRef(0);  // only the latest point's answer counts (a marker dragged twice)
   const val = useRef(value);
   val.current = value;
-  const tapped = useRef('');  // the address the last tap wrote: the next tap may replace it
+  const typed = useRef(false);  // the agent typed in the field himself: a tap offers its address, doesn't overwrite
   const wait = useRef(0);
   const [naming, setNaming] = useState(false);
   const [offer, setOffer] = useState<string | null>(null);  // the point's address when the field holds the agent's own
-  const fill = (a: string) => { picked.current = tapped.current = a; onChange(a); setOffer(null); };
+  const [miss, setMiss] = useState(false);  // OSM named nothing there / didn't answer
+  const fill = (a: string) => { picked.current = a; typed.current = false; onChange(a); setOffer(null); };
   const setPoint = (p: Point, fromMap = false) => {
     onPoint(p);
     setOffer(null);
+    setMiss(false);
     const n = ++asked.current;
     clearTimeout(wait.current);
     setNaming(fromMap);
@@ -94,16 +97,17 @@ export function AddressField({ value, onChange, point, onPoint, onFacts, disable
       if (n !== asked.current) return;
       onFacts?.(f);
       const cur = val.current.trim();
-      if (fromMap && f.address && cur !== f.address) {
-        if (!cur || cur === tapped.current) fill(f.address);
+      if (fromMap && !f.address) setMiss(true);
+      else if (fromMap && f.address && cur !== f.address) {
+        if (!cur || !typed.current) fill(f.address);
         else setOffer(f.address);
       }
-    }).catch(() => undefined).finally(() => { if (n === asked.current) setNaming(false); }), fromMap ? 400 : 0);
+    }).catch(() => { if (n === asked.current && fromMap) setMiss(true); }).finally(() => { if (n === asked.current) setNaming(false); }), fromMap ? 400 : 0);
   };
   useEffect(() => () => clearTimeout(wait.current), []);
   const pick = (h: GeoHit, keepText = false) => {
     setPoint({ lat: h.lat, lng: h.lng });
-    if (!keepText) { picked.current = h.label; onChange(h.label); }
+    if (!keepText) { picked.current = h.label; typed.current = false; onChange(h.label); }
     setOpen(false);
     setManual(false);
   };
@@ -115,7 +119,7 @@ export function AddressField({ value, onChange, point, onPoint, onFacts, disable
   return (
     <div className="col" style={{ gap: 6 }}>
       <Input value={value} disabled={disabled} placeholder={t('Улица и дом, или ссылка Google Maps')}
-        onChange={(e) => { setOffer(null); onChange(e.target.value); }} onFocus={() => setOpen(true)} />
+        onChange={(e) => { setOffer(null); typed.current = true; onChange(e.target.value); }} onFocus={() => setOpen(true)} />
       {open && !data?.point && items.length > 0 && (
         <div className="card col" style={{ gap: 0, padding: 4 }}>
           <span className="faint" style={{ fontSize: 11, padding: '2px 8px' }}>{t('Это тот адрес? Выберите:')}</span>
@@ -134,6 +138,7 @@ export function AddressField({ value, onChange, point, onPoint, onFacts, disable
         : notFound ? <span className="addr-state warn">{data?.error ? t('Поиск адресов сейчас недоступен') : t('Не нашли')} — {t('уточните адрес или поставьте точку на карте')}</span>
           : manual ? <span className="addr-state">{t('Нажмите на карте, где объект')}</span> : null}
       {naming && <span className="faint" style={{ fontSize: 12 }}>{t('Ищем адрес точки…')}</span>}
+      {miss && !naming && <span className="addr-state warn">{t('Адрес точки не нашли — впишите сами')}</span>}
       {offer && !disabled && (
         <div className="row gap-sm" style={{ flexWrap: 'wrap', alignItems: 'center' }}>
           <button type="button" className="chip" onClick={() => fill(offer)}>{t('Подставить адрес точки')}</button>

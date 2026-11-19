@@ -25,7 +25,7 @@ export const api = {
   config: () => http.get<AppConfig>('/config'),
   geo: {
     search: (q: string) => http.get<{ items: GeoHit[]; point: boolean; error?: boolean }>('/geo/search', { q }),
-    point: (p: { lat: number; lng: number }) => http.get<{ district: string | null; address: string | null; metro: string | null; metro_m: number | null }>('/geo/point', p),
+    point: (p: { lat: number; lng: number }) => http.get<{ district: string | null; address: string | null; metro: string | null; metro_m: number | null }>('/geo/point', p, { timeoutMs: 15_000 }),  // a hung OSM lookup ends (Irakli 11-19)
   },
 
   auth: {

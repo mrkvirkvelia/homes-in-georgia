@@ -220,7 +220,7 @@ export async function fetchBlob(path: string): Promise<Blob> {
 export const SIGN_OPTS: Opts = { timeoutMs: 30_000, retries: 1 };
 
 export const http = {
-  get: <T>(p: string, q?: Query) => request<T>('GET', p, undefined, q),
+  get: <T>(p: string, q?: Query, o?: Opts) => request<T>('GET', p, undefined, q, false, o),
   post: <T>(p: string, b?: unknown, q?: Query, o?: Opts) => request<T>('POST', p, b ?? {}, q, false, o),
   patch: <T>(p: string, b?: unknown) => request<T>('PATCH', p, b ?? {}),
   put: <T>(p: string, b?: unknown, o?: Opts) => request<T>('PUT', p, b ?? {}, undefined, false, o),

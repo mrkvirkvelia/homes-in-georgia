@@ -463,7 +463,7 @@ def scan_exclusive(db: Session, pid: int, trigger: str = "exclusive") -> dict | 
     prev = P.dup_scan(db, pid) or {}
     prev_keys = {s["key"] for s in prev.get("strong") or []}
     sig = hashlib.sha1(" ".join(sorted(x["key"] for x in items)).encode()).hexdigest()[:16]
-    if trigger == "new_ads" and prev.get("sig") == sig:
+    if trigger == "new_ads" and prev.get("sig") == sig:  # new photos change the reasons, not only the keys: always
         return None
     log_event(db, "property", pid, "duplicate_scan", None, n=len(items), strong=strong[:20], trigger=trigger, sig=sig)
     db.commit()

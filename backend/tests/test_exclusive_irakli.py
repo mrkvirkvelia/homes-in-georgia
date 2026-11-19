@@ -57,6 +57,31 @@ def test_exclusive_runs_the_duplicate_search_and_new_ads_rerun_it(db, client, se
     assert "l:mh7001" not in {s["key"] for s in similar.scan_exclusive(db, pid)["strong"]}
 
 
+def test_photos_uploaded_after_the_exclusive_search_run_it_again(db, client, sent):
+    """Irakli 11-19: a manual exclusive, then the photos taken from a myhome ad — the first search ran without them."""
+    import io
+    from PIL import Image
+    vika = make_user(db, "agent", "Вика")
+    pid = _object(db, client, vika)
+    im = Image.new("L", (90, 80))
+    im.putdata([(x * 7 + y * 3) % 256 for y in range(80) for x in range(90)])
+    buf = io.BytesIO()
+    im.save(buf, "JPEG")
+    h = matching.photo_hash(buf.getvalue()) & matching.U64
+    make_listing(db, "mh26699303", source="myhome", urls=json.dumps(["https://myhome.ge/26699303"]), address="Eredvi st",
+                 photo_hashes=json.dumps([h ^ 1, 12345]), text="Сдаю")
+    assert client.patch(f"/api/properties/{pid}", json={"is_exclusive": True}, headers=auth(vika)).status_code == 200
+    worker.tick()
+    assert properties.dup_scan(db, pid)["strong"] == []  # the ad may be listed by its params, not by a photo yet
+    db.get(properties.Property, pid).status = "shoot_scheduled"
+    db.commit()
+    r = client.post(f"/api/properties/{pid}/media", files=[("files", ("a.jpg", buf.getvalue(), "image/jpeg"))], headers=auth(vika))
+    assert r.status_code == 200, r.text
+    assert db.query(Job).filter_by(kind="dup_scan", ref=str(pid), done_at=None).one().payload["trigger"] == "media"
+    worker.tick()
+    assert [s["key"] for s in properties.dup_scan(db, pid)["strong"]] == ["l:mh26699303"]
+    assert sent.of("exclusive_duplicates")[-1][2][0]["listing_id"] == "mh26699303"
+
 def test_contract_signed_or_merged_in_schedules_the_search(db, client):
     ag = make_user(db, "agent")
     p = _ready(db, ag, "ss1", address="Пекини 1")

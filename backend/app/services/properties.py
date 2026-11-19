@@ -1263,6 +1263,10 @@ def upload_media(db: Session, pid: int, files: list[tuple[str, bytes]], room: st
             _status(db, p, "media_uploaded", actor, files=len(files))
         else:
             log_event(db, "property", p.id, "media_added", actor, files=len(files))
+        if p.is_exclusive and "photo" in kinds:
+            # the photos come after the exclusive's first search (a manual object: made, then the photos): searched
+            # again with them, or the ad they were taken from is never found (Irakli 11-19, myhome 26699303)
+            schedule_dup_scan(db, p, "media")
         db.commit()
     except Exception:
         db.rollback()

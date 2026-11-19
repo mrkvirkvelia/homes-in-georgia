@@ -532,11 +532,17 @@ export function ContractWizard({ compact }: { compact?: boolean }) {
   // ---- field helper
   // red only while still empty: the term fills the pay day and the dates itself, they must not stay red (11-13)
   const bad = (k: keyof CxData) => missing.has(k) && !String(d[k] ?? '').trim();
+  // 11-19 (Irakli): the object's numbers open the digit keyboard and drop letters as typed; floor may be «-1», a flat «12/1»
+  const digits: Partial<Record<keyof CxData, [mode: 'numeric' | 'decimal', clean: (v: string) => string]>> = {
+    floor: ['numeric', (v) => v.replace(/(?!^-)\D/g, '')],
+    apartment_number: ['numeric', (v) => v.replace(/[^\d/-]/g, '')],
+    apartment_area: ['decimal', (v) => v.replace(/,/g, '.').replace(/[^\d.]/g, '').replace(/(\..*)\./g, '$1')],
+  };
   const F = ({ k, label, type: t = 'text', placeholder }: { k: keyof CxData; label: string; type?: string; placeholder?: string }) => (
     <Field label={`${label}${req.has(k) ? ' *' : ''}`} hint={k === 'cadastral_code' ? cadastralHint(String(d[k] ?? '')) : undefined}>
-      <Input type={t} value={String(d[k] ?? '')} placeholder={placeholder} inputMode={t === 'number' ? 'decimal' : undefined}
+      <Input type={t} value={String(d[k] ?? '')} placeholder={placeholder} inputMode={digits[k]?.[0]}
         aria-invalid={bad(k) || undefined} style={bad(k) ? { borderColor: 'var(--accent)' } : undefined}
-        onChange={(e) => set(k, k === 'cadastral_code' ? cadastralInput(e) : e.target.value)}
+        onChange={(e) => set(k, k === 'cadastral_code' ? cadastralInput(e) : digits[k] ? digits[k][1](e.target.value) : e.target.value)}
         onPaste={k === 'cadastral_code' ? (e) => {
           // the whole NAPR page pasted into the code field: the code is found in it (backend registry.code_from_text)
           const t = e.clipboardData.getData('text');

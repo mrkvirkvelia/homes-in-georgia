@@ -158,6 +158,7 @@ function DateInput({ value, onChange, min, max, disabled, placeholder = t('Вы�
 }
 
 export const Input = (p: InputHTMLAttributes<HTMLInputElement>) => p.type === 'date' ? <DateInput {...p} /> : <input className="input" {...p}
+  inputMode={p.inputMode ?? (p.type === 'number' ? 'decimal' : undefined)}
   {...(p.inputMode === 'tel' ? { onFocus: (e) => { phoneFocus(e); p.onFocus?.(e); }, onBlur: (e) => { phoneBlur(e); p.onBlur?.(e); } } : {})} />;
 export const Textarea = (p: TextareaHTMLAttributes<HTMLTextAreaElement>) => <textarea className="textarea" {...p} />;
 export function Select({ options, placeholder, ...p }: SelectHTMLAttributes<HTMLSelectElement> & { options: { value: string | number; label: string }[]; placeholder?: string }) {

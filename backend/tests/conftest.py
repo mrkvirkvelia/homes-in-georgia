@@ -89,6 +89,8 @@ def clean(schema, tmp_path, monkeypatch):
     from app.config import settings
     monkeypatch.setattr(settings, "MEDIA_DIR", str(tmp_path / "media"))
     yield
+    from app.services import similar
+    similar._cache["stamp"] = None  # its stamp (count, last update to the second) can match the next test's ads
     tables = ", ".join(t.name for t in Base.metadata.sorted_tables)
     with engine.begin() as c:
         c.execute(text(f"TRUNCATE {tables} RESTART IDENTITY CASCADE"))

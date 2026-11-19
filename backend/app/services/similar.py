@@ -6,7 +6,8 @@ outside ads (ss / myhome / livo / korter / Facebook / Telegram, competitors' too
 linked ad is its object). Signals, each with a reason in Russian for the agent:
 - strong («почти точно»): the same link, the same cadastral code, 2+ shared photos (dHash), the owner's phone and the
   same house / floor, a pair someone already marked «Дубль»;
-- medium: one shared photo, the owner's phone alone, the same house, a pin within NEAR_M; the owner's full name
+- medium: one shared photo, photos alike by their SigLIP vectors (PHOTO_SIM_ALONE: another shoot of the flat, an edited
+  copy dHash misses; Stanislav 11-20), the owner's phone alone, the same house, a pin within NEAR_M; the owner's full name
   (Irakli 11-19) and the same author on the same site (Stanislav 11-19) only add weight to a candidate shown for
   another reason;
 - parameters: bedrooms, floor, area (±AREA_TOL), price (±PRICE_TOL), district.
@@ -24,7 +25,7 @@ import logging
 import math
 import re
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, or_, select, text
 from sqlalchemy.orm import Session
 
 from app.models import Listing, Owner, Property, PropertyListing, PropertyMedia, SimilarDecision, User
@@ -44,6 +45,15 @@ NEAR_M = 80          # pins this close: the same building, give or take the geoc
 TWIN_KM = 1.5        # a twin (bedrooms + area + floor / price) this far still shows: ad pins can be a district off
 LIVE = ("published", "pending_review")
 CADASTRAL = re.compile(r"(?<![\d.])\d{2}\.\d{2}\.\d{2}\.\d{3}\.\d{3}(?:\.\d{2}\.\d{3})?(?![\d])")
+# «похожие фото (другой ракурс)»: meanbest of the two photo sets (each photo's best cosine to the other set, averaged
+# over both), SigLIP vectors in photo_vectors (app/embeddings.py). Measured 11-20 on 4,053 myhome Tbilisi rentals, 112
+# hand-labelled pairs without a shared dHash photo: AUC 0.989; ≥ 0.875 no false pair (every edited copy, ~40% of the
+# other shoots); 0.85–0.875 recall 0.92 on other shoots with ~5% look-alikes (flats of one new-build complex).
+# ponytail: both thresholds rest on 13 different-shoot pairs of myhome photos: re-check them on our own photos
+PHOTO_SIM_ALONE = 0.875   # a medium signal by itself
+PHOTO_SIM_WEIGHT = 0.85   # only weight on a candidate already shown by the params / house / pin
+PHOTO_REASON = "похожие фото (другой ракурс)"
+PHOTO_K, PHOTO_HIT = 100, 1 - PHOTO_SIM_WEIGHT  # nearest photos per subject photo; their cosine distance that counts
 GEL_USD, EUR_USD = 0.37, 1.08  # rough: only for «цена близкая» (±12%)
 SOURCE_NAME = {"ss": "ss.ge", "myhome": "myhome.ge", "livo": "livo.ge", "korter": "korter.ge", "facebook": "Facebook",
                "instagram": "Instagram", "threads": "Threads", "telegram": "Telegram", "agency": "канал агентства"}
@@ -228,8 +238,8 @@ def _exact(s: dict, c: dict) -> bool:
             and abs(s["area"] - c["area"]) <= max(1.0, 0.03 * max(s["area"], c["area"])))
 
 
-def compare(s: dict, c: dict, shared: int = 0) -> tuple[str | None, float, list[str]]:
-    """(same | maybe | None, score, reasons) of candidate c for subject s."""
+def compare(s: dict, c: dict, shared: int = 0, photo: float = 0.0) -> tuple[str | None, float, list[str]]:
+    """(same | maybe | None, score, reasons) of candidate c for subject s; photo: the meanbest of their photo vectors."""
     strong, medium, params = [], [], []
     if s["urls"] & c["urls"]:
         strong.append("та же ссылка")
@@ -239,6 +249,8 @@ def compare(s: dict, c: dict, shared: int = 0) -> tuple[str | None, float, list[
         strong.append(f"общих фото: {shared}")
     elif shared == 1:
         medium.append("одно общее фото")
+    if photo >= PHOTO_SIM_ALONE and shared < 2:  # never strong: an «почти точно» needs the same photos themselves
+        medium.append(PHOTO_REASON)
     rel = relation(s["house"], c["house"])
     same_house = rel == "тот же дом"
     # an agent's number (behind 3+ objects, find() drops it from the profiles) names no flat
@@ -296,8 +308,74 @@ def compare(s: dict, c: dict, shared: int = 0) -> tuple[str | None, float, list[
         medium.append("то же имя собственника")
     if same_author:
         medium.append("тот же автор объявления")
+    if PHOTO_SIM_WEIGHT <= photo < PHOTO_SIM_ALONE and shared < 2:
+        medium.append(PHOTO_REASON)
     score = 10 * len(strong) + 3 * len(medium) + n_core + (shared or 0)
     return level, float(score), strong + medium + params
+
+
+# ---------------------------------------------------------------- photo vectors
+
+def _vectors(db: Session, pids=(), lids=()) -> dict[str, tuple]:
+    """{key: (photo vectors (n, 768), their preview urls)}: an object's own photos (its ads' when it has none), an ad's."""
+    import numpy as np
+    acc: dict[str, tuple[list, list]] = {}
+    if pids:
+        for pid, path, v in db.execute(text(
+                "SELECT m.property_id, m.path, CAST(v.vec AS real[]) FROM photo_vectors v JOIN property_media m ON m.id = v.media_id "
+                "WHERE m.property_id = ANY(:p) AND v.vec IS NOT NULL ORDER BY m.position, m.id"), {"p": list(pids)}):
+            a = acc.setdefault(key("p", pid), ([], []))
+            a[0].append(v), a[1].append(f"/api/media/{path}")
+        bare = [p for p in pids if key("p", p) not in acc]
+        if bare:
+            for pid, lid, n, v in db.execute(text(
+                    "SELECT pl.property_id, v.listing_id, v.n, CAST(v.vec AS real[]) FROM photo_vectors v JOIN property_listings pl "
+                    "ON pl.listing_id = v.listing_id WHERE pl.property_id = ANY(:p) AND v.vec IS NOT NULL ORDER BY v.listing_id, v.n"),
+                    {"p": bare}):
+                a = acc.setdefault(key("p", pid), ([], []))
+                a[0].append(v), a[1].append(f"/api/listing-photos/{lid}/{n}")
+    if lids:
+        for lid, n, v in db.execute(text("SELECT listing_id, n, CAST(vec AS real[]) FROM photo_vectors WHERE listing_id = ANY(:l) "
+                                         "AND vec IS NOT NULL ORDER BY listing_id, n"), {"l": list(lids)}):
+            a = acc.setdefault(key("l", lid), ([], []))
+            a[0].append(v), a[1].append(f"/api/listing-photos/{lid}/{n}")
+    return {k: (np.asarray(vs, dtype=np.float32), urls) for k, (vs, urls) in acc.items()}
+
+
+def _photo_sims(db: Session, s: dict, cands: list[dict]) -> dict[int, tuple[float, list[str]]]:
+    """{candidate n: (meanbest, the candidate's photos alike, the likest first)} for the candidates worth it. Not the whole
+    base: a pair with meanbest ≥ PHOTO_SIM_WEIGHT has a photo pair at least that close, so the nearest photos of each
+    subject photo (the HNSW index) name the candidates, and only those are compared photo by photo."""
+    sv = _vectors(db, [s["property_id"]] if s["kind"] == "object" else [], [s["listing_id"]] if s["kind"] == "ad" else [])
+    if s["key"] not in sv:
+        return {}
+    A, _ = sv[s["key"]]
+    db.execute(text(f"SET LOCAL hnsw.ef_search = {PHOTO_K}"))
+    hits: set[str] = set()
+    for q in A[:24]:  # ponytail: one index query per photo, ≤ 24; a batched LATERAL if it shows in the request log
+        lit = "[" + ",".join(f"{x:.6f}" for x in q) + "]"
+        for pid, lid, d in db.execute(text(
+                "SELECT COALESCE(m.property_id, pl.property_id), n.listing_id, n.d FROM (SELECT media_id, listing_id, "
+                "vec <=> CAST(:q AS vector) AS d FROM photo_vectors ORDER BY vec <=> CAST(:q AS vector) LIMIT :k) n "
+                "LEFT JOIN property_media m ON m.id = n.media_id LEFT JOIN property_listings pl ON pl.listing_id = n.listing_id"),
+                {"q": lit, "k": PHOTO_K}):
+            if d is not None and d <= PHOTO_HIT:
+                hits |= ({key("p", pid)} if pid else set()) | ({key("l", lid)} if lid else set())
+    near = {n: c for n, c in enumerate(cands) if c["key"] in hits}
+    if not near:
+        return {}
+    cv = _vectors(db, [c["property_id"] for c in near.values() if c["kind"] == "object"],
+                  [c["listing_id"] for c in near.values() if c["kind"] == "ad"])
+    out = {}
+    for n, c in near.items():
+        if c["key"] not in cv:
+            continue
+        B, urls = cv[c["key"]]
+        m = A @ B.T
+        best = m.max(0)
+        alike = [urls[j] for j in best.argsort()[::-1] if best[j] >= PHOTO_SIM_WEIGHT]
+        out[n] = (float(m.max(1).mean() + best.mean()) / 2, alike)
+    return out
 
 
 # ---------------------------------------------------------------- finding
@@ -358,6 +436,7 @@ def find(db: Session, subject: str, user: User | None = None, limit: int = 30, i
         pos = {n: i for i, n in enumerate(keep)}
         shared.update({base + pos[n]: _shared(s["hashes"], ads[n]["hashes"]) for n in hits_a if n in pos})
     cands += [ads[n] for n in keep]
+    sims = _photo_sims(db, s, cands)
     decided = _decisions(db, s["key"])
     names = dict(db.execute(select(User.id, User.name).where(User.id.in_({d["by"] for d in decided.values() if d["by"]}))).all()) if decided else {}
     out = []
@@ -365,7 +444,8 @@ def find(db: Session, subject: str, user: User | None = None, limit: int = 30, i
         d = decided.get(c["key"])
         if d and d["verdict"] == "different":
             continue
-        level, score, why = compare(s, c, shared.get(n, 0))
+        photo, alike = sims.get(n, (0.0, []))
+        level, score, why = compare(s, c, shared.get(n, 0), photo)
         if d and d["verdict"] == "same":
             level, score = "same", score + 100
             why = [f"отмечено как дубль{' · ' + names[d['by']] if names.get(d['by']) else ''}"] + why
@@ -373,6 +453,9 @@ def find(db: Session, subject: str, user: User | None = None, limit: int = 30, i
             continue
         item = {**c["out"], "key": c["key"], "level": level, "score": score, "reasons": why,
                 "decided": d["verdict"] if d else None}
+        if PHOTO_REASON in why and alike:  # the photos alike lead the strip, the reason says so
+            item["photos"] = alike + [x for x in item["photos"] if x not in alike]
+            item["reasons"] = [f"{r} — похожие первыми в ленте" if r == PHOTO_REASON else r for r in why]
         if c["kind"] == "object":
             # the card may be closed to him, its photos are not (api media_file, 11-17): he compares by them
             item["can_open"] = user is None or P.can_open(db, db.get(Property, c["property_id"]), user)

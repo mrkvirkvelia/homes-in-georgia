@@ -6,6 +6,7 @@ from datetime import date, datetime, timedelta
 
 from sqlalchemy.orm import Session
 
+from app.config import REPO_ROOT
 from app.config import settings as env
 from app.db import SessionLocal
 from app.models import Deal, Job, Lead, Property
@@ -325,6 +326,41 @@ def daily_rent_ical_tick():
         log.exception("daily rent ical sync failed")
 
 
+_child = {"proc": None, "after": 0.0, "npz": None}
+
+
+def photo_vectors_tick() -> None:
+    """Per-photo vectors (app/embeddings.py photos) in a child process, one at a time: started when an object photo or
+    an old enough ad has none, or the bot's vectors.npz changed (copies). A failed child waits half an hour. Off:
+    PHOTO_VECTORS=0 in .env."""
+    import importlib.util
+    import os
+    import subprocess
+    import sys
+    from app import embeddings
+    if os.environ.get("PHOTO_VECTORS", "1") == "0":
+        return
+    p = _child["proc"]
+    if p is not None:
+        if p.poll() is None:
+            return
+        _child["proc"] = None
+        if p.returncode:
+            log.warning("photo vectors: child exited %s, next try in 30 min", p.returncode)
+            _child["after"] = time.time() + 1800
+    if time.time() < _child["after"]:
+        return
+    f = embeddings.npz_path()
+    mtime = os.path.getmtime(f) if os.path.exists(f) else None
+    with SessionLocal() as db:
+        due = (importlib.util.find_spec("torch") is not None and embeddings.photos_due(db)) or \
+            (mtime != _child["npz"] and mtime is not None and bool(embeddings.ads_pending(db, limit=1)))
+    _child["npz"] = mtime
+    if due:
+        _child["proc"] = subprocess.Popen([sys.executable, "-m", "app.embeddings", "photos"],
+                                          cwd=str(REPO_ROOT / "backend"))
+
+
 def tick(limit: int = 50) -> dict:
     """One pass: claim due jobs one at a time (each in its own transaction, row-locked, SKIP LOCKED)."""
     stats: dict[str, int] = {}
@@ -380,6 +416,10 @@ def main():
                 matching.backfill_media_hashes(db, batch=200, max_batches=1, out=log.debug)
         except Exception:  # noqa: BLE001
             log.exception("photo hashes failed")
+        try:  # per-photo vectors for «похожие фото (другой ракурс)» (services/similar.py)
+            photo_vectors_tick()
+        except Exception:  # noqa: BLE001
+            log.exception("photo vectors failed")
         try:  # the bot's catalog follows the objects (services/catalog.py)
             with SessionLocal() as db:
                 if n := catalog.sync_all(db):

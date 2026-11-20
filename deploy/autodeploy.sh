@@ -14,7 +14,7 @@ echo "=== $(date -Is) $(git log --oneline -1 "$new" | cut -c1-100)"
 src=/opt/homes-ci/src net=homes-ci
 rm -rf $src && mkdir -p $src && git archive "$new" | tar -x -C $src
 docker network create $net >/dev/null 2>&1
-docker rm -f homes-ci-db >/dev/null 2>&1
+docker rm -fv homes-ci-db >/dev/null 2>&1
 # a throwaway DB: no fsync (every test's TRUNCATE rewrites all tables' files; with fsync that I/O was most of the run)
 docker run -d --rm --name homes-ci-db --network $net -e POSTGRES_USER=homes -e POSTGRES_PASSWORD=homes \
   -e POSTGRES_DB=homes_test pgvector/pgvector:pg16 -c fsync=off -c synchronous_commit=off -c full_page_writes=off >/dev/null
@@ -34,7 +34,7 @@ nice -n 10 docker run --rm --cpus 3 --network $net -v $src:/src -w /src -v homes
     echo "backend exit $be, bot exit $bt"; [ $be -eq 0 ] && [ $bt -eq 0 ]
     ' > /opt/homes-ci/tests.log 2>&1
 ok=$?
-docker rm -f homes-ci-db >/dev/null 2>&1
+docker rm -fv homes-ci-db >/dev/null 2>&1
 grep -E "passed|failed" /opt/homes-ci/tests.log | tail -5
 grep -E "passed|failed|error" $src/bot-tests.log 2>/dev/null | tail -3; cp $src/bot-tests.log /opt/homes-ci/ 2>/dev/null
 if [ $ok -ne 0 ]; then

@@ -1,12 +1,12 @@
 // «Запрос оператору» (stage 6): an agent's change of a locked field / archive / owner transfer after verification.
 // The operator queue «Запросы» and the same rows on the object card: было → стало, who, when, approve / reject.
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Check, FileText, X } from 'lucide-react';
 import { api } from '../../api';
 import { itemsOf, mediaUrl } from '../../api/client';
-import type { ChangeRequest } from '../../api/types';
+import type { ChangeRequest, DupsGate as Gate } from '../../api/types';
 import { useAuth } from '../../auth/AuthContext';
 import { errText, useToast } from '../../components/toast';
 import { Badge, Button, Empty, ErrorBox, Input, Loading } from '../../components/ui';
@@ -21,6 +21,47 @@ function val(field: string, v: unknown) {
   if (field === 'duplicate_of') return `#${v}`;
   if (Array.isArray(v)) return phonesLine(v) || '—';  // owner_phones
   return String(v);
+}
+
+const GATE: Record<Gate['state'], [string, 'ok' | 'warn' | 'info']> = {
+  clear: ['Эксклюзив подтверждён: дублей нет', 'ok'], waiting: ['Ожидается устранение дублей', 'warn'],
+  review: ['Сомнительные совпадения — ручная проверка', 'info'], operator: ['Дубли остались — решение оператора', 'warn'],
+};
+const LEVEL: Record<string, string> = { confirmed: 'дубль', probable: 'вероятный дубль', doubtful: 'сомнительно' };
+
+function left(deadline: string, at: number) {
+  const ms = new Date(deadline).getTime() - at;
+  if (ms <= 0) return t('срок вышел, идёт повторная проверка');
+  const h = Math.floor(ms / 3_600_000), m = Math.floor((ms % 3_600_000) / 60_000);
+  return t('осталось {h} ч {m} мин', { h, m });
+}
+
+/** §12 (David 11-19): the duplicates gate of «Без электронной подписи» — the status, the 24 h countdown, the list.
+ * The system never removes an outside ad: the agent has the owner take them down. */
+export function DupsGate({ d }: { d?: Gate | null }) {
+  const [at, setAt] = useState(Date.now());
+  useEffect(() => {
+    if (d?.state !== 'waiting') return;
+    const id = setInterval(() => setAt(Date.now()), 60_000);
+    return () => clearInterval(id);
+  }, [d?.state]);
+  if (!d) return null;
+  const [label, tone] = GATE[d.state];
+  return (
+    <div className={`alert alert-${tone}`} style={{ fontSize: 13 }}>
+      <div className="col gap-sm" style={{ minWidth: 0 }}>
+        <b>{t(label)}{d.state === 'waiting' && d.deadline ? ` · ${left(d.deadline, at)}` : ''}</b>
+        {d.state === 'waiting' && <span className="muted">{t('До {at}: подписанный собственником эксклюзивный договор и снятие остальных объявлений. Система сама чужие объявления не удаляет.', { at: d.deadline ? fmtDateTime(d.deadline) : '—' })}</span>}
+        {d.items.map((x) => (
+          <span key={x.key} style={{ overflowWrap: 'anywhere' }}>
+            • {x.where}{x.property_id ? ` #${x.property_id}` : ''} — {t(LEVEL[x.level] || x.level)}{x.pct != null ? ` · ${Math.round(x.pct * 100)}%` : ''}
+            {x.url && <> · <a href={x.url} target="_blank" rel="noreferrer">{t('ссылка')}</a></>}
+            {x.reasons.length > 0 && <span className="muted">: {x.reasons.join(', ')}</span>}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 export function RequestRow({ r, link = (id: number) => `/objects/${id}`, showObject = true }: { r: ChangeRequest; link?: (id: number) => string; showObject?: boolean }) {
@@ -54,6 +95,7 @@ export function RequestRow({ r, link = (id: number) => `/objects/${id}`, showObj
         ))}
         {r.reason && <div className="muted">{t('Причина:')} {r.reason}</div>}
         {r.scan_url && <a href={mediaUrl(r.scan_url)} target="_blank" rel="noreferrer"><FileText size={14} /> {t('скан договора')}</a>}
+        <DupsGate d={r.dups} />
       </div>
       {isStaff && r.status === 'pending' && r.requested_by?.id === user?.id ? <div className="muted" style={{ fontSize: 12 }}>{t('Свой запрос решает другой оператор')}</div>
         : isStaff && r.status === 'pending' ? (

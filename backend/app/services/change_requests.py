@@ -84,6 +84,7 @@ def request_no_esign(db: Session, pid: int, reason: str | None, actor: User,
     if m is not None:
         db.flush()
     cr = create(db, "property", p.id, "no_esign", {"media_id": m.id if m else None}, actor, reason[:500])
+    P.schedule_dup_scan(db, p, "no_esign")  # §12 (David 11-19): no duplicates → approved by itself (similar.no_esign_gate)
     db.commit()
     P._notify("change_request_new", cr)
     return cr
@@ -156,7 +157,7 @@ def outs(db: Session, rows: list[ChangeRequest]) -> list[dict]:
         {(r.payload or {}).get("media_id") for r in rows if r.kind == "no_esign"} - {None})))} if rows else {}
     scan = lambda r: f"/api/media/{scans[mid].path}" if (mid := (r.payload or {}).get("media_id")) in scans else None  # noqa: E731
     return [{"id": r.id, "entity": r.entity, "entity_id": r.entity_id, "kind": r.kind, "status": r.status, "reason": r.reason,
-             "scan_url": scan(r),
+             "scan_url": scan(r), "dups": (r.payload or {}).get("dups") if r.kind == "no_esign" else None,
              "changes": [{"field": k, "old": v.get("old"), "new": v.get("new")} for k, v in (r.payload or {}).items()
                          if isinstance(v, dict)],
              "requested_by": {"id": r.requested_by, "name": name(r.requested_by)},

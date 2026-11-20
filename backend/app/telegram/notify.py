@@ -919,6 +919,39 @@ def exclusive_duplicates(prop, n, strong):
     to_operators("exclusive_duplicates", pid, text, lambda private: kb([[app_btn("🏠 Открыть объект", links.property_app(pid), private)]]))
 
 
+DUPS_STATE = {"clear": "эксклюзив подтверждён: дублей нет", "waiting": "ожидается устранение дублей",
+              "review": "сомнительные совпадения — ручная проверка", "operator": "дубли остались — решение оператора"}
+DUPS_LEVEL = {"confirmed": "дубль", "probable": "вероятный дубль", "doubtful": "сомнительно"}
+
+
+@safe
+def exclusive_dups_gate(prop, state, items, deadline):
+    """§12 (David 11-19): the duplicates gate of an exclusive without the e-signature (similar.no_esign_gate) → the agent;
+    the operators too unless it passed by itself."""
+    pid = g(prop, "id")
+    def line(x):
+        pct = f" · {round(x['pct'] * 100)}%" if x.get("pct") is not None else ""
+        head = " ".join(v for v in (x.get("where"), f"#{x['property_id']}" if x.get("property_id") else None) if v)
+        link = f' · <a href="{e(x["url"])}">ссылка</a>' if x.get("url") else ""
+        return f"• {e(head)} — {DUPS_LEVEL.get(x.get('level'), '')}{pct}{link}: {e(', '.join(x.get('reasons') or []))}"
+    text = f"🔎 <b>Эксклюзив #{pid} без электронной подписи: {DUPS_STATE[state]}</b>\n{e(prop_title(prop))}"
+    if items:
+        text += "\n\n" + "\n".join(line(x) for x in items[:8]) + (f"\n…и ещё {len(items) - 8}" if len(items) > 8 else "")
+    if state == "waiting":
+        until = texts.local(deadline).strftime("%d.%m %H:%M") if deadline else "—"
+        text += (f"\n\nДо {until} (24 ч): подписанный собственником эксклюзивный договор и снятие остальных объявлений. "
+                 "Система сама чужие объявления не удаляет. Потом проверим ещё раз.")
+    elif state == "operator":
+        text += "\n\nПовторная проверка через 24 ч: дубли не устранены или нет договора. Решает оператор в «Запросах»."
+    elif state == "review":
+        text += "\n\nСовпадения сомнительные: объект не блокируется, оператор проверит вручную."
+    ag = store.user(g(prop, "agent_id")) or {}
+    if ag.get("tg_id"):
+        tg.send(ag["tg_id"], text, kb([[app_btn("🏠 Открыть объект", links.property_app(pid))]]))
+    if state != "clear":
+        to_operators("exclusive_dups", pid, text, lambda private: kb([[app_btn("🏠 Открыть объект", links.property_app(pid), private)]]))
+
+
 @safe
 def property_published(prop):
     """C5: the agent gets the link to the channel post."""

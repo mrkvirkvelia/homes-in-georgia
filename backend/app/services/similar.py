@@ -24,11 +24,13 @@ import json
 import logging
 import math
 import re
+from datetime import timedelta
 
 from sqlalchemy import func, or_, select, text
 from sqlalchemy.orm import Session
 
 from app.models import Listing, Owner, Property, PropertyListing, PropertyMedia, SimilarDecision, User
+from app.services import jobs
 from app.services import properties as P
 from app.services.common import jload, log_event, now
 from app.services.dedup import (_same_street, extract_phones, owner_phones, phone_match, relation, street_house,
@@ -546,14 +548,81 @@ def scan_exclusive(db: Session, pid: int, trigger: str = "exclusive") -> dict | 
     prev = P.dup_scan(db, pid) or {}
     prev_keys = {s["key"] for s in prev.get("strong") or []}
     sig = hashlib.sha1(" ".join(sorted(x["key"] for x in items)).encode()).hexdigest()[:16]
-    if trigger == "new_ads" and prev.get("sig") == sig:  # new photos change the reasons, not only the keys: always
+    w = P.no_esign(db, pid)
+    gate_open = w is not None and w.status == "pending" and not (w.payload or {}).get("dups")
+    if trigger == "new_ads" and prev.get("sig") == sig and not gate_open:  # new photos change the reasons: always
         return None
     log_event(db, "property", pid, "duplicate_scan", None, n=len(items), strong=strong[:20], trigger=trigger, sig=sig)
+    gate = no_esign_gate(db, p, w, items, trigger == "dup_recheck")
     db.commit()
+    if gate:
+        P._notify("exclusive_dups_gate", p, *gate)
     fresh = [s for s in strong if s["key"] not in prev_keys]
-    if fresh:
+    if fresh and not gate:  # the gate's message lists them already
         P._notify("exclusive_duplicates", p, len(items), fresh)
-    return {"n": len(items), "strong": strong, "fresh": fresh}
+    return {"n": len(items), "strong": strong, "fresh": fresh, "gate": gate[0] if gate else None}
+
+
+# ---------------------------------------------------------------- «эксклюзив без электронной подписи» (David 11-19, §12)
+
+DUPS_WAIT = timedelta(hours=24)  # to get the owner's signed exclusive contract and the other ads taken down
+BLOCKING = ("confirmed", "probable")
+
+
+def dup_level(item: dict) -> str:
+    """confirmed | probable | doubtful of a find() candidate.
+    ponytail: today's levels — «почти точно» (same) or a pair marked «Дубль» = confirmed, «похож» (maybe) = probable;
+    the % scoring (≥ 0.85 confirmed, 0.65–0.85 probable, below doubtful) plugs in here and as item["pct"]."""
+    if item.get("decided") == "same" or item.get("level") in ("same", "confirmed"):
+        return "confirmed"
+    return "probable" if item.get("level") in ("maybe", "probable") else "doubtful"
+
+
+def _dup_item(x: dict) -> dict:
+    return {"key": x["key"], "where": x["where"], "url": x["url"], "property_id": x["property_id"],
+            "listing_id": x["listing_id"], "address": x["address"], "status": x.get("status"), "level": dup_level(x),
+            "pct": x.get("pct"), "reasons": (x.get("reasons") or [])[:5]}
+
+
+def no_esign_gate(db: Session, p: Property, w, items: list[dict], recheck: bool) -> tuple | None:
+    """§12 on a pending «Без электронной подписи» request (state in its payload["dups"]), after a scan of the object:
+    - first scan, nothing found → approved by the system («эксклюзив подтверждён: дублей нет»);
+    - confirmed / probable duplicates → «ожидается устранение дублей»: 24 h (a dup_recheck job) for the signed contract
+      and the other ads taken down — the system never removes an outside ad;
+    - only doubtful ones → «ручная проверка»: the operator decides, nothing is blocked;
+    - the re-check at the deadline: the contract is in (a scan on the request / the PDF) and nothing found → approved,
+      anything else → the operator decides; never approved with duplicates left.
+    Later scans (new ads, photos) leave a decided state alone. -> (state, items, deadline) to message, or None. No commit."""
+    if w is None or w.status != "pending":
+        return None
+    pl = dict(w.payload or {})
+    st = (pl.get("dups") or {}).get("state")
+    if (st != "waiting") if recheck else bool(st):
+        return None
+    found = [_dup_item(x) for x in items]
+    received = bool(pl.get("media_id")) or P.contract(db, p.id) is not None
+    deadline = None
+    if not found and (received or not recheck):
+        state = "clear"
+        w.status, w.decided_at, w.decision_comment = "approved", now(), "Эксклюзив подтверждён: дублей нет"
+        log_event(db, "property", p.id, "change_request_approved", None, request_id=w.id, kind=w.kind, auto=True,
+                  comment=w.decision_comment)
+        log_event(db, "property", p.id, "exclusive_contract_waived", None, request_id=w.id, reason=w.reason,
+                  requested_by=w.requested_by, media_id=pl.get("media_id"), auto=True)
+    elif recheck:
+        state = "operator"
+    elif any(x["level"] in BLOCKING for x in found):
+        state, deadline = "waiting", now() + DUPS_WAIT
+        jobs.schedule(db, "dup_recheck", p.id, deadline, {"request_id": w.id})
+    else:
+        state = "review"
+    dl = deadline.isoformat() if deadline else (pl.get("dups") or {}).get("deadline")
+    pl["dups"] = {"state": state, "at": now().isoformat(), "deadline": dl, "received": received, "items": found[:30],
+                  "n": len(found)}
+    w.payload = pl
+    log_event(db, "property", p.id, f"exclusive_dups_{state}", None, request_id=w.id, n=len(found), deadline=dl,
+              items=found[:20])
+    return state, found, dl
 
 
 def exclusives_hit(db: Session, listing_ids: list[str]) -> set[int]:

@@ -17,7 +17,7 @@ import { SimilarList } from '../../components/Similar';
 import { Badge, Button, Card, Checkbox, Empty, ErrorBox, Field, Input, KV, Lightbox, Loading, Modal, Seg, Select, Switch, Textarea, DistrictSelect } from '../../components/ui';
 import { ARCHIVE_REASON, agentLabel, distLabel, districtLabel, SOURCE_LABEL, bedroomsLabel, demandLabel, fmtDate, fmtDateTime, formatPhone, isoToLocal, localToIso, money, phoneInput } from '../../lib/format';
 import { DealStatusBadge } from '../../pages/Deals';
-import { RequestRow } from './requests';
+import { DupsGate, RequestRow } from './requests';
 import { OwnerSuggest } from '../../components/OwnerSuggest';
 import { MorePhones, PhonesField, cleanPhones, phoneRows, samePhones } from '../../components/PhonesField';
 import { cadastralError, cadastralHint, cadastralInput, cadastralNorm } from '../../lib/cadastral';
@@ -1156,10 +1156,13 @@ function NoEsign({ p, canEdit }: { p: Property; canEdit: boolean }) {
   const scan = w?.scan_url ? <> · <a href={mediaUrl(w.scan_url)} target="_blank" rel="noreferrer"><FileText size={14} /> {t('скан договора')}</a></> : null;
   return (
     <div className="col gap-sm">
-      {w?.status === 'approved' && <div className="alert alert-ok"><span><CheckCircle2 size={14} /> {t('Без электронной подписи · подтвердил оператор {who} {at}', { who: who(w.decided_by), at: fmtDateTime(w.decided_at) })}<br />
+      {w?.status === 'approved' && <div className="alert alert-ok"><span><CheckCircle2 size={14} /> {w.decided_by ? t('Без электронной подписи · подтвердил оператор {who} {at}', { who: who(w.decided_by), at: fmtDateTime(w.decided_at) })
+        : t('Без электронной подписи · подтверждено системой {at}: дублей нет', { at: fmtDateTime(w.decided_at) })}<br />
         <span className="muted">{t('Причина:')} {w.reason} · {t('запросил {who}', { who: who(w.requested_by) })}</span>{scan}</span></div>}
       {w?.status === 'pending' && <div className="alert alert-info"><span><Clock size={14} /> {t('Без электронной подписи: ждёт решения оператора')}<br />
         <span className="muted">{t('Причина:')} {w.reason} · {who(w.requested_by)} · {fmtDateTime(w.created_at)}</span>{scan}</span></div>}
+      {w?.status === 'pending' && !w.dups && <div className="muted" style={{ fontSize: 12 }}>{t('Ищем дубли: если их нет, эксклюзив подтвердится сам')}</div>}
+      {w?.status !== 'rejected' && w?.dups?.state !== 'clear' && <DupsGate d={w?.dups} />}
       {w?.status === 'rejected' && <div className="alert alert-warn"><span>{t('Оператор отклонил «без электронной подписи»')}{w.decided_by ? ` (${who(w.decided_by)})` : ''}: <b>{w.comment || '—'}</b></span></div>}
       {canEdit && w?.status !== 'approved' && w?.status !== 'pending' && (open ? (
         <div className="col gap-sm outcome-card">

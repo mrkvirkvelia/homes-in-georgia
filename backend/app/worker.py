@@ -245,6 +245,15 @@ def dup_scan(db: Session, job: Job):
     return "ok" if r is None else f"found {r['n']}, strong {len(r['strong'])}"
 
 
+@handler("dup_recheck")
+def dup_recheck(db: Session, job: Job):
+    """§12 (David 11-19): 24 h after an exclusive without the e-signature showed duplicates — search again; clean with
+    the contract in → approved, else the operator decides (similar.no_esign_gate; a decided request: a no-op)."""
+    from app.services import similar
+    r = similar.scan_exclusive(db, _ref_id(job), "dup_recheck")
+    return (r or {}).get("gate") or "stale"
+
+
 @handler("tg_video")
 def tg_video(db: Session, job: Job):
     """A video just uploaded (ref = its storage key) -> its Telegram-ready copy, so publishing does not run ffmpeg."""

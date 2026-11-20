@@ -2610,7 +2610,14 @@ def _no_esign_out(db: Session, w, files: bool) -> dict:
             "requested_by": {"id": w.requested_by, "name": names.get(w.requested_by)},
             "decided_by": {"id": w.decided_by, "name": names.get(w.decided_by)} if w.decided_by else None,
             "decided_at": iso(w.decided_at), "comment": w.decision_comment,
-            "scan_url": f"/api/media/{scan.path}" if scan else None}
+            "scan_url": f"/api/media/{scan.path}" if scan else None, "dups": _dups_out((w.payload or {}).get("dups"), files)}
+
+
+def _dups_out(d: dict | None, files: bool) -> dict | None:
+    """§12: the duplicates gate of the request (similar.no_esign_gate); ad links lead to the owner's phone."""
+    if not d or files:
+        return d
+    return {**d, "items": [{**x, "url": None} for x in d.get("items") or []]}
 
 
 def card(db: Session, p: Property, user: User) -> dict:

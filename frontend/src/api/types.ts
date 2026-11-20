@@ -166,7 +166,7 @@ export interface Property {
   /** «Без электронной подписи» (Irakli 11-18): the latest request to the operator; approved = the contract step done */
   no_esign?: { id: number; status: 'pending' | 'approved' | 'rejected'; reason: string | null; created_at: string;
     requested_by: { id: number | null; name: string | null }; decided_by: { id: number; name: string | null } | null;
-    decided_at: string | null; comment: string | null; scan_url: string | null } | null;
+    decided_at: string | null; comment: string | null; scan_url: string | null; dups?: DupsGate | null } | null;
   /** the exclusive's last duplicate search (backend similar.scan_exclusive): pending while the worker hasn't run it */
   duplicate_scan?: { n?: number; pending?: boolean; at?: string; trigger?: string;
     strong?: { key: string; where: string; property_id: number | null; listing_id: string | null; url: string | null; address: string | null; reasons: string[] }[] } | null;
@@ -246,10 +246,21 @@ export interface Property {
   updated_at?: string;
 }
 
+/** §12 (David 11-19): an exclusive without the e-signature after its duplicate search — clear = approved by itself,
+ * waiting = 24 h for the contract and the other ads taken down (deadline), review = doubtful only, operator = re-checked
+ * at the deadline and not clean: the operator decides. */
+export interface DupsGate {
+  state: 'clear' | 'waiting' | 'review' | 'operator'; at: string; deadline: string | null; received: boolean; n: number;
+  items: { key: string; where: string; url: string | null; property_id: number | null; listing_id: string | null;
+    address: string | null; status: string | null; level: 'confirmed' | 'probable' | 'doubtful'; pct: number | null; reasons: string[] }[];
+}
+
 export interface ChangeRequest {
   id: number; entity: string; entity_id: number; kind: 'edit' | 'archive' | 'transfer_owner' | 'delete' | 'no_esign';
   /** no_esign: the scan / photo of the paper contract the agent attached */
   scan_url?: string | null;
+  /** no_esign: the duplicates gate (David 11-19 §12, backend similar.no_esign_gate) */
+  dups?: DupsGate | null;
   status: 'pending' | 'approved' | 'rejected'; reason?: string | null;
   changes: { field: string; old: unknown; new: unknown }[];
   requested_by: { id: number | null; name: string | null }; decided_by?: { id: number; name: string | null } | null;

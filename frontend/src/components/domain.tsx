@@ -358,6 +358,8 @@ const ACTION_TEXT: Record<string, string> = tmap({
   agent_bound: 'Собственник закреплён за агентом', agent_released: 'Собственник освобождён',
   listing_linked: 'Найдено объявление этого объекта', exclusive_conflict: 'Эксклюзив висит на другом сайте', ad_removed_checked: 'Проверено: объявление снято',
   duplicate_scan: 'Поиск дублей эксклюзива', exclusive_contract_waived: 'Договор без электронной подписи: подтвердил оператор',
+  exclusive_dups_clear: 'Эксклюзив подтверждён: дублей нет', exclusive_dups_waiting: 'Ожидается устранение дублей (24 ч)',
+  exclusive_dups_review: 'Сомнительные совпадения — ручная проверка', exclusive_dups_operator: 'Дубли остались — решение оператора',
   exclusive_contract_uploaded: 'Загружен эксклюзивный договор', exclusive_contract_signed: 'Собственник подписал эксклюзивный договор',
   // history from David's old work chats (backend/app/importers/legacy_objects.py)
   legacy_posted: 'Пост в канале (старая база)', legacy_updated: 'Пост обновлён (старая база)', legacy_discount: 'Скидка (старая база)',

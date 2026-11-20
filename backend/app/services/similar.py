@@ -29,7 +29,7 @@ from datetime import timedelta
 from sqlalchemy import func, or_, select, text
 from sqlalchemy.orm import Session
 
-from app.models import Listing, Owner, Property, PropertyListing, PropertyMedia, SimilarDecision, User
+from app.models import Listing, Owner, Property, PropertyListing, PropertyMedia, SimilarDecision, SimilarJournal, User
 from app.services import jobs
 from app.services import properties as P
 from app.services.common import jload, log_event, now
@@ -97,6 +97,53 @@ def _usd(price, currency) -> float | None:
     return float(price) * {"GEL": GEL_USD, "EUR": EUR_USD}.get(currency or "USD", 1.0)
 
 
+FLAT = re.compile(r"(?:\bкв(?:артира)?|\bapt|\bapartment|\bflat|ბინა)\.?\s*(?:№|n|#|no\.?)?\s*(\d{1,4})(?![\d.,]*\s*(?:м|m|кв|sq))", re.I)
+HANDLE = re.compile(r"(?:t\.me/|telegram\.me/|facebook\.com/|fb\.com/|instagram\.com/|(?<![\w.])@)([a-z0-9_.]{4,40})", re.I)
+TYPES = {"apartment": "apartment", "house": "house", "land": "land", "commercial": "commercial"}  # Property.post_fields.prop_type,
+# Listing.details.property (bot/facts.py): anything else (Retail, Cafe, Office…) is commercial; none known: unknown
+
+
+def _flat(*texts) -> str | None:
+    """«ул. Палиашвили 10, кв. 12» / «apt 12» / «ბინა 12» → "12" (the flat number; an area «кв. м» never counts)."""
+    for t in texts:
+        m = FLAT.search(str(t or ""))
+        if m:
+            return m.group(1).lstrip("0") or "0"
+    return None
+
+
+def _handles(*texts) -> frozenset:
+    """Telegram / Facebook / Instagram contacts written in an ad: t.me/nino_flats, @nino_flats, facebook.com/nino.b."""
+    return frozenset(h.lower().rstrip(".") for t in texts for h in HANDLE.findall(str(t or ""))
+                     if not h.lower().startswith(("homes", "share", "profile.php", "groups", "joinchat")))
+
+
+def _words(t) -> frozenset:
+    """The words of a description (HTML, emoji, digits and short words out) for «похожий текст»."""
+    return frozenset(re.findall(r"[a-zа-яёა-ჰ]{4,}", re.sub(r"<[^>]+>", " ", str(t or "")).lower()))
+
+
+def _type(v) -> str | None:
+    v = str(v or "").strip().lower()
+    return TYPES.get(v, "commercial") if v else None
+
+
+def _date(v):
+    from datetime import datetime, timezone
+    try:
+        d = v if isinstance(v, datetime) else datetime.fromisoformat(str(v)) if v else None
+    except ValueError:
+        return None
+    return d.replace(tzinfo=timezone.utc) if d is not None and d.tzinfo is None else d
+
+
+def building_key(addr: str | None) -> str | None:
+    """One key per building whatever the script and spelling: «ул. Палиашвили, 10» / «10 Paliashvili St» /
+    «ფალიაშვილის ქუჩა 10» → "paliashvil|10" (dedup.street_house skeletons; the corpus letter kept: 20A ≠ 20)."""
+    street, n, letter = street_house(addr)
+    return f"{'+'.join(sorted(street))}|{n}{letter}" if street and n is not None else None
+
+
 def _km(a, b) -> float | None:
     if None in (a[0], a[1], b[0], b[1]):
         return None
@@ -117,13 +164,19 @@ def _listing_profile(l: Listing, competitors: set[str]) -> dict:
     t = l.text or ""
     urls = jload(l.urls, []) or []
     n_photos = len(jload(l.photos, []) or [])
+    d = jload(l.details, {}) or {}
+    d = d if isinstance(d, dict) else {}
+    # 0: a photo the bot could not read (its dHash says nothing; two zeros are no shared photo)
+    hp = [(h, f"/api/listing-photos/{l.id}/{i}") for i, h in enumerate(_hashes(l.photo_hashes)) if h]
     return {
         "key": key("l", l.id), "kind": "ad", "listing_id": l.id, "property_id": None,
         "urls": set(urls), "phones": extract_phones(t), "names": frozenset(), "author": (l.source, l.owner_id) if l.owner_id else None,
-        "cads": {_digits(c) for c in CADASTRAL.findall(t)}, "hashes": _hashes(l.photo_hashes),
+        "cads": {_digits(c) for c in CADASTRAL.findall(t)}, "hashes": [h for h, _ in hp], "hash_urls": [u for _, u in hp],
         "house": street_house(l.address), "street": _bare_street(l.address), "at": (l.lat, l.lng), "district": l.district,
         "floor": l.floor, "area": float(l.area) if l.area else None, "bedrooms": l.bedrooms,
         "price_usd": float(l.price_usd) if l.price_usd else None,
+        "flat": _flat(l.address, t), "handles": _handles(t), "words": _words(t), "type": _type(d.get("property")),
+        "metro": d.get("metro_ru"), "date": _date(l.first_seen),
         "out": {"kind": "ad", "listing_id": l.id, "property_id": None, "where": _ad_source(l, competitors),
                 "competitor": l.source in competitors, "status": l.status, "address": l.address, "district": l.district,
                 "bedrooms": l.bedrooms, "area": l.area, "floor": l.floor, "price_usd": l.price_usd,
@@ -148,20 +201,21 @@ def _objects(db: Session, pids: list[int] | None = None) -> list[dict]:
                                   .where(PropertyListing.property_id.in_(ids))):
         ads.setdefault(pid, []).append((url, l))
     photos: dict[int, list[str]] = {}
-    own: dict[int, list[int]] = {}  # property_media.dhash (matching.photo_hash), signed in the DB
+    own: dict[int, list[tuple]] = {}  # (property_media.dhash (matching.photo_hash), signed in the DB; its url)
     for pid, path, h in db.execute(select(PropertyMedia.property_id, PropertyMedia.path, PropertyMedia.dhash)
                                    .where(PropertyMedia.property_id.in_(ids), PropertyMedia.kind == "photo")
                                    .order_by(PropertyMedia.position, PropertyMedia.id)):
         photos.setdefault(pid, []).append(path)
         if h:  # 0: unreadable (matching.backfill_media_hashes)
-            own.setdefault(pid, []).append(h & U64)
+            own.setdefault(pid, []).append((h & U64, f"/api/media/{path}"))
     out = []
     for p in props:
         o = owners.get(p.owner_id)
         mine = ads.get(p.id, [])
         origin = next((l for _, l in mine if l.id == p.listing_id), None)
         urls = {p.source_url} | {u for u, _ in mine} | {u for _, l in mine for u in jload(l.urls, []) or []}
-        hashes = own.get(p.id, []) + [h for _, l in mine for h in _hashes(l.photo_hashes)]
+        hp = own.get(p.id, []) + [(h, f"/api/listing-photos/{l.id}/{i}") for _, l in mine
+                                  for i, h in enumerate(_hashes(l.photo_hashes)) if h]
         phones = [r["phone"] for r in owner_phones(o)]
         phones += [x for _, l in mine for x in extract_phones(l.text or "")]
         at = (p.lat, p.lng) if p.lat is not None else (origin.lat, origin.lng) if origin is not None else (None, None)
@@ -171,10 +225,15 @@ def _objects(db: Session, pids: list[int] | None = None) -> list[dict]:
         out.append({
             "key": key("p", p.id), "kind": "object", "listing_id": None, "property_id": p.id, "ad_ids": {l.id for _, l in mine},
             "urls": urls - {None, ""}, "phones": list(dict.fromkeys(phones)), "names": _name_tokens(o.name) if o else frozenset(),
-            "author": None, "cads": {_digits(p.cadastral_code)} - {""}, "hashes": hashes,
+            "author": None, "cads": {_digits(p.cadastral_code)} - {""}, "hashes": [h for h, _ in hp],
+            "hash_urls": [u for _, u in hp],
             "house": street_house(p.address), "street": _bare_street(p.address), "at": at, "district": p.district, "floor": p.floor,
             "area": float(p.area) if p.area is not None else None, "bedrooms": p.bedrooms, "price_usd": _usd(p.price, p.currency),
-            "agent_id": p.agent_id,
+            "agent_id": p.agent_id, "flat": _flat(p.address), "words": _words(p.description), "date": _date(p.created_at),
+            "handles": _handles(o.link if o else None, *(l.text for _, l in mine)),
+            "type": _type((p.post_fields or {}).get("prop_type")) or next((_type((jload(l.details, {}) or {}).get("property"))
+                                                                          for _, l in mine if l.details), None),
+            "metro": next(((jload(l.details, {}) or {}).get("metro_ru") for _, l in mine if l.details), None),
             "out": {"kind": "object", "listing_id": None, "property_id": p.id, "where": "наша база", "competitor": False,
                     "status": p.status, "address": p.address, "district": p.district, "bedrooms": p.bedrooms,
                     "area": float(p.area) if p.area is not None else None, "floor": p.floor,
@@ -216,6 +275,11 @@ def _shared(a: list[int], b: list[int]) -> int:
     return sum(1 for x in a if any(bin(x ^ y).count("1") <= PHOTO_BITS for y in b))
 
 
+def _shared_idx(a: list[int], b: list[int]) -> list[int]:
+    """Which of b's photos are one of a's (the candidate's matched photos, for the strip)."""
+    return [j for j, y in enumerate(b) if any(bin(x ^ y).count("1") <= PHOTO_BITS for x in a)]
+
+
 # ---------------------------------------------------------------- the verdict
 
 def _fits(s: dict, c: dict) -> bool:
@@ -240,80 +304,284 @@ def _exact(s: dict, c: dict) -> bool:
             and abs(s["area"] - c["area"]) <= max(1.0, 0.03 * max(s["area"], c["area"])))
 
 
-def compare(s: dict, c: dict, shared: int = 0, photo: float = 0.0) -> tuple[str | None, float, list[str]]:
-    """(same | maybe | None, score, reasons) of candidate c for subject s; photo: the meanbest of their photo vectors."""
-    strong, medium, params = [], [], []
-    if s["urls"] & c["urls"]:
-        strong.append("та же ссылка")
-    if s["cads"] & c["cads"]:
-        strong.append("тот же кадастровый код")
-    if shared >= 2:
-        strong.append(f"общих фото: {shared}")
-    elif shared == 1:
-        medium.append("одно общее фото")
-    if photo >= PHOTO_SIM_ALONE and shared < 2:  # never strong: an «почти точно» needs the same photos themselves
-        medium.append(PHOTO_REASON)
+# ---------------------------------------------------------------- the score (David 11-19, spec §4–8)
+
+# Every weight and threshold of the duplicate score, in one place. Tune here, then `python -m app.dup_eval` prints
+# precision / recall / false pairs of the labelled pairs (services/dup_pairs.json; --db: the operators' decisions).
+CONFIG = {
+    # groups of independent evidence (§6–7); a group both sides know nothing about is left out and the rest renormalised
+    "weights": {"photo": 0.30, "contact": 0.25, "location": 0.20, "property": 0.15, "text_price": 0.05, "time": 0.05},
+    # …over at least this share of the weights: a pair that only shares a house and a price is no sure pair
+    "min_coverage": 0.45,
+    "same": 0.85,          # «дубль / почти точно»
+    "maybe": 0.65,         # «вероятный, нужна проверка»; below: not shown
+    "strong_group": 0.7,   # a group this sure is one independent proof; «дубль» needs two (or a near-unique identifier)
+    "photo_dhash": {1: 0.6, 2: 0.9, 3: 1.0},                 # shared photos (dHash ≤ PHOTO_BITS) → the photo group
+    "photo_sim": [(PHOTO_SIM_ALONE, 0.7), (0.95, 0.9), (1.0, 1.0)],  # SigLIP meanbest → the photo group (below: none)
+    "area_exact": (1.0, 0.03),   # m², share: 45 / 45.0 / 45.05, 70 / 72 are one area
+    "area_fit": 0.10,            # _fits: the area may be typed this far off
+    "area_zero": 0.25,           # the area / price sub-score falls to 0 at this difference
+    "days": (14, 120),           # published this close: the time group is 1, at the second 0
+    "pin_m": [(NEAR_M, 0.9), (300, 0.5), (TWIN_KM * 1000, 0.3)],
+    "far_km": 3.0,               # pins this far apart contradict (a geocoder slip stays under it)
+    "location": {"house": 1.0, "corpus": 0.6, "street": 0.4, "metro": 0.3, "district": 0.3},
+    "text_jaccard": 0.6,         # word overlap of two descriptions that counts as the same text
+    "bonus": {"phone_house_area": 0.10, "photos_address": 0.10, "angles_house_layout": 0.10,
+              "owner_area_floor_dates": 0.05, "same_flat": 0.15, "full_name": 0.10, "author": 0.10,
+              "photos_a_little": 0.05},
+    "penalty": {"cadastre": 0.40, "flat": 0.30, "pins_far": 0.20, "area_20": 0.15, "area_30": 0.30, "type": 0.30,
+                "no_fit": 0.15},
+    # contradictions that forbid «дубль» whatever the rest says (§7, §13.12)
+    "blocking": ("cadastre", "flat", "area_30", "type"),
+    # hard rules (§8): the score is at least this when the rule holds and nothing blocking contradicts it
+    "floors": {"identifier": 0.97, "phone_house": 0.88, "photos_place": 0.88, "photos_any": 0.80, "photo_sim": 0.70,
+               "photo_one": 0.66, "phone": 0.66, "twin": 0.66},
+}
+GROUPS = ("identifier", "photo", "contact", "location", "property", "text_price", "time")
+LEVEL_TEXT = {"same": "дубль / почти точно", "maybe": "вероятный, нужна проверка"}
+
+
+def _interp(x: float, pts) -> float:
+    if x < pts[0][0]:
+        return 0.0
+    for (x0, y0), (x1, y1) in zip(pts, pts[1:]):
+        if x <= x1:
+            return y0 + (y1 - y0) * (x - x0) / (x1 - x0)
+    return pts[-1][1]
+
+
+def _close(a: float, b: float, cfg=CONFIG) -> float:
+    """1 for the same number (area 45 / 45.05, a price to 3%), falling to 0 at area_zero apart."""
+    d, m = abs(a - b), max(a, b)
+    if d <= max(cfg["area_exact"][0], cfg["area_exact"][1] * m):
+        return 1.0
+    return max(0.0, 1 - (d / m) / cfg["area_zero"])
+
+
+def score(s: dict, c: dict, shared: int = 0, photo: float = 0.0, cfg: dict = CONFIG) -> dict:
+    """The duplicate score of candidate c for subject s (profiles; shared: photos in common by dHash, photo: the
+    meanbest of their photo vectors). -> {score 0..1, pct, level same|maybe|None, groups {group: G}, matched, differs,
+    reasons (the matched ones, old wording), why, sure}. Missing data is never a mismatch: a group neither side knows is
+    left out; only the contradictions of cfg["penalty"] take score away."""
+    W, B, PEN = cfg["weights"], cfg["bonus"], cfg["penalty"]
+    g: dict[str, float] = {}
+    m: dict[str, list[str]] = {k: [] for k in GROUPS}
+    differs: list[str] = []
+    bonus, pen, floors = [], [], []
+
+    def both(k):
+        return s.get(k) is not None and c.get(k) is not None
+
+    # identifiers: the same link / cadastral code is near-unique; different reliable codes forbid «дубль»
+    if (s.get("urls") or set()) & (c.get("urls") or set()):
+        m["identifier"].append("та же ссылка")
+    cs, cc = s.get("cads") or set(), c.get("cads") or set()
+    if cs & cc:
+        m["identifier"].append("тот же кадастровый код")
+    elif cs and cc and not any(x.startswith(y) or y.startswith(x) for x in cs for y in cc):  # a parcel's code ⊂ a flat's
+        pen.append("cadastre"), differs.append("разные кадастровые коды")
+    if m["identifier"]:
+        floors.append("identifier")
+        g["identifier"] = 1.0
+
+    # photos: the same files (dHash) or the same rooms (SigLIP vectors; another shoot, a crop, a watermark)
+    pd = cfg["photo_dhash"][min(shared, 3)] if shared else 0.0
+    ps = _interp(photo, cfg["photo_sim"])
+    if pd:
+        m["photo"].append(f"общих фото: {shared}" if shared >= 2 else "одно общее фото")
+    if ps > pd:
+        m["photo"].append(PHOTO_REASON)
+    elif not pd and photo >= PHOTO_SIM_WEIGHT:  # 0.85–0.875: look-alikes of one new-build complex too: weight only
+        bonus.append("photos_a_little"), m["photo"].append(PHOTO_REASON)
+    if pd or ps:
+        g["photo"] = max(pd, ps)
+
+    # contacts: the phone, a Telegram / Facebook contact. The owner's full name and the ad's author only add weight
+    # (Irakli / Stanislav 11-19: an agent's name and account stand behind many flats)
+    pairs = [(x, y) for x in s.get("phones") or [] for y in c.get("phones") or [] if phone_match(x, y)]
+    multi = (s.get("multi") or set()) | (c.get("multi") or set())
+    phone = bool(pairs)
+    if phone:
+        shared_phone = any(_digits(x)[-9:] in multi for p_ in pairs for x in p_)
+        g["contact"] = 0.6 if shared_phone else 1.0
+        m["contact"].append("тот же телефон собственника" + (" (он же у другого объекта)" if shared_phone else ""))
+    hs = (s.get("handles") or frozenset()) & (c.get("handles") or frozenset())
+    if hs:
+        g["contact"] = max(g.get("contact", 0), 0.9)
+        m["contact"].append("тот же контакт: " + ", ".join(sorted(hs)[:2]))
+    same_name = len((s.get("names") or frozenset()) & (c.get("names") or frozenset())) >= 2
+    same_author = bool(s.get("author")) and s.get("author") == c.get("author")
+
+    # location: one building whatever the spelling (dedup.street_house), the pin, the metro, the district
     rel = relation(s["house"], c["house"])
     same_house = rel == "тот же дом"
-    # an agent's number (behind 3+ objects, find() drops it from the profiles) names no flat
-    phone = any(phone_match(x, y) for x in s["phones"] for y in c["phones"])
-    same_floor = s["floor"] is not None and c["floor"] is not None and int(s["floor"]) == int(c["floor"])
-    if phone and (same_house or same_floor):
-        strong.append("тот же телефон собственника" + (" и дом" if same_house else " и этаж"))
-    elif phone:
-        medium.append("тот же телефон собственника")
-    # the owner's name names no flat (Irakli 11-19: dozens of other flats «то же имя собственника» — a common first
-    # name, or the agent's own typed as the owner's): only the full name (2+ words in common), and only as weight on
-    # a candidate that is one already by something real
-    same_name = len(s["names"] & c["names"]) >= 2
-    same_author = bool(s["author"]) and s["author"] == c["author"]  # an agent's account posts many flats: weight only
-    if same_house and not phone:
-        medium.append("тот же дом")
-    elif rel and not same_house:
-        params.append(rel)
-    km = _km(s["at"], c["at"])
-    if km is not None and km * 1000 <= NEAR_M and not same_house:
-        medium.append(f"рядом на карте, {round(km * 1000)} м")
-    if s["bedrooms"] is not None and c["bedrooms"] is not None and int(s["bedrooms"]) == int(c["bedrooms"]):
-        params.append("спальни совпадают")
-    if same_floor:
-        params.append("этаж совпадает")
-    if s["area"] and c["area"]:
+    km = _km(s.get("at") or (None, None), c.get("at") or (None, None))
+    near = km is not None and km * 1000 <= NEAR_M
+    L, sub = cfg["location"], []
+    if rel:
+        sub.append(L["house"] if same_house else L["corpus"] if rel.startswith("соседний") else L["street"])
+        m["location"].append(rel)
+    elif _street(s, c):
+        sub.append(L["street"]), m["location"].append("та же улица")
+    elif s["house"][1] is not None and c["house"][1] is not None:
+        sub.append(0.0), differs.append("другой адрес")
+    if km is not None:
+        sub.append(next((y for x, y in cfg["pin_m"] if km * 1000 <= x), 0.0))
+        if near and not same_house:
+            m["location"].append(f"рядом на карте, {round(km * 1000)} м")
+        if km > cfg["far_km"] and not same_house:
+            pen.append("pins_far"), differs.append(f"далеко на карте, {km:.1f} км")
+    loc_named = bool(sub and max(sub) > 0)
+    if both("metro"):
+        same = s["metro"] == c["metro"]
+        sub.append(L["metro"] if same else 0.0)
+        if same and not loc_named:
+            m["location"].append(f"то же метро ({s['metro']})")
+    if s.get("district") and c.get("district"):
+        same = s["district"] == c["district"]
+        sub.append(L["district"] if same else 0.0)
+        if same and not loc_named:
+            m["location"].append("тот же район")
+        elif not same:
+            differs.append(f"район {s['district']} / {c['district']}")
+    if sub:
+        g["location"] = max(sub)
+    same_place = same_house or near
+
+    # the flat itself: its number, the type, bedrooms, floor, area (45 / 45.0 / 45.05 m² are one)
+    sub = []
+    if both("flat") and (same_place or rel):
+        if s["flat"] == c["flat"]:
+            bonus.append("same_flat"), m["identifier"].append(f"та же квартира №{s['flat']}")
+        else:
+            pen.append("flat"), differs.append(f"квартиры №{s['flat']} / №{c['flat']}")
+    if both("type"):
+        if s["type"] == c["type"]:
+            sub.append(1.0)
+        else:
+            sub.append(0.0), pen.append("type"), differs.append("другой тип объекта")
+    if both("bedrooms"):
+        if int(s["bedrooms"]) == int(c["bedrooms"]):
+            sub.append(1.0), m["property"].append("спальни совпадают")
+        else:
+            sub.append(0.0), differs.append(f"спальни {s['bedrooms']} / {c['bedrooms']}")
+    same_floor = both("floor") and int(s["floor"]) == int(c["floor"])
+    if both("floor"):
+        df = abs(int(s["floor"]) - int(c["floor"]))
+        sub.append(1.0 if df == 0 else 0.5 if df == 1 else 0.0)
+        if df == 0:
+            m["property"].append("этаж совпадает")
+        else:
+            differs.append(f"этаж {s['floor']} / {c['floor']}")
+    area_ok = True
+    if s.get("area") and c.get("area"):
         a, b = s["area"], c["area"]
-        if abs(a - b) <= AREA_TOL * max(a, b):
-            params.append("площадь та же" if abs(a - b) <= 1 else f"площадь близкая ({a:g} / {b:g} м²)")
-    if s["price_usd"] and c["price_usd"]:
+        x, off = _close(a, b, cfg), abs(a - b) / max(a, b)
+        sub.append(x)
+        area_ok = off <= cfg["area_fit"]
+        if x == 1.0:
+            m["property"].append("площадь та же" if abs(a - b) <= 1 else f"площадь близкая ({a:g} / {b:g} м²)")
+        elif off <= AREA_TOL:
+            m["property"].append(f"площадь близкая ({a:g} / {b:g} м²)")
+        else:
+            differs.append(f"площадь {a:g} / {b:g} м²")
+            if off >= 0.30:
+                pen.append("area_30")
+            elif off >= 0.20:
+                pen.append("area_20")
+    if sub:
+        g["property"] = sum(sub) / len(sub)
+    fits = _fits(s, c)
+    if sub and not fits:
+        pen.append("no_fit")  # bedrooms, floor ±1, area ±10% disagree: another flat 548 times of 552 (prod eval 11-17)
+
+    # the text and the price (a changed price is no mismatch by itself: §13.10), the dates
+    sub = []
+    price_close = False
+    if s.get("price_usd") and c.get("price_usd"):
         a, b = s["price_usd"], c["price_usd"]
-        if abs(a - b) <= PRICE_TOL * max(a, b):
-            params.append("цена близкая")
-    same_district = bool(s["district"]) and s["district"] == c["district"]
-    core = {"спальни совпадают", "этаж совпадает", "цена близкая"} | {x for x in params if x.startswith("площадь")}
-    n_core = len(core & set(params))
-    if strong:
-        level = "same"
-    elif medium and _fits(s, c):
-        # a shared photo, the phone, the house, a pin next door…: the agent looks when the flat can be this one —
-        # bedrooms, floor ±1, area ±10% (11-17: 100 m² / 6th vs 110 m² / 5th). Without that fit these were another flat
-        # 548 times of 552 on the prod sample (eval 11-17)
-        level = "maybe"
-    elif (rel or _street(s, c)) and _exact(s, c):
-        level = "maybe"  # a house next door, or the street of an ad without a number, with the same floor and area
-        if not rel:
-            params.append("та же улица")
-    elif (same_district or (km is not None and km <= TWIN_KM)) and _exact(s, c) and "цена близкая" in params:
-        level = "maybe"  # a twin: the same bedrooms, floor, area and price (a looser twin: 0 of 176 in the eval)
-        if same_district:
-            params.append("тот же район")
-    else:
-        return None, 0.0, []
+        price_close = abs(a - b) <= PRICE_TOL * max(a, b)
+        sub.append(max(0.0, 1 - (abs(a - b) / max(a, b)) / cfg["area_zero"]))
+        if price_close:
+            m["text_price"].append("цена близкая")
+        else:
+            differs.append("цена другая")
+    ws, wc = s.get("words") or frozenset(), c.get("words") or frozenset()
+    if len(ws) >= 15 and len(wc) >= 15:
+        j = len(ws & wc) / len(ws | wc)
+        sub.append(min(1.0, j / cfg["text_jaccard"]))
+        if j >= cfg["text_jaccard"] * 0.8:
+            m["text_price"].append("похожий текст объявления")
+    if sub:
+        g["text_price"] = sum(sub) / len(sub)
+    if s.get("date") and c.get("date"):
+        days = abs((s["date"] - c["date"]).total_seconds()) / 86400
+        d0, d1 = cfg["days"]
+        g["time"] = 1.0 if days <= d0 else max(0.0, 1 - (days - d0) / (d1 - d0))
+
+    # bonuses for strong combinations (§7)
     if same_name:
-        medium.append("то же имя собственника")
+        bonus.append("full_name"), m["contact"].append("то же имя собственника")
     if same_author:
-        medium.append("тот же автор объявления")
-    if PHOTO_SIM_WEIGHT <= photo < PHOTO_SIM_ALONE and shared < 2:
-        medium.append(PHOTO_REASON)
-    score = 10 * len(strong) + 3 * len(medium) + n_core + (shared or 0)
-    return level, float(score), strong + medium + params
+        bonus.append("author"), m["contact"].append("тот же автор объявления")
+    if phone and same_place and area_ok:
+        bonus.append("phone_house_area")
+    if pd >= 0.9 and g.get("location", 0) >= 0.9:
+        bonus.append("photos_address")
+    if photo >= PHOTO_SIM_WEIGHT and same_place and both("bedrooms") and int(s["bedrooms"]) == int(c["bedrooms"]) \
+            and s.get("area") and c.get("area") and area_ok:
+        bonus.append("angles_house_layout")
+    if (same_name or same_author) and s.get("area") and c.get("area") and _close(s["area"], c["area"], cfg) == 1.0 \
+            and same_floor and g.get("time", 0) >= 0.5:
+        bonus.append("owner_area_floor_dates")
+
+    # hard rules (§8)
+    loc_ok = "pins_far" not in pen and g.get("location", 0) >= cfg["location"]["district"]
+    if phone and same_place and fits:
+        floors.append("phone_house")
+    if shared >= 2 and fits:
+        floors.append("photos_place" if loc_ok else "photos_any" if "pins_far" not in pen else None)
+    if photo >= PHOTO_SIM_ALONE and fits:
+        floors.append("photo_sim")
+    if shared == 1 and fits:
+        floors.append("photo_one")
+    if phone and fits:
+        floors.append("phone")
+    if (rel or _street(s, c) or (s.get("district") and s.get("district") == c.get("district"))
+            or (km is not None and km <= TWIN_KM)) and _exact(s, c) and price_close:
+        floors.append("twin")  # the same bedrooms, floor, area and price nearby (0 of 176 looser twins in the 11-17 eval)
+
+    avail = sum(W[k] for k in g if k in W)
+    raw = sum(W[k] * g[k] for k in g if k in W) / max(avail, cfg["min_coverage"]) if avail else 0.0
+    sc = raw + sum(B[k] for k in set(bonus)) - sum(PEN[k] for k in set(pen))
+    blocked = [k for k in pen if k in cfg["blocking"]]
+    fl = cfg["floors"]
+    if not blocked:
+        sc = max([sc] + [fl[k] for k in floors if k])
+    sc = min(1.0, max(0.0, sc))
+    # «дубль» (§3, §8): a near-unique identifier, a hard rule, or two independent groups sure on their own — a photo by
+    # its files only (SigLIP alone is never «почти точно»), the property never (one house has twin flats)
+    strong = [k for k in ("contact", "location") if g.get(k, 0) >= cfg["strong_group"]] + (["photo"] if pd >= cfg["strong_group"] else [])
+    same_flat = "same_flat" in bonus and same_place  # one building, one flat number: near-unique too
+    sure = not blocked and (bool(m["identifier"] and "identifier" in floors) or same_flat or bool({"phone_house", "photos_place"} & set(floors))
+                            or (len(strong) >= 2 and fits))
+    note = None
+    if sc >= cfg["same"] and not sure:
+        sc = cfg["same"] - 0.01
+        note = "нужна проверка: " + ("есть противоречие" if blocked else "доказательства только из одной группы")
+    level = "same" if sc >= cfg["same"] else "maybe" if sc >= cfg["maybe"] else None
+    matched = [r for k in GROUPS for r in m[k]]
+    why = (f"{round(sc * 100)}%: " + (", ".join(matched) if matched else "совпадают только параметры")
+           + (f"; отличается: {', '.join(differs)}" if differs else "") + (f" ({note})" if note else ""))
+    return {"score": round(sc, 3), "pct": round(sc * 100), "level": level, "groups": {k: round(v, 2) for k, v in g.items()},
+            "matched": matched, "differs": differs, "reasons": matched, "why": why, "sure": sure,
+            "bonus": sorted(set(bonus)), "penalty": sorted(set(pen)), "rules": [k for k in floors if k]}
+
+
+def compare(s: dict, c: dict, shared: int = 0, photo: float = 0.0) -> tuple[str | None, float, list[str]]:
+    """(same | maybe | None, score 0..1, reasons) of candidate c for subject s: score() for the old callers."""
+    r = score(s, c, shared, photo)
+    return r["level"], r["score"], r["reasons"]
 
 
 # ---------------------------------------------------------------- photo vectors
@@ -401,8 +669,10 @@ def find(db: Session, subject: str, user: User | None = None, limit: int = 30, i
         for x in o["phones"]:
             seen.setdefault(_digits(x)[-9:], set()).add(o["key"])
     many = {k for k, v in seen.items() if len(v) >= 3}
+    two = {k for k, v in seen.items() if len(v) == 2}  # an owner with two flats: his phone alone names neither (§13.5)
     for o in objs:
         o["phones"] = [x for x in o["phones"] if _digits(x)[-9:] not in many]
+        o["multi"] = {_digits(x)[-9:] for x in o["phones"]} & two
     if kind == "p":
         s = next((o for o in objs if o["property_id"] == int(ident)), None)
         if s is None:
@@ -447,22 +717,30 @@ def find(db: Session, subject: str, user: User | None = None, limit: int = 30, i
         if d and d["verdict"] == "different":
             continue
         photo, alike = sims.get(n, (0.0, []))
-        level, score, why = compare(s, c, shared.get(n, 0), photo)
+        r = score(s, c, shared.get(n, 0), photo)
+        level, why = r["level"], r["reasons"]
         if d and d["verdict"] == "same":
-            level, score = "same", score + 100
+            level = "same"
             why = [f"отмечено как дубль{' · ' + names[d['by']] if names.get(d['by']) else ''}"] + why
+        elif d and d["verdict"] == "review":
+            level = level or "maybe"  # «Нужна проверка»: stays listed for the operator whatever the score says now
         if level is None:
             continue
-        item = {**c["out"], "key": c["key"], "level": level, "score": score, "reasons": why,
-                "decided": d["verdict"] if d else None}
-        if PHOTO_REASON in why and alike:  # the photos alike lead the strip, the reason says so
-            item["photos"] = alike + [x for x in item["photos"] if x not in alike]
-            item["reasons"] = [f"{r} — похожие первыми в ленте" if r == PHOTO_REASON else r for r in why]
+        # the photos that matched lead the strip: the same files (dHash) first, then the alike ones (SigLIP)
+        same_files = [c["hash_urls"][j] for j in _shared_idx(s["hashes"], c["hashes"])] if shared.get(n) and c.get("hash_urls") else []
+        lead = list(dict.fromkeys(same_files + (alike if PHOTO_REASON in why else [])))
+        item = {**c["out"], "key": c["key"], "level": level, "level_text": LEVEL_TEXT[level], "score": r["score"],
+                "pct": r["pct"], "reasons": why, "matched": r["matched"], "differs": r["differs"], "why": r["why"],
+                "groups": r["groups"], "matched_photos": lead, "decided": d["verdict"] if d else None}
+        if lead:
+            item["photos"] = lead + [x for x in item["photos"] if x not in lead]
+        if PHOTO_REASON in why and alike:  # the reason says the alike ones lead the strip
+            item["reasons"] = [f"{x} — похожие первыми в ленте" if x == PHOTO_REASON else x for x in why]
         if c["kind"] == "object":
             # the card may be closed to him, its photos are not (api media_file, 11-17): he compares by them
             item["can_open"] = user is None or P.can_open(db, db.get(Property, c["property_id"]), user)
         out.append(item)
-    out.sort(key=lambda x: (x["level"] != "same", x["kind"] != "object", -x["score"]))
+    out.sort(key=lambda x: (x["decided"] != "same", x["level"] != "same", x["kind"] != "object", -x["score"]))
     return out[:limit]
 
 
@@ -475,10 +753,47 @@ def objects_to_warn(db: Session, listing_id: str, user: User) -> list[dict]:
     return [x for x in find(db, key("l", listing_id), user, limit=10, include_ads=False) if x["kind"] == "object"]
 
 
-def decide(db: Session, a: str, b: str, same: bool, actor: User) -> dict:
-    """«Дубль» / «Не дубль» on a pair. An ad called the same as an object is linked to it (matching.attach); two objects
-    or two ads stay as they are, the pair is marked (an operator archives the twin: «В архив → Дубль»)."""
-    if a == b or not all(re.fullmatch(r"[lp]:[\w.\-:]+", x or "") for x in (a, b)):
+VERDICTS = ("same", "different", "review")
+
+
+def _profile(db: Session, k: str) -> dict | None:
+    kind, _, ident = k.partition(":")
+    if kind == "p" and ident.isdigit():
+        return next(iter(_objects(db, [int(ident)])), None)
+    l = db.get(Listing, ident) if kind == "l" else None
+    return _listing_profile(l, set(db.scalars(P.competitor_sources()))) if l is not None else None
+
+
+def _meanbest(A, B) -> float:
+    m = A @ B.T
+    return float(m.max(1).mean() + m.max(0).mean()) / 2
+
+
+def score_pair(db: Session, a: str, b: str) -> dict | None:
+    """score() of one pair «l:<ad>» / «p:<object>» from the base as it is now (photos: dHash and their vectors), for the
+    decision journal and app/dup_eval.py. None when either is gone."""
+    s, c = _profile(db, a), _profile(db, b)
+    if s is None or c is None:
+        return None
+    vs = _vectors(db, [x["property_id"] for x in (s, c) if x["kind"] == "object"],
+                  [x["listing_id"] for x in (s, c) if x["kind"] == "ad"])
+    photo = _meanbest(vs[s["key"]][0], vs[c["key"]][0]) if s["key"] in vs and c["key"] in vs else 0.0
+    return score(s, c, _shared(s["hashes"], c["hashes"]), photo)
+
+
+def _journal(db: Session, x: str, y: str, verdict: str, prev: str | None, actor: User | None, r: dict | None) -> None:
+    db.add(SimilarJournal(a=x, b=y, verdict=verdict, prev=prev, decided_by=actor.id if actor else None,
+                          score=r["score"] if r else None, level=r["level"] if r else None,
+                          features={k: r[k] for k in ("pct", "groups", "matched", "differs", "bonus", "penalty", "rules")} if r else {}))
+
+
+def decide(db: Session, a: str, b: str, same: bool | None, actor: User, verdict: str | None = None) -> dict:
+    """«Дубль» / «Не дубль» / «Нужна проверка» (verdict review: the pair stays listed, flagged for the operator) on a pair.
+    An ad called the same as an object is linked to it (matching.attach); two objects or two ads stay as they are, the
+    pair is marked (an operator archives the twin: «В архив → Дубль»). Every decision goes to the journal with the
+    pair's score then; the same decision again changes nothing and sends nothing (§13.13)."""
+    verdict = verdict or ("same" if same else "different")
+    if verdict not in VERDICTS or a == b or not all(re.fullmatch(r"[lp]:[\w.\-:]+", x or "") for x in (a, b)):
         raise DomainError("bad_request", "bad pair")
     x, y = _pair(a, b)
     for k in (x, y):
@@ -486,10 +801,20 @@ def decide(db: Session, a: str, b: str, same: bool, actor: User) -> dict:
         if (db.get(Property, int(ident)) if kind == "p" and ident.isdigit() else db.get(Listing, ident) if kind == "l" else None) is None:
             raise DomainError("not_found", f"{k} not found")
     d = db.scalar(select(SimilarDecision).where(SimilarDecision.a == x, SimilarDecision.b == y).with_for_update())
+    if d is not None and d.verdict == verdict:
+        return {"ok": True, "verdict": verdict, "linked_to": None, "repeat": True}
+    try:
+        r = score_pair(db, x, y)
+    except Exception:  # the operator's decision is kept whatever the scorer does
+        log.exception("similar: score_pair %s %s", x, y)
+        r = None
+    prev = d.verdict if d is not None else None
     if d is None:
         d = SimilarDecision(a=x, b=y)
         db.add(d)
-    d.verdict, d.decided_by, d.decided_at = ("same" if same else "different"), actor.id, now()
+    d.verdict, d.decided_by, d.decided_at = verdict, actor.id, now()
+    _journal(db, x, y, verdict, prev, actor, r)
+    same = verdict == "same"
     linked = None
     if same and {x[0], y[0]} == {"l", "p"}:
         lk, pk = (x, y) if x.startswith("l") else (y, x)
@@ -503,9 +828,10 @@ def decide(db: Session, a: str, b: str, same: bool, actor: User) -> dict:
             alerts = []
     else:
         alerts = []
+    ev = {"same": "similar_same", "different": "similar_different", "review": "similar_review"}[verdict]
     for k, other in ((x, y), (y, x)):
         if k.startswith("p:"):
-            log_event(db, "property", int(k[2:]), "similar_same" if same else "similar_different", actor, other=other)
+            log_event(db, "property", int(k[2:]), ev, actor, other=other, pct=r["pct"] if r else None)
     db.commit()
     if alerts:
         from app.services import matching
@@ -514,12 +840,13 @@ def decide(db: Session, a: str, b: str, same: bool, actor: User) -> dict:
 
 
 def mark_different(db: Session, subject: str, others: list[str], actor: User) -> None:
-    """«Это другой объект — беру»: every object shown to him is recorded as not this one. No commit."""
+    """«Это другой объект — беру»: every object shown to him is recorded as not this one (and journalled). No commit."""
     for o in others:
         x, y = _pair(subject, o)
         d = db.scalar(select(SimilarDecision).where(SimilarDecision.a == x, SimilarDecision.b == y))
         if d is None:
             db.add(SimilarDecision(a=x, b=y, verdict="different", decided_by=actor.id, decided_at=now()))
+            _journal(db, x, y, "different", None, actor, None)
 
 
 # ---------------------------------------------------------------- an exclusive's duplicates (Irakli 11-18)
@@ -570,12 +897,15 @@ BLOCKING = ("confirmed", "probable")
 
 
 def dup_level(item: dict) -> str:
-    """confirmed | probable | doubtful of a find() candidate.
-    ponytail: today's levels — «почти точно» (same) or a pair marked «Дубль» = confirmed, «похож» (maybe) = probable;
-    the % scoring (≥ 0.85 confirmed, 0.65–0.85 probable, below doubtful) plugs in here and as item["pct"]."""
-    if item.get("decided") == "same" or item.get("level") in ("same", "confirmed"):
+    """confirmed | probable | doubtful of a find() candidate by its score (item["pct"]): ≥ CONFIG same (85 %) confirmed,
+    ≥ CONFIG maybe (65 %) probable, below doubtful (a pair kept listed by «Нужна проверка»); a pair marked «Дубль» is
+    confirmed. An item without a pct (an older caller) goes by its level."""
+    if item.get("decided") == "same":
         return "confirmed"
-    return "probable" if item.get("level") in ("maybe", "probable") else "doubtful"
+    pct = item.get("pct")
+    if pct is None:
+        return "confirmed" if item.get("level") in ("same", "confirmed") else "probable" if item.get("level") in ("maybe", "probable") else "doubtful"
+    return "confirmed" if pct >= CONFIG["same"] * 100 else "probable" if pct >= CONFIG["maybe"] * 100 else "doubtful"
 
 
 def _dup_item(x: dict) -> dict:

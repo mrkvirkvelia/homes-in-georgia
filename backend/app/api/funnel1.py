@@ -87,7 +87,8 @@ class MatchDecisionIn(BaseModel):
 class SimilarDecisionIn(BaseModel):
     a: str = Field(max_length=200)
     b: str = Field(max_length=200)
-    same: bool
+    same: bool | None = None
+    verdict: Literal["same", "different", "review"] | None = None  # «Нужна проверка»: review (David 11-19)
 
 
 @router.get("/listings/{listing_id}/similar")
@@ -104,9 +105,11 @@ def property_similar(pid: int, db: Session = Depends(get_db, scope="function"), 
 
 @router.post("/similar/decide")
 def similar_decide(body: SimilarDecisionIn, db: Session = Depends(get_db, scope="function"), user: User = Depends(current_user)):
-    """«Дубль» / «Не дубль» on a pair of «Похожие объекты» (an ad called the same as an object is linked to it). Any
-    staff member: the agent who found the twin decides, even when the other object is a colleague's."""
-    return similar.decide(db, body.a, body.b, body.same, user)
+    """«Дубль» / «Не дубль» / «Нужна проверка» on a pair of «Похожие объекты» (an ad called the same as an object is
+    linked to it). Any staff member: the agent who found the twin decides, even when the other object is a colleague's."""
+    if body.verdict is None and body.same is None:
+        raise DomainError("bad_request", "same or verdict")
+    return similar.decide(db, body.a, body.b, body.same, user, body.verdict)
 
 
 @router.post("/listings/{listing_id}/matches/{pid}")

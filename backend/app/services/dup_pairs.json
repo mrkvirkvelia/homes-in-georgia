@@ -1,0 +1,951 @@
+{
+ "about": "Labelled pairs for app/dup_eval.py (David 11-19 §6): synthetic, one per spec case and the 11-17..11-20 lessons. b inherits a's fields unless fresh; null drops a field; shared = photos in common by dHash, photo = SigLIP meanbest. Add real pairs here as operators decide them (app.dup_eval --db scores the decisions themselves).",
+ "pairs": [
+  {
+   "id": "s01_photos_other_owner",
+   "label": "same",
+   "note": "§13.1 те же фото, та же улица, другое имя собственника",
+   "a": {
+    "address": "ул. Палиашвили 10",
+    "district": "Ваке",
+    "lat": 41.7085,
+    "lng": 44.7672,
+    "floor": 4,
+    "area": 70.0,
+    "bedrooms": 2,
+    "price_usd": 850,
+    "type": "apartment",
+    "date": "2026-11-01",
+    "phones": [
+     "+995 555 12 34 56"
+    ],
+    "name": "Нино Беридзе"
+   },
+   "b": {
+    "address": "Paliashvili st. 10",
+    "name": "Гиорги Мачавариани",
+    "phones": [
+     "+995 599 00 00 00"
+    ]
+   },
+   "shared": 3
+  },
+  {
+   "id": "s02_crop_watermark",
+   "label": "same",
+   "note": "§13.2 обрезка + водяной знак: dHash не узнаёт, векторы — да",
+   "a": {
+    "address": "ул. Палиашвили 10",
+    "district": "Ваке",
+    "lat": 41.7085,
+    "lng": 44.7672,
+    "floor": 4,
+    "area": 70.0,
+    "bedrooms": 2,
+    "price_usd": 850,
+    "type": "apartment",
+    "date": "2026-11-01",
+    "phones": [
+     "+995 555 12 34 56"
+    ]
+   },
+   "b": {
+    "address": "10 Paliashvili Street",
+    "phones": null,
+    "area": 71.0
+   },
+   "photo": 0.95
+  },
+  {
+   "id": "s03_angles_phone_addr",
+   "label": "same",
+   "note": "§13.3 другие ракурсы, тот же телефон, адрес, площадь, этаж",
+   "a": {
+    "address": "ул. Палиашвили 10",
+    "district": "Ваке",
+    "lat": 41.7085,
+    "lng": 44.7672,
+    "floor": 4,
+    "area": 70.0,
+    "bedrooms": 2,
+    "price_usd": 850,
+    "type": "apartment",
+    "date": "2026-11-01",
+    "phones": [
+     "+995 555 12 34 56"
+    ]
+   },
+   "b": {
+    "address": "Paliashvili 10"
+   },
+   "photo": 0.9
+  },
+  {
+   "id": "s04_no_phone",
+   "label": "same",
+   "note": "§13.4 телефона нет, фото + адрес + площадь",
+   "a": {
+    "address": "ул. Палиашвили 10",
+    "district": "Ваке",
+    "lat": 41.7085,
+    "lng": 44.7672,
+    "floor": 4,
+    "area": 70.0,
+    "bedrooms": 2,
+    "price_usd": 850,
+    "type": "apartment",
+    "date": "2026-11-01",
+    "phones": null
+   },
+   "b": {
+    "address": "Палиашвили 10",
+    "area": 70.5
+   },
+   "shared": 2
+  },
+  {
+   "id": "s05_three_scripts",
+   "label": "same",
+   "note": "§13.8 ru / ka адрес, тот же телефон и параметры",
+   "a": {
+    "address": "ул. Палиашвили 10",
+    "district": "Ваке",
+    "lat": 41.7085,
+    "lng": 44.7672,
+    "floor": 4,
+    "area": 70.0,
+    "bedrooms": 2,
+    "price_usd": 850,
+    "type": "apartment",
+    "date": "2026-11-01",
+    "phones": [
+     "+995 555 12 34 56"
+    ]
+   },
+   "b": {
+    "address": "ფალიაშვილის ქუჩა 10"
+   }
+  },
+  {
+   "id": "s06_area_decimals",
+   "label": "same",
+   "note": "§13.9 площадь 45 / 45.05",
+   "a": {
+    "address": "ул. Палиашвили 10",
+    "district": "Ваке",
+    "lat": 41.7085,
+    "lng": 44.7672,
+    "floor": 4,
+    "area": 45.0,
+    "bedrooms": 2,
+    "price_usd": 850,
+    "type": "apartment",
+    "date": "2026-11-01",
+    "phones": [
+     "+995 555 12 34 56"
+    ]
+   },
+   "b": {
+    "area": 45.05,
+    "address": "Paliashvili 10"
+   }
+  },
+  {
+   "id": "s07_price_changed",
+   "label": "same",
+   "note": "§13.10 цена изменилась",
+   "a": {
+    "address": "ул. Палиашвили 10",
+    "district": "Ваке",
+    "lat": 41.7085,
+    "lng": 44.7672,
+    "floor": 4,
+    "area": 70.0,
+    "bedrooms": 2,
+    "price_usd": 850,
+    "type": "apartment",
+    "date": "2026-11-01",
+    "phones": [
+     "+995 555 12 34 56"
+    ]
+   },
+   "b": {
+    "price_usd": 700
+   },
+   "shared": 3
+  },
+  {
+   "id": "s08_cadastre",
+   "label": "same",
+   "note": "один кадастровый код, остального почти нет",
+   "a": {
+    "address": "ул. Палиашвили 10",
+    "district": "Ваке",
+    "lat": 41.7085,
+    "lng": 44.7672,
+    "floor": 4,
+    "area": 70.0,
+    "bedrooms": 2,
+    "price_usd": 850,
+    "type": "apartment",
+    "date": "2026-11-01",
+    "phones": [
+     "+995 555 12 34 56"
+    ],
+    "cads": [
+     "01.10.12.003.045.01.503"
+    ]
+   },
+   "b": {
+    "cads": [
+     "01.10.12.003.045.01.503"
+    ],
+    "address": null,
+    "lat": null,
+    "lng": null,
+    "floor": null,
+    "area": null,
+    "phones": null
+   }
+  },
+  {
+   "id": "s09_same_link",
+   "label": "same",
+   "note": "та же ссылка",
+   "a": {
+    "address": "ул. Палиашвили 10",
+    "district": "Ваке",
+    "lat": 41.7085,
+    "lng": 44.7672,
+    "floor": 4,
+    "area": 70.0,
+    "bedrooms": 2,
+    "price_usd": 850,
+    "type": "apartment",
+    "date": "2026-11-01",
+    "phones": [
+     "+995 555 12 34 56"
+    ],
+    "urls": [
+     "https://ss.ge/123"
+    ]
+   },
+   "b": {
+    "urls": [
+     "https://ss.ge/123"
+    ],
+    "price_usd": 800
+   }
+  },
+  {
+   "id": "s10_tg_handle",
+   "label": "same",
+   "note": "тот же Telegram-контакт, тот же дом, параметры",
+   "a": {
+    "address": "ул. Палиашвили 10",
+    "district": "Ваке",
+    "lat": 41.7085,
+    "lng": 44.7672,
+    "floor": 4,
+    "area": 70.0,
+    "bedrooms": 2,
+    "price_usd": 850,
+    "type": "apartment",
+    "date": "2026-11-01",
+    "phones": null,
+    "text": "пишите t.me/nino_flats"
+   },
+   "b": {
+    "text": "Contact @nino_flats",
+    "address": "Paliashvili St 10",
+    "floor": 5
+   }
+  },
+  {
+   "id": "s11_angles_house_layout",
+   "label": "same",
+   "note": "похожие фото 0.88 + тот же дом + планировка",
+   "a": {
+    "address": "ул. Палиашвили 10",
+    "district": "Ваке",
+    "lat": 41.7085,
+    "lng": 44.7672,
+    "floor": 4,
+    "area": 70.0,
+    "bedrooms": 2,
+    "price_usd": 850,
+    "type": "apartment",
+    "date": "2026-11-01",
+    "phones": null
+   },
+   "b": {
+    "address": "Paliashvili 10"
+   },
+   "photo": 0.88
+  },
+  {
+   "id": "s12_phone_pin",
+   "label": "same",
+   "note": "телефон + пин в 50 м, у одного нет адреса",
+   "a": {
+    "address": "ул. Палиашвили 10",
+    "district": "Ваке",
+    "lat": 41.7085,
+    "lng": 44.7672,
+    "floor": 4,
+    "area": 70.0,
+    "bedrooms": 2,
+    "price_usd": 850,
+    "type": "apartment",
+    "date": "2026-11-01",
+    "phones": [
+     "+995 555 12 34 56"
+    ]
+   },
+   "b": {
+    "address": null,
+    "lat": 41.7088,
+    "lng": 44.7676
+   }
+  },
+  {
+   "id": "s13_fb_no_params",
+   "label": "same",
+   "note": "Facebook без параметров, 2 общих фото, тот же район",
+   "a": {
+    "address": "ул. Палиашвили 10",
+    "district": "Ваке",
+    "lat": 41.7085,
+    "lng": 44.7672,
+    "floor": 4,
+    "area": 70.0,
+    "bedrooms": 2,
+    "price_usd": 850,
+    "type": "apartment",
+    "date": "2026-11-01",
+    "phones": [
+     "+995 555 12 34 56"
+    ]
+   },
+   "b": {
+    "address": null,
+    "lat": null,
+    "lng": null,
+    "floor": null,
+    "area": null,
+    "bedrooms": null,
+    "phones": null
+   },
+   "shared": 2
+  },
+  {
+   "id": "s14_same_flat_no",
+   "label": "same",
+   "note": "тот же дом и номер квартиры",
+   "a": {
+    "address": "ул. Палиашвили 10, кв. 12",
+    "district": "Ваке",
+    "lat": 41.7085,
+    "lng": 44.7672,
+    "floor": 4,
+    "area": 70.0,
+    "bedrooms": 2,
+    "price_usd": 850,
+    "type": "apartment",
+    "date": "2026-11-01",
+    "phones": null
+   },
+   "b": {
+    "address": "Paliashvili 10 apt 12"
+   }
+  },
+  {
+   "id": "s15_text_same",
+   "label": "same",
+   "note": "тот же текст, тот же дом, площадь",
+   "a": {
+    "address": "ул. Палиашвили 10",
+    "district": "Ваке",
+    "lat": 41.7085,
+    "lng": 44.7672,
+    "floor": 4,
+    "area": 70.0,
+    "bedrooms": 2,
+    "price_usd": 850,
+    "type": "apartment",
+    "date": "2026-11-01",
+    "phones": null,
+    "text": "Сдаётся светлая квартира с ремонтом в новом доме, две спальни, гостиная совмещена с кухней, большой балкон с видом на горы, вся мебель и техника, центральное отопление, рядом парк, магазины и школа, хозяин живёт рядом"
+   },
+   "b": {
+    "text": "Сдаётся светлая квартира с ремонтом в новом доме, две спальни, гостиная совмещена с кухней, большой балкон с видом на горы, вся мебель и техника, центральное отопление, рядом парк, магазины и школа, хозяин живёт рядом звоните",
+    "price_usd": 900
+   }
+  },
+  {
+   "id": "s16_sim_alone",
+   "label": "same",
+   "note": "похожие фото 0.97, больше ничего не известно",
+   "a": {
+    "district": "Ваке",
+    "price_usd": 850
+   },
+   "b": {
+    "district": "Ваке",
+    "price_usd": 2000
+   },
+   "fresh": false,
+   "photo": 0.97
+  },
+  {
+   "id": "s17_phone_house_near",
+   "label": "same",
+   "note": "телефон + дом, площадь 70 / 73, этаж 4 / 5",
+   "a": {
+    "address": "ул. Палиашвили 10",
+    "district": "Ваке",
+    "lat": 41.7085,
+    "lng": 44.7672,
+    "floor": 4,
+    "area": 70.0,
+    "bedrooms": 2,
+    "price_usd": 850,
+    "type": "apartment",
+    "date": "2026-11-01",
+    "phones": [
+     "+995 555 12 34 56"
+    ]
+   },
+   "b": {
+    "area": 73.0,
+    "floor": 5
+   }
+  },
+  {
+   "id": "s18_one_photo_house",
+   "label": "same",
+   "note": "одно общее фото + тот же дом",
+   "a": {
+    "address": "ул. Палиашвили 10",
+    "district": "Ваке",
+    "lat": 41.7085,
+    "lng": 44.7672,
+    "floor": 4,
+    "area": 70.0,
+    "bedrooms": 2,
+    "price_usd": 850,
+    "type": "apartment",
+    "date": "2026-11-01",
+    "phones": null
+   },
+   "b": {
+    "address": "Paliashvili 10"
+   },
+   "shared": 1
+  },
+  {
+   "id": "s19_twin_near",
+   "label": "same",
+   "note": "все параметры и цена, пин в 500 м, фото нет",
+   "a": {
+    "address": null,
+    "district": "Ваке",
+    "lat": 41.7085,
+    "lng": 44.7672,
+    "floor": 4,
+    "area": 70.0,
+    "bedrooms": 2,
+    "price_usd": 850,
+    "type": "apartment",
+    "date": "2026-11-01",
+    "phones": null
+   },
+   "b": {
+    "lat": 41.712,
+    "lng": 44.77,
+    "price_usd": 880
+   }
+  },
+  {
+   "id": "s20_myhome_korter",
+   "label": "same",
+   "note": "korter: 2 общих фото + тот же дом, площадь 70 / 68",
+   "a": {
+    "address": "ул. Палиашвили 10",
+    "district": "Ваке",
+    "lat": 41.7085,
+    "lng": 44.7672,
+    "floor": 4,
+    "area": 70.0,
+    "bedrooms": 2,
+    "price_usd": 850,
+    "type": "apartment",
+    "date": "2026-11-01",
+    "phones": null
+   },
+   "b": {
+    "area": 68.0
+   },
+   "shared": 2
+  },
+  {
+   "id": "s21_owner_two_flats_b",
+   "label": "same",
+   "note": "у собственника две квартиры: объявление его второй",
+   "a": {
+    "address": "Kazbegi Ave 30",
+    "district": "Сабуртало",
+    "lat": 41.727,
+    "lng": 44.755,
+    "floor": 9,
+    "area": 110.0,
+    "bedrooms": 3,
+    "price_usd": 1400,
+    "type": "apartment",
+    "date": "2026-10-20",
+    "phones": [
+     "+995 577 11 22 33"
+    ],
+    "multi": [
+     "577112233"
+    ]
+   },
+   "b": {
+    "address": "Kazbegi 30"
+   }
+  },
+  {
+   "id": "d01_owner_other_flat",
+   "label": "different",
+   "note": "§13.5 тот же телефон, другая квартира собственника",
+   "a": {
+    "address": "ул. Палиашвили 10",
+    "district": "Ваке",
+    "lat": 41.7085,
+    "lng": 44.7672,
+    "floor": 4,
+    "area": 70.0,
+    "bedrooms": 2,
+    "price_usd": 850,
+    "type": "apartment",
+    "date": "2026-11-01",
+    "phones": [
+     "+995 577 11 22 33"
+    ],
+    "multi": [
+     "577112233"
+    ]
+   },
+   "b": {
+    "address": "Kazbegi Ave 30",
+    "district": "Сабуртало",
+    "lat": 41.727,
+    "lng": 44.755,
+    "floor": 9,
+    "area": 110.0,
+    "bedrooms": 3,
+    "price_usd": 1400,
+    "type": "apartment",
+    "date": "2026-10-20",
+    "phones": [
+     "+995 577 11 22 33"
+    ]
+   }
+  },
+  {
+   "id": "d02_same_house_twins",
+   "label": "different",
+   "note": "§13.6 один дом, этаж и площадь, разные фото и номера",
+   "a": {
+    "address": "ул. Палиашвили 10, кв. 12",
+    "district": "Ваке",
+    "lat": 41.7085,
+    "lng": 44.7672,
+    "floor": 4,
+    "area": 70.0,
+    "bedrooms": 2,
+    "price_usd": 850,
+    "type": "apartment",
+    "date": "2026-11-01",
+    "phones": null
+   },
+   "b": {
+    "address": "Paliashvili 10, apt 15"
+   }
+  },
+  {
+   "id": "d03_stock_photos",
+   "label": "different",
+   "note": "§13.7 типовые фото застройщика в разных квартирах",
+   "a": {
+    "address": "Kazbegi 25",
+    "district": "Ваке",
+    "lat": 41.7085,
+    "lng": 44.7672,
+    "floor": 3,
+    "area": 65.0,
+    "bedrooms": 2,
+    "price_usd": 850,
+    "type": "apartment",
+    "date": "2026-11-01",
+    "phones": null
+   },
+   "b": {
+    "floor": 9,
+    "area": 80.0,
+    "price_usd": 950
+   },
+   "shared": 3
+  },
+  {
+   "id": "d04_other_cadastre",
+   "label": "different",
+   "note": "§13.12 разные кадастровые коды (те же фото и телефон: агент перепутал фото)",
+   "a": {
+    "address": "ул. Палиашвили 10",
+    "district": "Ваке",
+    "lat": 41.7085,
+    "lng": 44.7672,
+    "floor": 4,
+    "area": 70.0,
+    "bedrooms": 2,
+    "price_usd": 850,
+    "type": "apartment",
+    "date": "2026-11-01",
+    "phones": [
+     "+995 555 12 34 56"
+    ],
+    "cads": [
+     "01.10.12.003.045.01.503"
+    ]
+   },
+   "b": {
+    "cads": [
+     "01.10.12.003.045.01.507"
+    ]
+   },
+   "shared": 2
+  },
+  {
+   "id": "d05_name_only",
+   "label": "different",
+   "note": "то же полное имя, другие дома",
+   "a": {
+    "address": "ул. Палиашвили 10",
+    "district": "Ваке",
+    "lat": 41.7085,
+    "lng": 44.7672,
+    "floor": 4,
+    "area": 70.0,
+    "bedrooms": 2,
+    "price_usd": 850,
+    "type": "apartment",
+    "date": "2026-11-01",
+    "phones": null,
+    "name": "Нино Беридзе"
+   },
+   "b": {
+    "address": "Kazbegi Ave 30",
+    "district": "Сабуртало",
+    "lat": 41.727,
+    "lng": 44.755,
+    "floor": 9,
+    "area": 110.0,
+    "bedrooms": 3,
+    "price_usd": 1400,
+    "type": "apartment",
+    "date": "2026-10-20",
+    "name": "Нино Беридзе"
+   }
+  },
+  {
+   "id": "d06_author_only",
+   "label": "different",
+   "note": "тот же автор (агентство), другая квартира",
+   "a": {
+    "address": "ул. Палиашвили 10",
+    "district": "Ваке",
+    "lat": 41.7085,
+    "lng": 44.7672,
+    "floor": 4,
+    "area": 70.0,
+    "bedrooms": 2,
+    "price_usd": 850,
+    "type": "apartment",
+    "date": "2026-11-01",
+    "phones": null,
+    "author": [
+     "ss",
+     "u42"
+    ]
+   },
+   "b": {
+    "address": "Kazbegi Ave 30",
+    "district": "Ваке",
+    "lat": 41.709,
+    "lng": 44.77,
+    "floor": 9,
+    "area": 110.0,
+    "bedrooms": 3,
+    "price_usd": 1400,
+    "type": "apartment",
+    "date": "2026-10-20",
+    "author": [
+     "ss",
+     "u42"
+    ]
+   }
+  },
+  {
+   "id": "d07_house_other_floor",
+   "label": "different",
+   "note": "тот же дом, этаж 7, 90 м²",
+   "a": {
+    "address": "ул. Палиашвили 10",
+    "district": "Ваке",
+    "lat": 41.7085,
+    "lng": 44.7672,
+    "floor": 4,
+    "area": 70.0,
+    "bedrooms": 2,
+    "price_usd": 850,
+    "type": "apartment",
+    "date": "2026-11-01",
+    "phones": null
+   },
+   "b": {
+    "floor": 7,
+    "area": 90.0
+   }
+  },
+  {
+   "id": "d08_lookalike_far",
+   "label": "different",
+   "note": "похожие 0.86 (один ЖК), разные районы",
+   "a": {
+    "address": "ул. Палиашвили 10",
+    "district": "Ваке",
+    "lat": 41.7085,
+    "lng": 44.7672,
+    "floor": 4,
+    "area": 70.0,
+    "bedrooms": 2,
+    "price_usd": 850,
+    "type": "apartment",
+    "date": "2026-11-01",
+    "phones": null
+   },
+   "b": {
+    "address": "Kazbegi Ave 30",
+    "district": "Сабуртало",
+    "lat": 41.727,
+    "lng": 44.755,
+    "floor": 9,
+    "area": 110.0,
+    "bedrooms": 3,
+    "price_usd": 1400,
+    "type": "apartment",
+    "date": "2026-10-20"
+   },
+   "photo": 0.86
+  },
+  {
+   "id": "d09_lookalike_district",
+   "label": "different",
+   "note": "похожие 0.86 в том же районе, другие параметры",
+   "a": {
+    "address": "ул. Палиашвили 10",
+    "district": "Ваке",
+    "lat": 41.7085,
+    "lng": 44.7672,
+    "floor": 4,
+    "area": 70.0,
+    "bedrooms": 2,
+    "price_usd": 850,
+    "type": "apartment",
+    "date": "2026-11-01",
+    "phones": null
+   },
+   "b": {
+    "address": "Chavchavadze 37",
+    "lat": 41.71,
+    "lng": 44.755,
+    "floor": 11,
+    "area": 95.0,
+    "bedrooms": 3
+   },
+   "photo": 0.86
+  },
+  {
+   "id": "d10_district_area",
+   "label": "different",
+   "note": "тот же район и спальни, площадь 60 / 85",
+   "a": {
+    "address": "ул. Палиашвили 10",
+    "district": "Ваке",
+    "lat": 41.7085,
+    "lng": 44.7672,
+    "floor": 4,
+    "area": 60.0,
+    "bedrooms": 2,
+    "price_usd": 850,
+    "type": "apartment",
+    "date": "2026-11-01",
+    "phones": null
+   },
+   "b": {
+    "address": "Abashidze 20",
+    "lat": 41.709,
+    "lng": 44.759,
+    "area": 85.0
+   }
+  },
+  {
+   "id": "d11_shared_phone_other_floor",
+   "label": "different",
+   "note": "телефон у двух объектов, тот же дом, этаж 2 / 8, 55 / 75 м²",
+   "a": {
+    "address": "ул. Палиашвили 10",
+    "district": "Ваке",
+    "lat": 41.7085,
+    "lng": 44.7672,
+    "floor": 2,
+    "area": 55.0,
+    "bedrooms": 2,
+    "price_usd": 850,
+    "type": "apartment",
+    "date": "2026-11-01",
+    "phones": [
+     "+995 577 11 22 33"
+    ],
+    "multi": [
+     "577112233"
+    ]
+   },
+   "b": {
+    "floor": 8,
+    "area": 75.0
+   }
+  },
+  {
+   "id": "d12_far_twins",
+   "label": "different",
+   "note": "те же параметры и цена, пины в 6 км",
+   "a": {
+    "address": null,
+    "district": "Ваке",
+    "lat": 41.7085,
+    "lng": 44.7672,
+    "floor": 4,
+    "area": 70.0,
+    "bedrooms": 2,
+    "price_usd": 850,
+    "type": "apartment",
+    "date": "2026-11-01",
+    "phones": null
+   },
+   "b": {
+    "lat": 41.755,
+    "lng": 44.77,
+    "district": "Ваке"
+   }
+  },
+  {
+   "id": "d13_house_vs_flat",
+   "label": "different",
+   "note": "дом и квартира по одному адресу, одно общее фото (фасад)",
+   "a": {
+    "address": "ул. Палиашвили 10",
+    "district": "Ваке",
+    "lat": 41.7085,
+    "lng": 44.7672,
+    "floor": 4,
+    "area": 70.0,
+    "bedrooms": 2,
+    "price_usd": 850,
+    "type": "apartment",
+    "date": "2026-11-01",
+    "phones": null
+   },
+   "b": {
+    "type": "house",
+    "area": 180.0,
+    "bedrooms": 4,
+    "floor": null
+   },
+   "shared": 1
+  },
+  {
+   "id": "d14_street_twins",
+   "label": "different",
+   "note": "одна улица, дома 12 и 40, те же параметры",
+   "a": {
+    "address": "Kazbegi 12",
+    "district": "Ваке",
+    "lat": 41.7085,
+    "lng": 44.7672,
+    "floor": 4,
+    "area": 70.0,
+    "bedrooms": 2,
+    "price_usd": 850,
+    "type": "apartment",
+    "date": "2026-11-01",
+    "phones": null
+   },
+   "b": {
+    "address": "Kazbegi 40",
+    "lat": null,
+    "lng": null
+   }
+  },
+  {
+   "id": "d15_facade_photo",
+   "label": "different",
+   "note": "одно общее фото (фасад), тот же дом, этаж 2 / 9, 60 / 95 м²",
+   "a": {
+    "address": "ул. Палиашвили 10",
+    "district": "Ваке",
+    "lat": 41.7085,
+    "lng": 44.7672,
+    "floor": 2,
+    "area": 60.0,
+    "bedrooms": 2,
+    "price_usd": 850,
+    "type": "apartment",
+    "date": "2026-11-01",
+    "phones": null
+   },
+   "b": {
+    "floor": 9,
+    "area": 95.0,
+    "bedrooms": 3
+   },
+   "shared": 1
+  },
+  {
+   "id": "d16_metro_only",
+   "label": "different",
+   "note": "то же метро и спальни",
+   "a": {
+    "address": null,
+    "district": "Ваке",
+    "lat": null,
+    "lng": null,
+    "floor": 4,
+    "area": 70.0,
+    "bedrooms": 2,
+    "price_usd": 850,
+    "type": "apartment",
+    "date": "2026-11-01",
+    "phones": null,
+    "metro": "Руставели"
+   },
+   "b": {
+    "area": 52.0,
+    "floor": 8,
+    "district": "Мтацминда",
+    "metro": "Руставели"
+   }
+  }
+ ]
+}

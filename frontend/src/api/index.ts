@@ -77,7 +77,8 @@ export const api = {
 
   similar: {
     /** «Дубль» / «Не дубль» on a pair («l:<ad>» / «p:<object>»); an ad called the same as an object is linked to it */
-    decide: (a: string, b: string, same: boolean) => http.post<{ ok: boolean; verdict: string; linked_to: number | null }>('/similar/decide', { a, b, same }),
+    /** verdict review: «Нужна проверка» — the pair stays listed, flagged for the operator (David 11-19) */
+    decide: (a: string, b: string, verdict: 'same' | 'different' | 'review') => http.post<{ ok: boolean; verdict: string; linked_to: number | null }>('/similar/decide', { a, b, verdict }),
   },
 
   properties: {

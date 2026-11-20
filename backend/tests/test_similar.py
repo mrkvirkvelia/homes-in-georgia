@@ -85,7 +85,11 @@ def test_compare_twin_and_nothing():
     other = {**twin, "bedrooms": 3}
     assert similar.compare(base, other)[0] is None
     phone = {**other, "phones": ["+995 555 12 34 56"], "floor": 4}
-    assert similar.compare({**base, "phones": ["555123456"]}, phone)[0] == "same"  # the owner's phone and the floor
+    # the owner's phone and the floor, the bedrooms differ: one owner's other flat, never «дубль» (David 11-19 §13.5)
+    assert similar.compare({**base, "phones": ["555123456"]}, phone)[0] != "same"
+    # the phone, one building and the params fit: «дубль» (§8)
+    house = street_house("Paliashvili 10")
+    assert similar.compare({**base, "phones": ["555123456"], "house": house}, {**twin, **{"phones": phone["phones"], "house": house}})[0] == "same"
 
 
 

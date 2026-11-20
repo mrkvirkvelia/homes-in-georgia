@@ -117,7 +117,11 @@ export interface SimilarItem {
   /** «наша база», «ss.ge», «myhome.ge», «конкурент · <канал>» … */
   where: string; competitor?: boolean; status?: string | null;
   /** same: почти точно тот же (ссылка, кадастр, 2+ общих фото, телефон + дом/этаж, отмечен дублем); maybe: похож, посмотрите */
-  level: 'same' | 'maybe'; reasons: string[]; decided?: 'same' | 'different' | null;
+  level: 'same' | 'maybe'; reasons: string[]; decided?: 'same' | 'different' | 'review' | null;
+  /** the duplicate score (David 11-19): % from the evidence groups; ≥85 «дубль / почти точно», 65–85 «вероятный» */
+  pct?: number; score?: number; level_text?: string;
+  /** what agrees, what differs, the «почему» sentence; matched_photos: the candidate's photos that matched (lead the strip) */
+  matched?: string[]; differs?: string[]; why?: string; matched_photos?: string[]; groups?: Record<string, number>;
   address?: string | null; district?: string | null; bedrooms?: number | null; area?: number | null; floor?: number | null;
   price_usd?: number | null; photos: string[]; url?: string | null; agent?: string | null; is_exclusive?: boolean;
   /** the object's card opens for this user (others' objects: closed, the reasons and the ad photos still show) */

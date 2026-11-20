@@ -146,11 +146,28 @@ class SimilarDecision(Base):
     """«Дубль» / «Не дубль» on a pair of «Похожие объекты» (services/similar.py): keys «l:<listing>» / «p:<object>», a < b."""
     __tablename__ = "similar_decisions"
     __table_args__ = (UniqueConstraint("a", "b", name="similar_decisions_pair_uq"),
-                      CheckConstraint("verdict IN ('same', 'different')", name="similar_decisions_verdict_check"))
+                      CheckConstraint("verdict IN ('same', 'different', 'review')", name="similar_decisions_verdict_check"))
     id = Column(Integer, primary_key=True)
     a = Column(Text, nullable=False)
     b = Column(Text, nullable=False)
     verdict = Column(Text, nullable=False)
+    decided_by = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"))
+    decided_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class SimilarJournal(Base):
+    """Every operator decision on a pair (migration 0035): who, when, the pair, the score and its features then — the
+    feedback the weights are calibrated on (app/dup_eval.py --db). A repeated identical decision adds no row."""
+    __tablename__ = "similar_journal"
+    __table_args__ = (Index("similar_journal_pair", "a", "b"),)
+    id = Column(Integer, primary_key=True)
+    a = Column(Text, nullable=False)
+    b = Column(Text, nullable=False)
+    verdict = Column(Text, nullable=False)
+    prev = Column(Text)
+    score = Column(Float)
+    level = Column(Text)
+    features = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
     decided_by = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"))
     decided_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
 

@@ -35,17 +35,19 @@ export function SimilarList({ subject, intro, emptyText, onLinked }: { subject: 
   );
 }
 
+type Verdict = 'same' | 'different' | 'review';
+
 function useDecide(subject: string, x: SimilarItem, qk: unknown[], onLinked?: (pid: number) => void, after?: () => void) {
   const qc = useQueryClient();
   const toast = useToast();
   return useMutation({
-    mutationFn: (same: boolean) => api.similar.decide(subject, x.key, same),
-    onSuccess: (r, same) => {
+    mutationFn: (verdict: Verdict) => api.similar.decide(subject, x.key, verdict),
+    onSuccess: (r, verdict) => {
       qc.invalidateQueries({ queryKey: qk });
       qc.invalidateQueries({ queryKey: ['listings'] });
       qc.invalidateQueries({ queryKey: ['property'] });
       if (r.linked_to) { toast(t('Объявление привязано к объекту #{id}', { id: r.linked_to })); onLinked?.(r.linked_to); }
-      else toast(same ? t('Отмечено: дубль') : t('Отмечено: другой объект'));
+      else toast(verdict === 'same' ? t('Отмечено: дубль') : verdict === 'review' ? t('Отмечено: нужна проверка') : t('Отмечено: другой объект'));
       after?.();
     },
     onError: (e) => toast(errText(e), true),
@@ -68,17 +70,20 @@ function SimilarRow({ subject, x, qk, onLinked }: { subject: string; x: SimilarI
     <div className="card" style={{ padding: 12, borderColor: x.level === 'same' ? 'var(--red, #d33)' : undefined }}>
       <div className="col gap-sm">
         <div className="row row-wrap gap-sm" style={{ alignItems: 'center' }}>
-          <Badge tone={x.level === 'same' ? 'red' : 'warn'}>{x.level === 'same' ? t('почти точно тот же') : t('похож')}</Badge>
+          <Badge tone={x.level === 'same' ? 'red' : 'warn'}>{x.pct != null ? `${x.pct}% · ` : ''}{x.level === 'same' ? t('дубль / почти точно') : t('вероятный, нужна проверка')}</Badge>
           <strong>{title}</strong>
           {obj && x.status && <PropertyStatusBadge status={x.status as PropertyStatus} />}
           {!obj && <Badge tone={x.competitor ? 'redsoft' : 'grey'}>{x.competitor ? t('конкурент') : t('объявление')}</Badge>}
           {obj && x.is_exclusive && <Badge tone="solid">{t('эксклюзив')}</Badge>}
           {x.decided === 'same' && <Badge tone="red">{t('отмечен дублем')}</Badge>}
+          {x.decided === 'review' && <Badge tone="warn">{t('нужна проверка')}</Badge>}
         </div>
         <div style={{ fontSize: 14 }}>{x.address || t('Адрес не указан')}</div>
         {params && <div className="muted" style={{ fontSize: 13 }}>{params}</div>}
         {obj && <div className="faint" style={{ fontSize: 12 }}>{x.agent ? t('Ведёт: {name}', { name: x.agent }) : t('Без агента')}</div>}
         <div style={{ fontSize: 13 }}><span className="label">{t('Почему: ')}</span>{x.reasons.join(' · ')}</div>
+        {!!x.differs?.length && <div style={{ fontSize: 13 }}><span className="label">{t('Отличается: ')}</span>{x.differs.join(' · ')}</div>}
+        {!!x.matched_photos?.length && <div className="faint" style={{ fontSize: 12 }}>{t('Совпавшие фото: {n} — первыми в ленте', { n: x.matched_photos.length })}</div>}
         <PhotoStrip photos={x.photos} />
         {cmp && <CompareModal subject={subject} x={x} qk={qk} onLinked={onLinked} onClose={() => setCmp(false)} />}
         <div className="row row-wrap gap-sm">
@@ -86,11 +91,14 @@ function SimilarRow({ subject, x, qk, onLinked }: { subject: string; x: SimilarI
           {objLink && <Link className="btn btn-secondary btn-sm" to={objLink}><ExternalLink size={14} />{t('Открыть объект')}</Link>}
           {x.url && <a className="btn btn-secondary btn-sm" href={x.url} target="_blank" rel="noreferrer"><ExternalLink size={14} />{obj ? t('Пост в канале') : t('Открыть источник')}</a>}
           {x.decided !== 'same' && (
-            <Button size="sm" loading={decide.isPending && decide.variables === true} onClick={() => decide.mutate(true)}>
+            <Button size="sm" loading={decide.isPending && decide.variables === 'same'} onClick={() => decide.mutate('same')}>
               {subject.startsWith('l:') && obj ? t('Дубль: это он') : t('Дубль')}
             </Button>
           )}
-          <Button size="sm" variant="secondary" loading={decide.isPending && decide.variables === false} onClick={() => decide.mutate(false)}>{t('Не дубль')}</Button>
+          <Button size="sm" variant="secondary" loading={decide.isPending && decide.variables === 'different'} onClick={() => decide.mutate('different')}>{t('Не дубль')}</Button>
+          {x.decided !== 'review' && x.decided !== 'same' && (
+            <Button size="sm" variant="secondary" loading={decide.isPending && decide.variables === 'review'} onClick={() => decide.mutate('review')}>{t('Нужна проверка')}</Button>
+          )}
         </div>
       </div>
     </div>
@@ -165,12 +173,12 @@ function CompareModal({ subject, x, qk, onLinked, onClose }: { subject: string; 
     <Modal open wide onClose={onClose} title={t('Это та же квартира?')}>
       <div className="col gap-lg">
         <div className={`alert ${x.level === 'same' ? 'alert-warn' : 'alert-info'}`} style={{ fontSize: 13 }}>
-          {t('Почему похож: {why}. Сравните фото (нажмите, чтобы открыть крупно) и решите сами.', { why: x.reasons.join('; ') })}
+          {t('Почему похож: {why}. Сравните фото (нажмите, чтобы открыть крупно) и решите сами.', { why: x.why || x.reasons.join('; ') })}
         </div>
         <div className="cmp">{left}{right}</div>
         <div className="row row-wrap gap-sm">
           {x.decided !== 'same' && !both && (
-            <Button loading={decide.isPending && decide.variables === true} onClick={() => decide.mutate(true)}>{isAd && obj ? t('Дубль: это он') : t('Дубль')}</Button>
+            <Button loading={decide.isPending && decide.variables === 'same'} onClick={() => decide.mutate('same')}>{isAd && obj ? t('Дубль: это он') : t('Дубль')}</Button>
           )}
           {both && isStaff && (
             <>
@@ -179,9 +187,12 @@ function CompareModal({ subject, x, qk, onLinked, onClose }: { subject: string; 
             </>
           )}
           {both && !isStaff && x.decided !== 'same' && (
-            <Button loading={decide.isPending && decide.variables === true} onClick={() => decide.mutate(true)}>{t('Дубль — сообщить оператору')}</Button>
+            <Button loading={decide.isPending && decide.variables === 'same'} onClick={() => decide.mutate('same')}>{t('Дубль — сообщить оператору')}</Button>
           )}
-          <Button variant="secondary" loading={decide.isPending && decide.variables === false} onClick={() => decide.mutate(false)}>{t('Не дубль')}</Button>
+          <Button variant="secondary" loading={decide.isPending && decide.variables === 'different'} onClick={() => decide.mutate('different')}>{t('Не дубль')}</Button>
+          {x.decided !== 'review' && x.decided !== 'same' && (
+            <Button variant="secondary" loading={decide.isPending && decide.variables === 'review'} onClick={() => decide.mutate('review')}>{t('Нужна проверка')}</Button>
+          )}
         </div>
       </div>
     </Modal>

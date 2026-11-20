@@ -539,13 +539,14 @@ def score(s: dict, c: dict, shared: int = 0, photo: float = 0.0, cfg: dict = CON
             m["location"].append("тот же район")
         elif not same:
             differs.append(f"район {s['district']} / {c['district']}")
+            addr_differs = True  # another district: another building as surely as another known house
     if sub:
         g["location"] = max(sub)
     same_place = same_house or near
     # two known houses on other streets and no pin nearby: another building. Photos «from another angle» alone don't
     # outweigh that (Stanislav 11-20: unfinished «black frame» flats look alike — 15430 / #10083 at 70 %)
     # The ad's address may be off though: rooms this alike (meanbest ≥ PHOTO_SIM_SURE) still count
-    addr_differs = addr_differs and not near and photo < PHOTO_SIM_SURE
+    addr_differs = addr_differs and not near and not rel and photo < PHOTO_SIM_SURE
     if addr_differs:
         pen.append("address")
 

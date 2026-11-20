@@ -200,3 +200,10 @@ def test_other_angle_photos_at_another_known_address_are_not_probable():
     b = {"address": "2 Beri Gabriel Salosi St", "district": "Ваке", "area": 82.0}
     assert sc(a, b, photo=0.9)["level"] is None
     assert sc(a, {"address": "28 Vasil Barnov St", "area": 82.0}, photo=0.9)["level"] == "maybe"  # same house: shown
+
+
+def test_other_angle_photos_in_another_district_are_not_probable():
+    # Stanislav 11-20: 15430 (Vera, $301000) / #15436 (no address, Vorontsov, $185000), SigLIP only
+    a = {**F, "address": "28 Vasil Barnov St", "district": "Vera", "lat": None, "lng": None, "area": 86.0, "floor": None}
+    assert sc(a, {"address": "SALE IN TBILISI", "district": "Vorontsov", "area": 90.0}, photo=0.9)["level"] is None
+    assert sc(a, {"address": "SALE IN TBILISI", "district": "Vera", "area": 90.0}, photo=0.9)["level"] == "maybe"

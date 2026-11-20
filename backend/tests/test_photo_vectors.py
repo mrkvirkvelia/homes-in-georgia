@@ -98,8 +98,9 @@ def test_compare_thresholds():
     s = {"urls": set(), "cads": set(), "phones": [], "names": frozenset(), "author": None, "house": street_house(""),
          "street": frozenset(), "at": (None, None), "district": "Ваке", "floor": None, "area": None, "bedrooms": None,
          "price_usd": None}
-    c = {**s, "district": "Сабуртало"}
+    c = {**s, "district": None}
     assert similar.compare(s, c, 0, 0.88)[0] == "maybe"
+    assert similar.compare(s, {**s, "district": "Сабуртало"}, 0, 0.88)[0] is None  # another district (Stanislav 11-20)
     assert similar.compare(s, c, 0, 0.86)[0] is None
     assert similar.compare(s, c, 0, 0.99)[0] != "same"  # never strong alone
 

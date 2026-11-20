@@ -46,6 +46,7 @@ CADASTRAL = re.compile(r"(?<![\d.])\d{2}\.\d{2}\.\d{2}\.\d{3}\.\d{3}(?:\.\d{2}\.
 # other shoots); 0.85–0.875 recall 0.92 on other shoots with ~5% look-alikes (flats of one new-build complex).
 # ponytail: both thresholds rest on 13 different-shoot pairs of myhome photos: re-check them on our own photos
 PHOTO_SIM_ALONE = 0.875   # a medium signal by itself
+PHOTO_SIM_SURE = 0.95     # …even against another known address
 PHOTO_SIM_WEIGHT = 0.85   # only weight on a candidate already shown by the params / house / pin
 PHOTO_REASON = "похожие фото (другой ракурс)"
 PHOTO_K, PHOTO_HIT = 100, 1 - PHOTO_SIM_WEIGHT  # nearest photos per subject photo; their cosine distance that counts
@@ -422,7 +423,7 @@ CONFIG = {
               "owner_area_floor_dates": 0.05, "same_flat": 0.15, "full_name": 0.10, "author": 0.10,
               "photos_a_little": 0.05},
     "penalty": {"cadastre": 0.40, "flat": 0.30, "pins_far": 0.20, "area_20": 0.15, "area_30": 0.30, "type": 0.30,
-                "no_fit": 0.15},
+                "no_fit": 0.15, "address": 0.20},
     # contradictions that forbid «дубль» whatever the rest says (§7, §13.12)
     "blocking": ("cadastre", "flat", "area_30", "type"),
     # hard rules (§8): the score is at least this when the rule holds and nothing blocking contradicts it
@@ -510,6 +511,7 @@ def score(s: dict, c: dict, shared: int = 0, photo: float = 0.0, cfg: dict = CON
     km = _km(s.get("at") or (None, None), c.get("at") or (None, None))
     near = km is not None and km * 1000 <= NEAR_M
     L, sub = cfg["location"], []
+    addr_differs = False
     if rel:
         sub.append(L["house"] if same_house else L["corpus"] if rel.startswith("соседний") else L["street"])
         m["location"].append(rel)
@@ -517,6 +519,7 @@ def score(s: dict, c: dict, shared: int = 0, photo: float = 0.0, cfg: dict = CON
         sub.append(L["bare_street"]), m["location"].append("та же улица")
     elif s["house"][1] is not None and c["house"][1] is not None:
         sub.append(0.0), differs.append("другой адрес")
+        addr_differs = True
     if km is not None:
         sub.append(next((y for x, y in cfg["pin_m"] if km * 1000 <= x), 0.0))
         if near and not same_house:
@@ -539,6 +542,12 @@ def score(s: dict, c: dict, shared: int = 0, photo: float = 0.0, cfg: dict = CON
     if sub:
         g["location"] = max(sub)
     same_place = same_house or near
+    # two known houses on other streets and no pin nearby: another building. Photos «from another angle» alone don't
+    # outweigh that (Stanislav 11-20: unfinished «black frame» flats look alike — 15430 / #10083 at 70 %)
+    # The ad's address may be off though: rooms this alike (meanbest ≥ PHOTO_SIM_SURE) still count
+    addr_differs = addr_differs and not near and photo < PHOTO_SIM_SURE
+    if addr_differs:
+        pen.append("address")
 
     # the flat itself: its number, the type, bedrooms, floor, area (45 / 45.0 / 45.05 m² are one)
     sub = []
@@ -633,7 +642,7 @@ def score(s: dict, c: dict, shared: int = 0, photo: float = 0.0, cfg: dict = CON
         floors.append("phone_house")
     if shared >= 2 and fits:
         floors.append("photos_place" if loc_ok else "photos_any" if "pins_far" not in pen else None)
-    if photo >= PHOTO_SIM_ALONE and fits:
+    if photo >= PHOTO_SIM_ALONE and fits and not addr_differs:
         floors.append("photo_sim")
     if shared == 1 and fits:
         floors.append("photo_one")
@@ -658,7 +667,7 @@ def score(s: dict, c: dict, shared: int = 0, photo: float = 0.0, cfg: dict = CON
     # «вероятный» needs something that names this flat (Stanislav 11-20: object 15488 listed 8 ads at 66–69 % by the
     # district, bedrooms and price alone): the building or a pin ≤ NEAR_M, a phone / contact / full name, a photo, an
     # identifier. Params, price, district, a street without a number and the dates only weigh such a candidate
-    identifying = bool(m["identifier"] or pd or photo >= PHOTO_SIM_WEIGHT or phone or hs or same_name or near
+    identifying = bool(m["identifier"] or pd or (photo >= PHOTO_SIM_WEIGHT and not addr_differs) or phone or hs or same_name or near
                        or (rel and not rel.startswith("рядом по улице")))
     if not identifying:
         sc = min(sc, cfg["maybe"] - 0.01)

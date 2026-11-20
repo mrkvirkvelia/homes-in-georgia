@@ -192,3 +192,11 @@ def test_cached_profiles_follow_every_change(db, client):
     db.commit()
     x = _ad_item(db, pid, "mh20", vika)
     assert x is not None and "тот же дом" in x["matched"]
+
+
+def test_other_angle_photos_at_another_known_address_are_not_probable():
+    # Stanislav 11-20: 15430 (28 Vasil Barnov) / #10083 (2 Beri Gabriel Salosi), black-frame flats, SigLIP 0.9 only
+    a = {**F, "address": "28 Vasil Barnov St", "lat": None, "lng": None, "area": 86.0, "floor": None}
+    b = {"address": "2 Beri Gabriel Salosi St", "district": "Ваке", "area": 82.0}
+    assert sc(a, b, photo=0.9)["level"] is None
+    assert sc(a, {"address": "28 Vasil Barnov St", "area": 82.0}, photo=0.9)["level"] == "maybe"  # same house: shown

@@ -3,21 +3,14 @@ while Vika has already posted the same flat in the channel, the area / floor dif
 
 For an ad or an object, every candidate across the whole base: our objects (any status, the archive too) and the live
 outside ads (ss / myhome / livo / korter / Facebook / Telegram, competitors' too) not linked to an object yet (a
-linked ad is its object). Signals, each with a reason in Russian for the agent:
-- strong («почти точно»): the same link, the same cadastral code, 2+ shared photos (dHash), the owner's phone and the
-  same house / floor, a pair someone already marked «Дубль»;
-- medium: one shared photo, photos alike by their SigLIP vectors (PHOTO_SIM_ALONE: another shoot of the flat, an edited
-  copy dHash misses; Stanislav 11-20), the owner's phone alone, the same house, a pin within NEAR_M; the owner's full name
-  (Irakli 11-19) and the same author on the same site (Stanislav 11-19) only add weight to a candidate shown for
-  another reason;
-- parameters: bedrooms, floor, area (±AREA_TOL), price (±PRICE_TOL), district.
-Shown: anything strong; one shared photo or the owner's phone alone; another medium signal with 1+ matching
-parameter; or a «twin» nearby (the same district or within TWIN_KM, bedrooms and area agree, and the floor or the
-price too). Loose on purpose: the agent decides «Дубль» /
-«Не дубль» (decide()); a pair called different is not shown again.
+linked ad is its object). Each candidate gets a score in % from groups of independent evidence (score(), CONFIG; David 11-19): ≥ 85 %
+«дубль / почти точно», 65–85 % «вероятный, нужна проверка» — only with something that names the flat (the building
+or a pin, a phone / contact / full name, a photo, an identifier); params, price and district alone are never shown.
+The agent decides «Дубль» / «Не дубль» / «Нужна проверка» (decide()); a pair called different is not shown again.
 
-ponytail: the whole base and every live ad in memory per call (photos through a pigeonhole index, so ~10k ads stay
-well under a second); cache the profiles for a minute if it shows in the request log.
+ponytail: every object and live ad profile cached per process (_all_objects / _ads: rebuilt only for what changed) and
+only the candidates sharing an index key, a photo or a decision scored: warm ~0.25 s on 20k ads + 13k objects locally.
+Each API worker keeps its own copy (~a few hundred MB at most); a shared cache if the base grows 10×.
 """
 import hashlib
 import json
@@ -33,7 +26,7 @@ from app.models import Listing, Owner, Property, PropertyListing, PropertyMedia,
 from app.services import jobs
 from app.services import properties as P
 from app.services.common import jload, log_event, now
-from app.services.dedup import (_same_street, extract_phones, owner_phones, phone_match, relation, street_house,
+from app.services.dedup import (_same_street, extract_phones, norm_phone, owner_phones, phone_match, relation, street_house,
                                  street_words)
 from app.services.errors import DomainError
 
@@ -44,7 +37,7 @@ U64 = (1 << 64) - 1
 AREA_TOL = 0.12      # «площадь почти та же»: 52 vs 57 m² still shows (11-17: the same flat, the area differs a little)
 PRICE_TOL = 0.12
 NEAR_M = 80          # pins this close: the same building, give or take the geocoder
-TWIN_KM = 1.5        # a twin (bedrooms + area + floor / price) this far still shows: ad pins can be a district off
+TWIN_KM = 1.5        # pins this far apart are still «рядом» (weight only): ad pins can be a district off
 LIVE = ("published", "pending_review")
 CADASTRAL = re.compile(r"(?<![\d.])\d{2}\.\d{2}\.\d{2}\.\d{3}\.\d{3}(?:\.\d{2}\.\d{3})?(?![\d])")
 # «похожие фото (другой ракурс)»: meanbest of the two photo sets (each photo's best cosine to the other set, averaged
@@ -244,19 +237,124 @@ def _objects(db: Session, pids: list[int] | None = None) -> list[dict]:
     return out
 
 
-# parsing ~10k ads and indexing their photos is most of a call: kept per process until an ad changes (count / last
-# update of the live ads) or the competitor list does
-_cache: dict = {"stamp": None, "ads": [], "idx": {}}
+# Building ~10k ad and ~10k object profiles and indexing them is most of a call (prod 11-20: 16–55 s a card): kept per
+# process until something they are made of changes — the live ads (count / last update), the competitor list; for the
+# objects the properties, their photos, links, owners, agents and any ad's text (cheap aggregates, the stamp).
+_cache: dict = {"stamp": None, "ads": [], "idx": {}, "keys": {}}
+_ocache: dict = {"stamp": None, "objs": [], "idx": {}, "keys": {}, "by_pid": {}}
+CELL = 0.001  # pin grid, degrees: ≥ 83 m at Tbilisi's latitude, so pins ≤ NEAR_M apart are in neighbouring cells
 
 
-def _ads(db: Session, competitors: set[str]) -> tuple[list[dict], dict]:
-    """Live outside ads (profiles, their photo index); the caller drops the ones linked to an object since."""
+def _phone_key(x: str) -> str:
+    n = norm_phone(x)
+    d = _digits(n)
+    return d[-9:] if len(d) >= 9 else n  # phone_match: the last 9 digits, or the whole short number
+
+
+def _cell(at) -> tuple | None:
+    return (math.floor(at[0] / CELL), math.floor(at[1] / CELL)) if at and None not in (at[0], at[1]) else None
+
+
+def _index_keys(p: dict, probe: bool = False) -> set:
+    """What two profiles must share for score() to call the pair «identifying» (a link, a cadastral code, a phone, a
+    contact, a word of the owner's name, the house number, a pin cell); probe: the subject's side (neighbour cells)."""
+    ks = {("u", u) for u in p.get("urls") or ()} | {("c", c) for c in p.get("cads") or ()}
+    ks |= {("h", h) for h in p.get("handles") or ()} | {("p", _phone_key(x)) for x in p.get("phones") or ()}
+    if len(p.get("names") or ()) >= 2:
+        ks |= {("n", t) for t in p["names"]}
+    if p["house"][1] is not None:
+        ks.add(("hn", p["house"][1]))
+    c = _cell(p.get("at"))
+    if c:
+        ks |= {("g", c[0] + i, c[1] + j) for i in (-1, 0, 1) for j in (-1, 0, 1)} if probe else {("g", *c)}
+    return ks
+
+
+def _key_index(profiles: list[dict]) -> dict:
+    idx: dict = {}
+    for n, p in enumerate(profiles):
+        for k in _index_keys(p):
+            idx.setdefault(k, set()).add(n)
+    return idx
+
+
+def _ads(db: Session, competitors: set[str]) -> tuple[list[dict], dict, dict]:
+    """Live outside ads (profiles, their photo index, their key index); the caller drops the ones linked since. On a
+    change only the ads updated since are parsed again (the bot touches some every few minutes)."""
     live = (Listing.status.in_(LIVE), Listing.source.not_in(("object", "agency")))
-    stamp = (*db.execute(select(func.count(), func.max(Listing.updated_at)).where(*live)).one(), frozenset(competitors))
+    comp = frozenset(competitors)
+    stamp = (*db.execute(select(func.count(), func.max(Listing.updated_at)).where(*live)).one(), comp)
     if stamp != _cache["stamp"]:
-        ads = [_listing_profile(l, competitors) for l in db.scalars(select(Listing).where(*live))]
-        _cache.update(stamp=stamp, ads=ads, idx=_photo_index(ads))
-    return _cache["ads"], _cache["idx"]
+        old = _cache.get("by_id", {}) if _cache.get("comp") == comp else {}
+        # the fields a profile is made of decide, not the time: every bot pass touches updated_at / last_seen of
+        # every ad it sees, and the time has a second's resolution
+        rows = sorted(db.execute(select(Listing.id, func.md5(func.concat_ws(
+            "|", Listing.source, Listing.owner_id, Listing.status, Listing.urls, Listing.text,
+            Listing.photos, Listing.photo_hashes, Listing.address, Listing.district, Listing.lat, Listing.lng,
+            Listing.floor, Listing.area, Listing.bedrooms, Listing.price_usd, Listing.details, Listing.first_seen)))
+            .where(*live)).all())
+        fresh = [i for i, u in rows if old.get(i, (None,))[0] != u]
+        got = {}
+        for n in range(0, len(fresh), 2000):
+            prints = dict(rows)
+            got.update({l.id: (prints[l.id], _listing_profile(l, competitors))
+                        for l in db.scalars(select(Listing).where(Listing.id.in_(fresh[n:n + 2000])))})
+        by_id = {i: got.get(i) or old[i] for i, _ in rows if i in got or i in old}
+        if got or by_id.keys() != old.keys():  # a bot pass that only touched the times changes nothing
+            ads = [v[1] for v in by_id.values()]
+            _cache.update(by_id=by_id, ads=ads, idx=_photo_index(ads), keys=_key_index(ads))
+        _cache.update(stamp=stamp, comp=comp)
+    return _cache["ads"], _cache["idx"], _cache["keys"]
+
+
+# what an object's profile is made of, per object: compared when the cheap stamp changes, so only those are rebuilt
+OBJ_PRINT = text(
+    "SELECT p.id, md5(concat_ws('|', p.updated_at, o.name, o.phone, o.phones::text, o.link, u.name,"
+    " (SELECT string_agg(m.id || ':' || coalesce(m.dhash, 0) || ':' || m.position || ':' || m.path, ',' ORDER BY m.id)"
+    "  FROM property_media m WHERE m.property_id = p.id AND m.kind = 'photo'),"
+    " (SELECT string_agg(pl.listing_id || ':' || coalesce(pl.url, '') || ':' || md5(concat_ws('|', l.text, l.urls, l.photos,"
+    "  l.photo_hashes, l.details, l.lat, l.lng)), ',' ORDER BY pl.listing_id)"
+    "  FROM property_listings pl JOIN listings l ON l.id = pl.listing_id WHERE pl.property_id = p.id)))"
+    " FROM properties p LEFT JOIN owners o ON o.id = p.owner_id LEFT JOIN users u ON u.id = p.agent_id")
+
+
+def _all_objects(db: Session) -> dict:
+    """Every object's profile (an agent's number behind 3+ objects dropped, one on two marked «multi»), their photo and
+    key indexes; cached until the stamp changes, then only the objects whose OBJ_PRINT changed are rebuilt."""
+    stamp = tuple(db.execute(text(
+        "SELECT (SELECT count(*) || '/' || coalesce(max(updated_at)::text, '') FROM properties),"
+        " (SELECT count(*) || '/' || count(dhash) || '/' || coalesce(max(id), 0) || '/' || coalesce(sum(position::bigint * id), 0)"
+        "  FROM property_media),"
+        " (SELECT count(*) || '/' || coalesce(max(id), 0) || '/' || coalesce(sum(length(coalesce(url, ''))), 0) FROM property_listings),"
+        " (SELECT md5(coalesce(string_agg(id || ':' || coalesce(name, '') || coalesce(phone, '') || coalesce(phones::text, '')"
+        "  || coalesce(link, ''), ',' ORDER BY id), '')) FROM owners),"
+        " (SELECT md5(coalesce(string_agg(id || ':' || coalesce(name, ''), ',' ORDER BY id), '')) FROM users),"
+        " (SELECT coalesce(max(l.updated_at), '') FROM listings l JOIN property_listings pl ON pl.listing_id = l.id)")).one())
+    if stamp != _ocache["stamp"]:
+        prints = dict(db.execute(OBJ_PRINT).all())
+        old = _ocache.get("prints", {})
+        fresh = [i for i, h in prints.items() if old.get(i) != h or i not in _ocache["by_pid"]]
+        got = {}
+        for n in range(0, len(fresh), 2000):
+            got.update({o["property_id"]: o for o in _objects(db, fresh[n:n + 2000])})
+        by_pid = {i: got.get(i) or _ocache["by_pid"][i] for i in sorted(prints) if i in got or i in _ocache["by_pid"]}
+        if not got and by_pid.keys() == _ocache["by_pid"].keys():
+            _ocache["stamp"] = stamp  # the times moved, no object did
+            return _ocache
+        objs = list(by_pid.values())
+        # an agent's number (or a landlord's with many flats): behind 3+ objects it names no flat (eval 11-17)
+        seen: dict[str, set] = {}
+        for o in objs:
+            o.setdefault("phones_all", o["phones"])
+            for x in o["phones_all"]:
+                seen.setdefault(_digits(x)[-9:], set()).add(o["key"])
+        many = {k for k, v in seen.items() if len(v) >= 3}
+        two = {k for k, v in seen.items() if len(v) == 2}  # an owner with two flats: his phone alone names neither (§13.5)
+        for o in objs:
+            o["phones"] = [x for x in o["phones_all"] if _digits(x)[-9:] not in many]
+            o["multi"] = {_digits(x)[-9:] for x in o["phones"]} & two
+        _ocache.update(stamp=stamp, prints=prints, objs=objs, idx=_photo_index(objs), keys=_key_index(objs), by_pid=by_pid)
+    return _ocache
 
 
 # ---------------------------------------------------------------- photos
@@ -297,13 +395,6 @@ def _street(s: dict, c: dict) -> bool:
         (bool(c.get("street")) and s["house"][1] is not None and _same_street(c["street"], s["house"][0]))
 
 
-def _exact(s: dict, c: dict) -> bool:
-    """A twin by params: the same bedrooms and floor, the area to 3%."""
-    return (s["bedrooms"] is not None and s["bedrooms"] == c["bedrooms"] and s["floor"] is not None
-            and s["floor"] == c["floor"] and bool(s["area"] and c["area"])
-            and abs(s["area"] - c["area"]) <= max(1.0, 0.03 * max(s["area"], c["area"])))
-
-
 # ---------------------------------------------------------------- the score (David 11-19, spec §4–8)
 
 # Every weight and threshold of the duplicate score, in one place. Tune here, then `python -m app.dup_eval` prints
@@ -324,7 +415,8 @@ CONFIG = {
     "days": (14, 120),           # published this close: the time group is 1, at the second 0
     "pin_m": [(NEAR_M, 0.9), (300, 0.5), (TWIN_KM * 1000, 0.3)],
     "far_km": 3.0,               # pins this far apart contradict (a geocoder slip stays under it)
-    "location": {"house": 1.0, "corpus": 0.6, "street": 0.4, "metro": 0.3, "district": 0.3},
+    # a street named without a house number (one ad of the pair) is weak: a street holds many buildings
+    "location": {"house": 1.0, "corpus": 0.6, "street": 0.4, "bare_street": 0.3, "metro": 0.3, "district": 0.3},
     "text_jaccard": 0.6,         # word overlap of two descriptions that counts as the same text
     "bonus": {"phone_house_area": 0.10, "photos_address": 0.10, "angles_house_layout": 0.10,
               "owner_area_floor_dates": 0.05, "same_flat": 0.15, "full_name": 0.10, "author": 0.10,
@@ -335,7 +427,7 @@ CONFIG = {
     "blocking": ("cadastre", "flat", "area_30", "type"),
     # hard rules (§8): the score is at least this when the rule holds and nothing blocking contradicts it
     "floors": {"identifier": 0.97, "phone_house": 0.88, "photos_place": 0.88, "photos_any": 0.80, "photo_sim": 0.70,
-               "photo_one": 0.66, "phone": 0.66, "twin": 0.66},
+               "photo_one": 0.66, "phone": 0.66},
 }
 GROUPS = ("identifier", "photo", "contact", "location", "property", "text_price", "time")
 LEVEL_TEXT = {"same": "дубль / почти точно", "maybe": "вероятный, нужна проверка"}
@@ -422,7 +514,7 @@ def score(s: dict, c: dict, shared: int = 0, photo: float = 0.0, cfg: dict = CON
         sub.append(L["house"] if same_house else L["corpus"] if rel.startswith("соседний") else L["street"])
         m["location"].append(rel)
     elif _street(s, c):
-        sub.append(L["street"]), m["location"].append("та же улица")
+        sub.append(L["bare_street"]), m["location"].append("та же улица")
     elif s["house"][1] is not None and c["house"][1] is not None:
         sub.append(0.0), differs.append("другой адрес")
     if km is not None:
@@ -547,9 +639,6 @@ def score(s: dict, c: dict, shared: int = 0, photo: float = 0.0, cfg: dict = CON
         floors.append("photo_one")
     if phone and fits:
         floors.append("phone")
-    if (rel or _street(s, c) or (s.get("district") and s.get("district") == c.get("district"))
-            or (km is not None and km <= TWIN_KM)) and _exact(s, c) and price_close:
-        floors.append("twin")  # the same bedrooms, floor, area and price nearby (0 of 176 looser twins in the 11-17 eval)
 
     avail = sum(W[k] for k in g if k in W)
     raw = sum(W[k] * g[k] for k in g if k in W) / max(avail, cfg["min_coverage"]) if avail else 0.0
@@ -566,6 +655,13 @@ def score(s: dict, c: dict, shared: int = 0, photo: float = 0.0, cfg: dict = CON
     sure = not blocked and (bool(m["identifier"] and "identifier" in floors) or same_flat or bool({"phone_house", "photos_place"} & set(floors))
                             or (len(strong) >= 2 and fits))
     note = None
+    # «вероятный» needs something that names this flat (Stanislav 11-20: object 15488 listed 8 ads at 66–69 % by the
+    # district, bedrooms and price alone): the building or a pin ≤ NEAR_M, a phone / contact / full name, a photo, an
+    # identifier. Params, price, district, a street without a number and the dates only weigh such a candidate
+    identifying = bool(m["identifier"] or pd or photo >= PHOTO_SIM_WEIGHT or phone or hs or same_name or near
+                       or (rel and not rel.startswith("рядом по улице")))
+    if not identifying:
+        sc = min(sc, cfg["maybe"] - 0.01)
     if sc >= cfg["same"] and not sure:
         sc = cfg["same"] - 0.01
         note = "нужна проверка: " + ("есть противоречие" if blocked else "доказательства только из одной группы")
@@ -662,19 +758,10 @@ def find(db: Session, subject: str, user: User | None = None, limit: int = 30, i
     level same|maybe, reasons, decided, address, …, photos, url, can_open}]. A pair marked «Не дубль» is left out."""
     kind, _, ident = subject.partition(":")
     competitors = set(db.scalars(P.competitor_sources()))
-    objs = _objects(db)
-    # an agent's number (or a landlord's with many flats): behind 3+ objects it names no flat (eval 11-17)
-    seen: dict[str, set] = {}
-    for o in objs:
-        for x in o["phones"]:
-            seen.setdefault(_digits(x)[-9:], set()).add(o["key"])
-    many = {k for k, v in seen.items() if len(v) >= 3}
-    two = {k for k, v in seen.items() if len(v) == 2}  # an owner with two flats: his phone alone names neither (§13.5)
-    for o in objs:
-        o["phones"] = [x for x in o["phones"] if _digits(x)[-9:] not in many]
-        o["multi"] = {_digits(x)[-9:] for x in o["phones"]} & two
+    oc = _all_objects(db)
+    objs = oc["objs"]
     if kind == "p":
-        s = next((o for o in objs if o["property_id"] == int(ident)), None)
+        s = oc["by_pid"].get(int(ident)) if ident.isdigit() else None
         if s is None:
             raise DomainError("not_found", "object not found")
         skip = {s["key"]} | {key("l", x) for x in s["ad_ids"]}
@@ -690,34 +777,41 @@ def find(db: Session, subject: str, user: User | None = None, limit: int = 30, i
             skip.add(key("p", int(l.id[3:])))
     else:
         raise DomainError("not_found", "bad subject")
-    cands = [o for o in objs if o["key"] not in skip]
-    ads, ad_idx = _ads(db, competitors) if include_ads else ([], {})
+    ads, ad_idx, ad_keys = _ads(db, competitors) if include_ads else ([], {}, {})
     linked = {key("l", x) for x in db.scalars(select(PropertyListing.listing_id))} if ads else set()
     # a linked ad is its object's: never listed on its own (the cache may predate the link)
-    keep = [n for n, a in enumerate(ads) if a["key"] not in skip and a["key"] not in linked]
-    shared = {}
+    cands = [o for o in objs if o["key"] not in skip] + [a for a in ads if a["key"] not in skip and a["key"] not in linked]
+    # Only a candidate with an identifying signal (score(): `identifying`) can be shown, so only those are scored:
+    # the ones sharing an index key, a photo (dHash pigeonhole, photo vectors) or a decision. The rest stay < 65 %.
+    want: set[str] = set()
+    for k in _index_keys(s, probe=True):
+        want |= {objs[n]["key"] for n in oc["keys"].get(k, ())} | {ads[n]["key"] for n in ad_keys.get(k, ())}
+    shared: dict[str, int] = {}
     if s["hashes"]:
-        obj_idx, base = _photo_index(cands), len(cands)
         hits_o, hits_a = set(), set()
         for h in s["hashes"]:
             for i in range(5):
                 k = (i, (h >> (i * 13)) & 0x1FFF)
-                hits_o |= obj_idx.get(k, set())
+                hits_o |= oc["idx"].get(k, set())
                 hits_a |= ad_idx.get(k, set())
-        shared = {n: _shared(s["hashes"], cands[n]["hashes"]) for n in hits_o}
-        pos = {n: i for i, n in enumerate(keep)}
-        shared.update({base + pos[n]: _shared(s["hashes"], ads[n]["hashes"]) for n in hits_a if n in pos})
-    cands += [ads[n] for n in keep]
-    sims = _photo_sims(db, s, cands)
+        for c in [objs[n] for n in hits_o] + [ads[n] for n in hits_a]:
+            x = _shared(s["hashes"], c["hashes"])
+            if x:
+                shared[c["key"]] = x
+    sims = {cands[n]["key"]: v for n, v in _photo_sims(db, s, cands).items()}
     decided = _decisions(db, s["key"])
+    want |= set(shared) | set(sims) | set(decided)
     names = dict(db.execute(select(User.id, User.name).where(User.id.in_({d["by"] for d in decided.values() if d["by"]}))).all()) if decided else {}
     out = []
-    for n, c in enumerate(cands):
+    for c in cands:
+        if c["key"] not in want:
+            continue
         d = decided.get(c["key"])
         if d and d["verdict"] == "different":
             continue
-        photo, alike = sims.get(n, (0.0, []))
-        r = score(s, c, shared.get(n, 0), photo)
+        photo, alike = sims.get(c["key"], (0.0, []))
+        n_shared = shared.get(c["key"], 0)
+        r = score(s, c, n_shared, photo)
         level, why = r["level"], r["reasons"]
         if d and d["verdict"] == "same":
             level = "same"
@@ -727,7 +821,7 @@ def find(db: Session, subject: str, user: User | None = None, limit: int = 30, i
         if level is None:
             continue
         # the photos that matched lead the strip: the same files (dHash) first, then the alike ones (SigLIP)
-        same_files = [c["hash_urls"][j] for j in _shared_idx(s["hashes"], c["hashes"])] if shared.get(n) and c.get("hash_urls") else []
+        same_files = [c["hash_urls"][j] for j in _shared_idx(s["hashes"], c["hashes"])] if n_shared and c.get("hash_urls") else []
         lead = list(dict.fromkeys(same_files + (alike if PHOTO_REASON in why else [])))
         item = {**c["out"], "key": c["key"], "level": level, "level_text": LEVEL_TEXT[level], "score": r["score"],
                 "pct": r["pct"], "reasons": why, "matched": r["matched"], "differs": r["differs"], "why": r["why"],

@@ -81,7 +81,8 @@ def test_compare_twin_and_nothing():
             "house": (frozenset(), None, ""), "at": (41.7, 44.77), "district": "Ваке", "floor": 4, "area": 70.0,
             "bedrooms": 2, "price_usd": 850.0}
     twin = {**base, "at": (41.705, 44.775), "area": 72.0, "price_usd": 900.0}
-    assert similar.compare(base, twin)[0] == "maybe"
+    # a twin by params, price and district alone names no flat (Stanislav 11-20, object 15488): not shown
+    assert similar.compare(base, twin)[0] is None
     other = {**twin, "bedrooms": 3}
     assert similar.compare(base, other)[0] is None
     phone = {**other, "phones": ["+995 555 12 34 56"], "floor": 4}

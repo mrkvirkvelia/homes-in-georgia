@@ -145,4 +145,50 @@ def test_review_verdict_keeps_the_pair_listed_and_journals(db, client):
 def test_labelled_pairs_precision_first():
     m = dup_eval.synthetic(out=lambda *_: None)
     assert m["auto_false"] == 0 and m["auto_precision"] == 1.0  # an automatic «дубль» is never another flat
-    assert m["shown_recall"] == 1.0  # every labelled duplicate reaches the operator
+    assert m["shown_recall"] >= 0.95  # every labelled duplicate but a params-only twin reaches the operator
+
+
+def test_params_price_district_alone_are_never_probable():
+    """Stanislav 11-20: exclusive 15488 (Didi Dighomi) listed 8 ads at 66–69 % «вероятный» by «цена близкая» or «тот же
+    район; спальни совпадают; цена близкая» alone — the §12 gate would hold such an exclusive 24 h for nothing."""
+    obj = {"address": "Didi Dighomi, Chikovani 12", "district": "Диди Дигоми", "bedrooms": 2, "area": 68.0, "floor": 6,
+           "price_usd": 700, "phones": ["+995 555 77 88 99"], "date": "2026-11-18"}
+    shapes = [
+        {"address": None, "district": None, "bedrooms": None, "area": None, "floor": None, "phones": None, "price_usd": 720},  # Facebook
+        {"address": None, "bedrooms": 2, "area": None, "floor": None, "phones": None, "price_usd": 690},  # livo / korter
+        {"address": "Didi Dighomi", "bedrooms": 2, "area": None, "floor": 3, "phones": None, "price_usd": 700},  # ss
+        # «та же улица; спальни; этаж; площадь; цена»: a street with no house number is no building
+        {"address": "Chikovani st.", "bedrooms": 2, "area": 68.0, "floor": 6, "phones": None, "price_usd": 700},
+    ]
+    for b in shapes:
+        a = {**obj, **{k: v for k, v in b.items() if v is not None}}
+        a = {k: v for k, v in a.items() if b.get(k, 0) is not None}
+        r = similar.score(dup_eval.profile(obj), dup_eval.profile(a))
+        assert r["level"] is None and r["pct"] < 65 and similar.dup_level(r) == "doubtful", (b, r["why"])
+    # the same street with the house number is the building: shown
+    r = similar.score(dup_eval.profile(obj), dup_eval.profile({**obj, "phones": None, "address": "12 Chikovani Street"}))
+    assert r["level"] is not None
+
+
+def test_cached_profiles_follow_every_change(db, client):
+    """find() keeps the profiles per process (prod 11-20: 16–55 s a card): an edited ad or object is seen at once."""
+    from app.models import Listing
+    vika = make_user(db, "agent", "Вика")
+    pid = _object(db, client, vika)
+    make_listing(db, "mh20", source="myhome", urls=json.dumps(["https://myhome.ge/20"]), text="Сдаю", address="Kazbegi 30",
+                 district="Сабуртало")
+    assert _ad_item(db, pid, "mh20", vika) is None
+    l = db.get(Listing, "mh20")
+    l.text = "Сдаю, +995 555 12 34 56"  # the owner's phone; the bot stamps updated_at to the second, as here
+    l.address = "Paliashvili 10"
+    l.updated_at = "2099-01-01T00:00:00"
+    db.commit()
+    assert _ad_item(db, pid, "mh20", vika) is not None
+    p = db.get(Property, pid)
+    p.address = "Kazbegi 99"
+    db.commit()
+    l.address = "Kazbegi 99"
+    l.updated_at = "2099-01-01T00:00:01"
+    db.commit()
+    x = _ad_item(db, pid, "mh20", vika)
+    assert x is not None and "тот же дом" in x["matched"]

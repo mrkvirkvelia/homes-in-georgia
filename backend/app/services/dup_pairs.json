@@ -946,6 +946,76 @@
     "district": "Мтацминда",
     "metro": "Руставели"
    }
+  },
+  {
+   "id": "d17_price_only_fb",
+   "label": "different",
+   "note": "15488: Facebook, только «цена близкая»",
+   "a": {
+    "address": "Didi Dighomi, Chikovani 12",
+    "district": "Диди Дигоми",
+    "bedrooms": 2,
+    "area": 68.0,
+    "floor": 6,
+    "price_usd": 700,
+    "phones": [
+     "+995 555 77 88 99"
+    ],
+    "type": "apartment",
+    "date": "2026-11-18"
+   },
+   "fresh": true,
+   "b": {
+    "price_usd": 720,
+    "date": "2026-11-17"
+   }
+  },
+  {
+   "id": "d18_district_rooms_price",
+   "label": "different",
+   "note": "15488: livo / korter, «тот же район; спальни; цена»",
+   "a": {
+    "address": "Didi Dighomi, Chikovani 12",
+    "district": "Диди Дигоми",
+    "bedrooms": 2,
+    "area": 68.0,
+    "floor": 6,
+    "price_usd": 700,
+    "phones": [
+     "+995 555 77 88 99"
+    ],
+    "type": "apartment",
+    "date": "2026-11-18"
+   },
+   "fresh": true,
+   "b": {
+    "district": "Диди Дигоми",
+    "bedrooms": 2,
+    "price_usd": 690,
+    "date": "2026-11-15"
+   }
+  },
+  {
+   "id": "d19_bare_street_params",
+   "label": "different",
+   "note": "«та же улица; спальни; этаж; площадь; цена»: улица без номера дома",
+   "a": {
+    "address": "Didi Dighomi, Chikovani 12",
+    "district": "Диди Дигоми",
+    "bedrooms": 2,
+    "area": 68.0,
+    "floor": 6,
+    "price_usd": 700,
+    "phones": [
+     "+995 555 77 88 99"
+    ],
+    "type": "apartment",
+    "date": "2026-11-18"
+   },
+   "b": {
+    "address": "Chikovani st.",
+    "phones": null
+   }
   }
  ]
 }

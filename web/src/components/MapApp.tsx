@@ -99,6 +99,13 @@ export default function MapApp({ items }: { items: Item[] }) {
   const popup = useRef<Popup | null>(null);
   const state = useRef({ all, visible, scoped, filtered, notify, t });
   useEffect(() => { state.current = { all, visible, scoped, filtered, notify, t }; });
+  // The bot's «📍 На карте» opens this page in Telegram's in-app view: full height, and a swipe on the map pans it instead
+  // of closing the view (a client 11-21). Telegram's own bridge, no SDK script; a no-op in a browser
+  useEffect(() => {
+    const tg = (window as { TelegramWebviewProxy?: { postEvent: (e: string, d?: string) => void } }).TelegramWebviewProxy;
+    tg?.postEvent('web_app_expand');
+    tg?.postEvent('web_app_setup_swipe_behavior', JSON.stringify({ allow_vertical_swipe: false }));
+  }, []);
 
   const group = (p: Point) => {
     // Everything at this exact point can be swiped through, newest first.

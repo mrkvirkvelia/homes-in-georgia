@@ -504,3 +504,23 @@ def test_qr_login_with_2fa_then_logout(db):
         srv.shutdown()
         loop.call_soon_threadsafe(loop.stop)
         userbot.STATE.update(me=None, client=None, login={"status": "idle"})
+
+
+def test_rich_post_text():
+    """11-21: flats_in_georgia's Telegram «rich» posts (PageBlocks, no message text) -> text a line per block, the old
+    price crossed out dropped, the map link kept; photos and slideshows give no text."""
+    from types import SimpleNamespace as N
+
+    def T(name, **kw):
+        return type(name, (), {})() if not kw else type(name, (), kw)()
+    plain = lambda s: T("TextPlain", text=s)  # noqa: E731
+    rm = N(blocks=[
+        T("PageBlockSlideshow", items=[T("PageBlockPhoto", photo_id=1)]),
+        T("PageBlockHeading2", text=T("TextConcat", texts=[plain("$900 "), T("TextStrike", text=plain("$1000")), plain(" · 2 спальни")])),
+        T("PageBlockParagraph", text=T("TextConcat", texts=[plain("📍 "), T("TextUrl", text=plain("Церетели, 60"), url="https://yandex.com/maps/?pt=44.78,41.73")])),
+        T("PageBlockParagraph", text=plain("⠀")),
+        T("PageBlockDetails", title=plain("Теги"), blocks=[T("PageBlockParagraph", text=plain("#Дидубе"))]),
+    ])
+    text, links = userbot.rich_text(rm)
+    assert text == "$900  · 2 спальни\n📍 Церетели, 60\nТеги\n#Дидубе"
+    assert links == ["https://yandex.com/maps/?pt=44.78,41.73"]

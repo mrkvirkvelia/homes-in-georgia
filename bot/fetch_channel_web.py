@@ -140,6 +140,30 @@ def fetch(c, user, kind, want, photos, scan, marker=None, old=None, start=None, 
     return items, None
 
 
+def via_userbot(user, kind, photos, old):
+    """Posts the web preview can't show («Please open Telegram to view this post»: Telegram's rich posts, flats_in_georgia
+    since 11-16) as the operator account reads them (backend userbot POST /channel). [] without a userbot."""
+    import base64
+    url, key = os.environ.get("USERBOT_URL", "").strip().rstrip("/"), os.environ.get("SECRET_KEY", "")
+    if not url:
+        return []
+    r = httpx.post(f"{url}/channel", json={"user": user, "min_id": max(old, default=0), "photos": photos},
+                   headers={"X-Userbot-Token": key}, timeout=300)
+    r.raise_for_status()
+    items = []
+    for p in r.json()["posts"]:
+        paths = []
+        for ph in p["photos"]:
+            path = f"{OUT}/img/tg_{user}_{ph['id']}.jpg"
+            if not os.path.exists(path):
+                open(path, "wb").write(base64.b64decode(ph["b64"]))
+            paths.append(path)
+        items.append({"id": p["id"], "channel": user, "kind": kind, "date": p["date"], "text": p["text"], "photos": paths,
+                      "url": f"https://t.me/{user}/{p['id']}", "links": p["links"]})
+    print(f"{user}: {len(items)} posts via the userbot")
+    return items
+
+
 def keep_history(ch, items, old):
     """A competitor channel keeps every post it ever had (the backfill too), newest first; the rest: the latest `want`."""
     if not ch.get("competitor"):
@@ -190,6 +214,8 @@ def main():
                 items, nxt = fetch(c, user, ch["kind"], want - (cur or {}).get("found", 0), photos, int(o["scan"]),
                                    o.get("caption_marker"), old, start=cur,
                                    deadline=time.time() + BACKFILL_SEC if ch.get("backfill") else None)
+                if not items and not nxt:  # the preview showed nothing readable: maybe rich posts, the userbot reads them
+                    items = via_userbot(user, ch["kind"], photos, old)
             except Exception as e:  # one broken channel keeps its previous file, the others still update
                 print(f"{user}: failed, keeping old file: {e}")
                 report(user, last_error=str(e)[:300])

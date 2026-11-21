@@ -374,6 +374,74 @@ async def photo(client, tg_id=None, username=None):
     return None
 
 
+def rich_text(rm) -> tuple[str, list[str]]:
+    """A «rich» channel post (Telegram 11-2026: RichMessage of PageBlocks, no message text; flats_in_georgia since 11-16)
+    -> (its text, a line per block, the links behind it)."""
+    lines, links = [], []
+
+    def text_of(x) -> str:
+        if x is None or isinstance(x, (int, float, bool, bytes)):
+            return ""
+        if isinstance(x, str):
+            return x
+        if isinstance(x, list):
+            return "".join(text_of(v) for v in x)
+        if x.__class__.__name__ == "TextStrike":  # the old price, crossed out: «$900 ~~$1000~~»
+            return ""
+        if getattr(x, "url", None) and isinstance(x.url, str) and x.url.startswith("http"):
+            links.append(x.url)
+        return "".join(text_of(getattr(x, k, None)) for k in ("text", "texts"))
+
+    def walk(b):
+        if b.__class__.__name__ in ("PageBlockPhoto", "PageBlockVideo", "PageBlockSlideshow", "PageBlockCollage"):
+            return
+        if getattr(b, "blocks", None):  # details / lists: the title, then the inner blocks
+            if t := text_of(getattr(b, "title", None)).strip():
+                lines.append(t)
+            for x in b.blocks:
+                walk(x)
+            return
+        for item in getattr(b, "items", None) or []:  # a list's items
+            for x in getattr(item, "blocks", None) or []:
+                walk(x)
+            if t := text_of(getattr(item, "text", None)).strip():
+                lines.append("• " + t)
+        if t := text_of(getattr(b, "text", None)).strip("\u2800 \n"):
+            lines.append(t)
+
+    for b in rm.blocks or []:
+        walk(b)
+    return "\n".join(lines), list(dict.fromkeys(links))
+
+
+async def channel_posts(client, user, min_id=0, limit=200, photos=3):
+    """A public channel's posts newer than min_id as the operator account reads them (no join, nothing marked read) ->
+    [{id, date, text, links, photos: [{id, b64}]}]: the rich ones and the photo posts with a caption."""
+    import base64
+    out, albums = [], {}
+    async for m in client.iter_messages(user, limit=limit, min_id=int(min_id or 0)):
+        rm = getattr(m, "rich_message", None)
+        if rm is not None:
+            text, links = rich_text(rm)
+            pics = list(rm.photos or [])
+        else:  # an ordinary album / photo post: the caption is on one of its messages
+            a = albums.setdefault(m.grouped_id or m.id, {"id": m.id, "date": m.date, "text": "", "links": [], "pics": []})
+            if m.photo:
+                a["pics"].insert(0, m.photo)
+            if m.message and len(m.message) > len(a["text"]):
+                a.update(text=m.message, id=m.id, date=m.date)
+            continue
+        out.append({"id": m.id, "date": m.date, "text": text, "links": links, "pics": pics})
+    out += [a for a in albums.values() if a["text"] and a["pics"]]
+    for p in out:
+        got = []
+        for ph in p.pop("pics")[:photos]:
+            if data := await client.download_media(ph, file=bytes):
+                got.append({"id": ph.id, "b64": base64.b64encode(data).decode()})
+        p.update(photos=got, date=p["date"].isoformat())
+    return [p for p in out if p["text"] and p["photos"]]
+
+
 async def delete_messages(client, chat, ids, album=False):
     """Telethon side of delete(): «@name» / «-100…» -> the ids deleted (album: + the same grouped_id within ±9 ids)."""
     ent = await client.get_input_entity(int(chat) if chat.lstrip("-").isdigit() else chat.lstrip("@"))
@@ -485,9 +553,20 @@ def serve_http(client, loop, port):
                 return self.reply(403, {"ok": False})
             self.reply(200, status())
 
+        def channel(self, p):  # POST /channel {user, min_id?, limit?, photos?}: bot/fetch_channel_web.py, rich posts
+            c = STATE["client"]
+            try:
+                posts = asyncio.run_coroutine_threadsafe(channel_posts(
+                    c, str(p["user"]).lstrip("@"), p.get("min_id") or 0, min(int(p.get("limit") or 200), 500),
+                    min(int(p.get("photos") or 3), 10)), loop).result(240)
+                return self.reply(200, {"ok": True, "posts": posts})
+            except Exception as e:  # noqa: BLE001
+                log.warning("userbot /channel %s failed: %r", p.get("user"), e)
+                return self.reply(502, {"ok": False, "error": repr(e)})
+
         def do_POST(self):
             reply = self.reply
-            if self.path not in ("/send", "/delete", "/login", "/password", "/logout", "/photo") or not self.allowed():
+            if self.path not in ("/send", "/delete", "/login", "/password", "/logout", "/photo", "/channel") or not self.allowed():
                 return reply(403, {"ok": False})
             p = json.loads(self.rfile.read(int(self.headers.get("Content-Length") or 0)) or b"{}")
             if self.path == "/login":
@@ -514,6 +593,8 @@ def serve_http(client, loop, port):
                 import base64
                 data = asyncio.run_coroutine_threadsafe(photo(c, p.get("tg_id"), p.get("username")), loop).result(40)
                 return reply(200, {"ok": True, "b64": base64.b64encode(data).decode() if data else None})
+            if self.path == "/channel":
+                return self.channel(p)
             if self.path == "/delete":
                 try:
                     ids = asyncio.run_coroutine_threadsafe(delete_messages(c, p["chat"], p["ids"], p.get("album")), loop).result(50)

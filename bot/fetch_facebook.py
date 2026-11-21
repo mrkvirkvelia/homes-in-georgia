@@ -111,6 +111,11 @@ def run_actor(actor, inp):
     for n, tok in enumerate(keys, 1):
         with httpx.Client(headers={"Authorization": f"Bearer {tok}"}, timeout=60) as c:
             r = c.post(f"{API}/acts/{actor}/runs", params={"memory": 1024}, json=inp)
+            if r.status_code == 403 and "full-permission-actor-not-approved" in r.text:
+                # Apify 11-2026: a full-permission actor (cheerio-scraper) must be approved in the console; a run with
+                # limited permissions needs no approval and is all a scraper needs (ss.ge stood still since 11-16)
+                r = c.post(f"{API}/acts/{actor}/runs", params={"memory": 1024, "forcePermissionLevel": "LIMITED_PERMISSIONS"},
+                           json=inp)
             if _out_of_usage(r):
                 print(f"apify: key #{n} is out of usage this month, trying the next one")
                 continue

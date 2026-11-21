@@ -17,6 +17,7 @@ import json
 import logging
 import math
 import re
+import time
 from datetime import timedelta
 
 from sqlalchemy import func, or_, select, text
@@ -38,6 +39,10 @@ AREA_TOL = 0.12      # «площадь почти та же»: 52 vs 57 m² sti
 PRICE_TOL = 0.12
 NEAR_M = 80          # pins this close: the same building, give or take the geocoder
 TWIN_KM = 1.5        # pins this far apart are still «рядом» (weight only): ad pins can be a district off
+# an exact point under this many ads is a geocoder's centroid (a district, a street, a metro: 387 ads on one Saburtalo
+# point 11-21), not a building: «рядом на карте, 0 м» there said nothing (#15494 / #15491 at 80 %, other streets)
+CROWD = 10
+_crowded: dict = {"t": 0.0, "pts": frozenset()}
 LIVE = ("published", "pending_review")
 CADASTRAL = re.compile(r"(?<![\d.])\d{2}\.\d{2}\.\d{2}\.\d{3}\.\d{3}(?:\.\d{2}\.\d{3})?(?![\d])")
 # «похожие фото (другой ракурс)»: meanbest of the two photo sets (each photo's best cosine to the other set, averaged
@@ -138,9 +143,20 @@ def building_key(addr: str | None) -> str | None:
     return f"{'+'.join(sorted(street))}|{n}{letter}" if street and n is not None else None
 
 
+def crowded(db: Session) -> frozenset:
+    """The centroid points (CROWD), counted again once an hour. ponytail: one GROUP BY over all ads, fine at 100k rows."""
+    if time.time() - _crowded["t"] > 3600:
+        rows = db.execute(text("SELECT lat, lng FROM listings WHERE lat IS NOT NULL GROUP BY 1, 2 HAVING count(*) >= :n"),
+                          {"n": CROWD}).all()
+        _crowded.update(t=time.time(), pts=frozenset((float(a), float(b)) for a, b in rows))
+    return _crowded["pts"]
+
+
 def _km(a, b) -> float | None:
     if None in (a[0], a[1], b[0], b[1]):
         return None
+    if (float(a[0]), float(a[1])) in _crowded["pts"] or (float(b[0]), float(b[1])) in _crowded["pts"]:
+        return None  # a centroid: where the ad is, nobody knows
     la1, lo1, la2, lo2 = map(math.radians, (a[0], a[1], b[0], b[1]))
     h = math.sin((la2 - la1) / 2) ** 2 + math.cos(la1) * math.cos(la2) * math.sin((lo2 - lo1) / 2) ** 2
     return 6371 * 2 * math.asin(math.sqrt(h))
@@ -768,6 +784,7 @@ def find(db: Session, subject: str, user: User | None = None, limit: int = 30, i
     level same|maybe, reasons, decided, address, …, photos, url, can_open}]. A pair marked «Не дубль» is left out."""
     kind, _, ident = subject.partition(":")
     competitors = set(db.scalars(P.competitor_sources()))
+    crowded(db)
     oc = _all_objects(db)
     objs = oc["objs"]
     if kind == "p":

@@ -207,3 +207,17 @@ def test_other_angle_photos_in_another_district_are_not_probable():
     a = {**F, "address": "28 Vasil Barnov St", "district": "Vera", "lat": None, "lng": None, "area": 86.0, "floor": None}
     assert sc(a, {"address": "SALE IN TBILISI", "district": "Vorontsov", "area": 90.0}, photo=0.9)["level"] is None
     assert sc(a, {"address": "SALE IN TBILISI", "district": "Vera", "area": 90.0}, photo=0.9)["level"] == "maybe"
+
+
+def test_a_geocoders_centroid_is_not_the_same_place(db):
+    """11-21: 387 ads sat on one Saburtalo point; «рядом на карте, 0 м» there showed #15494 / #15491 (other streets) at 80 %."""
+    a = {**F, "address": None, "lat": 41.7247267, "lng": 44.751726}
+    near = sc(a, {"floor": 5, "area": 66.0, "price_usd": 950})
+    assert any(r.startswith("рядом на карте") for r in near["reasons"])
+    for n in range(similar.CROWD):
+        make_listing(db, f"cr{n}", lat=41.7247267, lng=44.751726)
+    similar._crowded["t"] = 0.0
+    assert (41.7247267, 44.751726) in similar.crowded(db)
+    far = sc(a, {"floor": 5, "area": 66.0, "price_usd": 950})
+    assert not any(r.startswith("рядом на карте") for r in far["reasons"]) and far["score"] < near["score"]
+    similar._crowded.update(t=0.0, pts=frozenset())

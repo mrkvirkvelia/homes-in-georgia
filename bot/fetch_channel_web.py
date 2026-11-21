@@ -214,8 +214,11 @@ def main():
                 items, nxt = fetch(c, user, ch["kind"], want - (cur or {}).get("found", 0), photos, int(o["scan"]),
                                    o.get("caption_marker"), old, start=cur,
                                    deadline=time.time() + BACKFILL_SEC if ch.get("backfill") else None)
-                if not items and not nxt:  # the preview showed nothing readable: maybe rich posts, the userbot reads them
-                    items = via_userbot(user, ch["kind"], photos, old)
+                latest = parse(get(c, f"https://t.me/s/{user}").text)[-1:] if not nxt else []
+                if latest and not latest[0]["text"] and not latest[0]["photos"]:
+                    # the newest post is one the preview can't show (a rich post): the new ones via the userbot
+                    got = {i["id"] for i in items}
+                    items = [i for i in via_userbot(user, ch["kind"], photos, old) if i["id"] not in got] + items
             except Exception as e:  # one broken channel keeps its previous file, the others still update
                 print(f"{user}: failed, keeping old file: {e}")
                 report(user, last_error=str(e)[:300])

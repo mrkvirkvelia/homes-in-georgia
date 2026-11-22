@@ -31,7 +31,7 @@ class Source(Base):
 class Listing(Base):
     __tablename__ = "listings"
     __table_args__ = (
-        CheckConstraint("status IN ('published', 'pending_review', 'rejected', 'gone')", name="listings_status_check"),
+        CheckConstraint("status IN ('published', 'pending_review', 'rejected', 'gone', 'copy')", name="listings_status_check"),
         CheckConstraint("decision IN ('approved', 'rejected')", name="listings_decision_check"),
         Index("listings_status", "status"),
     )

@@ -247,9 +247,22 @@ def dup_purge(db: Session, job: Job):
 def dup_scan(db: Session, job: Job):
     """An object became exclusive / got its contract / took a «Дубль» in, or new ads look like it: search its duplicates
     everywhere (similar.scan_exclusive)."""
-    from app.services import similar
+    from app.services import myhome_copies, similar
+    if not myhome_copies.recent(db, _ref_id(job)):  # agents' copies on myhome first (David 11-22), once a day
+        try:
+            myhome_copies.run(db, _ref_id(job))
+        except Exception:  # noqa: BLE001 — myhome down / changed: the scan of what we have still runs
+            db.rollback()
+            log.warning("myhome copies of #%s failed", _ref_id(job), exc_info=True)
     r = similar.scan_exclusive(db, _ref_id(job), (job.payload or {}).get("trigger") or "exclusive")
     return "ok" if r is None else f"found {r['n']}, strong {len(r['strong'])}"
+
+
+@handler("myhome_copies")
+def myhome_copies_job(db: Session, job: Job):
+    """The card's «Найти копии на myhome»: agents' copies of the object (services/myhome_copies.py)."""
+    from app.services import myhome_copies
+    return f"saved {myhome_copies.run(db, _ref_id(job))}"
 
 
 @handler("dup_recheck")

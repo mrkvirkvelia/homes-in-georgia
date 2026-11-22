@@ -82,6 +82,7 @@ export const api = {
   },
 
   properties: {
+    myhomeCopies: (id: number) => http.post<{ ok: boolean }>(`/properties/${id}/myhome-copies`, {}),
     originals: (id: number) => fetchBlob(`/properties/${id}/originals`),
     list: (q?: PropertyScope & { q?: string; rented?: number; freeing?: number; limit?: number; offset?: number; source?: string[]; district?: string[]; metro?: string; bedrooms?: string; price_min?: string; price_max?: string; archive_reason?: string }) => then(http.get<L<Property>>('/properties', { limit: LIMIT, ...q }), (d) => normPage(d, normProperty)),
     /** the base tabs' filter options with counts (Stanislav 11-13) */

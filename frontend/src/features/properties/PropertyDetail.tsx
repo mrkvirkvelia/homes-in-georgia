@@ -771,6 +771,22 @@ export function MediaGrid({ p, items, grouped, onDelete, onRoom, onOrder, off, o
   );
 }
 
+/** «Найти копии на myhome» (David 11-22): agents' copies of the object, searched by its district, street, rooms and
+ * area; the worker takes about a minute, then «Похожие объекты» shows them. */
+function MyhomeCopies({ p }: { p: Property }) {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const run = useMutation({
+    mutationFn: () => api.properties.myhomeCopies(p.id),
+    onSuccess: () => {
+      toast(t('Ищем копии на myhome — через минуту список обновится'));
+      setTimeout(() => qc.invalidateQueries({ queryKey: ['similar'] }), 75_000);
+    },
+    onError: (e) => toast(errText(e), true),
+  });
+  return <Button variant="secondary" size="sm" loading={run.isPending} onClick={() => run.mutate()}>{t('Найти копии на myhome')}</Button>;
+}
+
 /** Own photos/videos, or the origin ad's photos until the shoot. */
 function Gallery({ p }: { p: Property }) {
   const own = shotsOf(p);
@@ -1735,7 +1751,7 @@ export function PropertyDetail({ id, compact }: { id: number; compact?: boolean 
           )}
           <ExclusiveConflict p={p} />
           {!(p.status === 'review' && isStaff) && (
-            <Card label={t('Дубли')} title={t('Похожие объекты')}>
+            <Card label={t('Дубли')} title={t('Похожие объекты')} actions={<MyhomeCopies p={p} />}>
               <DupScan p={p} />
               <div className="muted" style={{ fontSize: 13, marginBottom: 8 }}>{t('Те же фото, адрес, собственник или параметры — в нашей базе, на ss.ge / myhome.ge и у конкурентов. Отметьте: дубль или нет.')}</div>
               <SimilarList subject={`p:${p.id}`} emptyText={t('Похожих объектов не найдено: ни в базе, ни на сайтах, ни у конкурентов.')} />

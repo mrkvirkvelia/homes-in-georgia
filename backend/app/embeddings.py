@@ -95,7 +95,7 @@ def backfill(all_: bool = False) -> int:
 
 # ---------------------------------------------------------------- per-photo vectors
 
-LIVE_AD = "status IN ('published', 'pending_review') AND source NOT IN ('object', 'agency')"  # similar.LIVE, its _ads()
+LIVE_AD = "status IN ('published', 'pending_review', 'copy') AND source NOT IN ('object', 'agency')"  # similar.LIVE, its _ads()
 PHOTO_MINUTES, BATCH, PAUSE = 10, 8, 2.0  # one child run; photos per model call; seconds of rest after each call
 NPZ_GRACE = timedelta(hours=2)  # a new ad: refresh.sh embeds it right after the sync, wait for that before computing it
 

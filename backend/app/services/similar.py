@@ -43,7 +43,7 @@ TWIN_KM = 1.5        # pins this far apart are still «рядом» (weight only
 # point 11-21), not a building: «рядом на карте, 0 м» there said nothing (#15494 / #15491 at 80 %, other streets)
 CROWD = 10
 _crowded: dict = {"t": 0.0, "pts": frozenset()}
-LIVE = ("published", "pending_review")
+LIVE = ("published", "pending_review", "copy")  # copy: a myhome copy found for an object (services/myhome_copies.py)
 CADASTRAL = re.compile(r"(?<![\d.])\d{2}\.\d{2}\.\d{2}\.\d{3}\.\d{3}(?:\.\d{2}\.\d{3})?(?![\d])")
 # «похожие фото (другой ракурс)»: meanbest of the two photo sets (each photo's best cosine to the other set, averaged
 # over both), SigLIP vectors in photo_vectors (app/embeddings.py). Measured 11-20 on 4,053 myhome Tbilisi rentals, 112

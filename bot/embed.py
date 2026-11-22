@@ -194,7 +194,7 @@ def load():
 
 def listings_to_embed():
     with db.tx() as c:  # pending/rejected too: an agent may publish them later without a new sync
-        return [db.row(r) for r in c.execute("SELECT * FROM listings WHERE status != 'gone' ORDER BY id")]
+        return [db.row(r) for r in c.execute("SELECT * FROM listings WHERE status NOT IN ('gone', 'copy') ORDER BY id")]
 
 
 def main(full=False):

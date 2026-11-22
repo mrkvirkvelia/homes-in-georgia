@@ -146,6 +146,8 @@ export const D: Record<string, [ka: string, en: string]> = {
   "Удалить": ["წაშლა", "Delete"],
   "Файлы объекта": ["ობიექტის ფაილები", "Property files"],
   "Скачать оригиналы": ["ორიგინალების ჩამოტვირთვა", "Download originals"],
+  "Найти копии на myhome": ["ასლების ძებნა myhome-ზე", "Find copies on myhome"],
+  "Ищем копии на myhome — через минуту список обновится": ["ვეძებთ ასლებს myhome-ზე — ერთ წუთში სია განახლდება", "Searching myhome for copies — the list updates in a minute"],
   "Фото из объявления": ["ფოტოები განცხადებიდან", "Photos from the ad"],
   "Галерея": ["გალერეა", "Gallery"],
   "опубликован": ["გამოქვეყნებული", "published"],

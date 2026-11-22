@@ -776,6 +776,8 @@ function Gallery({ p }: { p: Property }) {
   const own = shotsOf(p);
   const fromAd = (p.listing?.photos || []).map((src, i): Shot => ({ id: `l${i}`, kind: 'photo', src }));
   const toast = useToast();
+  const { user } = useAuth();
+  const staffOnly = atLeast(user, 'operator');  // Irakli 11-22: superadmin, admin, operators
   const [busy, setBusy] = useState(false);
   const originals = async () => {  // the photos as uploaded, without the channel watermark: for myhome / ss by hand
     setBusy(true);
@@ -789,7 +791,7 @@ function Gallery({ p }: { p: Property }) {
   };
   return (
     <Card label={t('Фото и видео')} title={own.length ? `${t('Файлы объекта')} · ${own.length}` : fromAd.length ? t('Фото из объявления') : t('Галерея')}
-      actions={own.some((x) => x.kind === 'photo') ? <Button variant="secondary" size="sm" loading={busy} onClick={originals}>{t('Скачать оригиналы')}</Button> : undefined}>
+      actions={staffOnly && own.some((x) => x.kind === 'photo') ? <Button variant="secondary" size="sm" loading={busy} onClick={originals}>{t('Скачать оригиналы')}</Button> : undefined}>
       <MediaGrid items={own.length ? own : fromAd} />
     </Card>
   );

@@ -1,5 +1,5 @@
 """«Скачать оригиналы» (Stanislav 11-22): the object's photos as uploaded, in the gallery order, one zip; private files
-(passport, extract) never in it; an agent who can't open the card gets a 404."""
+(passport, extract) never in it; operators, admins and the superadmin only (Irakli 11-22)."""
 import io
 import zipfile
 
@@ -17,9 +17,11 @@ def test_originals_zip(db, client):
         storage.put(key, data)
         db.add(PropertyMedia(property_id=pid, kind="photo", path=key, position=[1, 0, 2][pos], dhash=0))
     db.commit()
-    r = client.get(f"/api/properties/{pid}/originals", headers=auth(vika))
+    assert client.get(f"/api/properties/{pid}/originals", headers=auth(vika)).status_code == 403  # Irakli 11-22: staff only
+    op = make_user(db, "operator", "Оля")
+    r = client.get(f"/api/properties/{pid}/originals", headers=auth(op))
     assert r.status_code == 200 and r.headers["content-type"] == "application/zip"
     z = zipfile.ZipFile(io.BytesIO(r.content))
     assert z.namelist() == [f"{pid}_01.jpg", f"{pid}_02.jpg"]
     assert [z.read(n) for n in z.namelist()] == [b"first", b"second"]
-    assert client.get(f"/api/properties/{pid}/originals", headers=auth(ana)).status_code == 404
+    assert client.get(f"/api/properties/{pid}/originals", headers=auth(ana)).status_code == 403

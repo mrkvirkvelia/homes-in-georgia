@@ -169,6 +169,17 @@ def _photos(db: Session, p: Property, photos: list[dict]) -> None:
         db.add(PropertyMedia(property_id=p.id, kind="photo", path=key, position=n, dhash=photo_hash(data)))
 
 
+def _same_by_photos(db: Session, p: Property) -> Property | None:
+    """An object on the site (or one post_sync archived) that «Похожие» calls the same flat (shared photos, the house)."""
+    from app.services import similar
+    for i in similar.find(db, f"p:{p.id}", None, limit=10, include_ads=False):
+        o = db.get(Property, i["property_id"]) if i.get("level") == "same" and i.get("property_id") else None
+        if o and o.id != p.id and (o.status == "published" or (o.status == "archived" and o.source_type == "channel"
+                                                               and o.archive_reason == "not_actual")):
+            return o
+    return None
+
+
 EXCLUSIVE = re.compile(r"#exclusive\b", re.I)
 
 
@@ -224,6 +235,21 @@ def import_post(db: Session, channel: str, post: dict) -> str:
     db.add(p)
     db.flush()
     _photos(db, p, post["photos"])
+    db.flush()
+    if o := _same_by_photos(db, p):  # the address written another way: the photos tell (#15540 = #15509, 11-22)
+        from app import storage
+        keys = [m.path for m in db.scalars(select(PropertyMedia).where(PropertyMedia.property_id == p.id))]
+        oid = o.id
+        db.rollback()
+        for k in keys:
+            try:
+                storage.delete(k)
+            except Exception:  # noqa: BLE001
+                log.warning("could not delete %s", k)
+        o = db.get(Property, oid)
+        _relink(db, o, url, msg, fields["price"], text)
+        db.commit()
+        return "relinked"
     P.record_publication(db, p, "tg", url, str(msg))
     log_event(db, "property", p.id, "imported_from_channel", None, label="пост в канале", post_url=url)
     _exclusive(db, p, text)

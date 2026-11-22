@@ -23,8 +23,12 @@ TEXT = """#Vera 🚇 #Rustaveli
 
 
 def _jpg(c):
+    import random
+    rnd = random.Random(str(c))  # a textured picture: a flat colour has no dHash to compare
+    img = Image.new("L", (64, 48))
+    img.putdata([rnd.randrange(256) for _ in range(64 * 48)])
     b = io.BytesIO()
-    Image.new("RGB", (64, 48), c).save(b, "JPEG")
+    img.resize((256, 192)).convert("RGB").save(b, "JPEG")
     return base64.b64encode(b.getvalue()).decode()
 
 
@@ -99,3 +103,13 @@ def test_the_map_point_comes_from_the_posts_google_link_else_the_place(monkeypat
     assert CI._point(p) and asked == ["Dirsi, Tbilisi"] and p.post_fields == {"approx": True}
     asked.clear()
     assert CI._point(Property(address="Rustavi, 28 Leonidze St")) and asked == ["Rustavi, 28 Leonidze St"]
+
+
+def test_the_same_photos_under_another_address_spelling_relink(db, monkeypatch):
+    _fake(monkeypatch, [_post(700)])
+    CI.run(db)
+    first = _post(700)
+    again = {**_post(710, TEXT.replace("16-18-20 Simon Janashia St", "16 Simon Janashia Street")), "photos": first["photos"]}
+    _fake(monkeypatch, [again])
+    assert CI.run(db)["relinked"] == 1
+    assert db.query(Property).count() == 1 and db.query(Property).one().post_url.endswith("/710")

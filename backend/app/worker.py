@@ -45,6 +45,13 @@ def _best_effort(fn, *args):
         pass
 
 
+@handler("channel_dups")
+def channel_dups(db: Session, job: Job):
+    """Right after a channel post: the same flat already posted? → the operator confirms deleting (services/channel_dups)."""
+    from app.services import channel_dups as CD
+    CD.check(db, _ref_id(job))
+
+
 @handler("lead_sla")
 def lead_sla(db: Session, job: Job):
     """~60% of the window → reminder; at the deadline → escalation to the operators group (+ superadmins)."""

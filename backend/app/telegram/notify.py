@@ -919,6 +919,29 @@ def exclusive_duplicates(prop, n, strong):
     to_operators("exclusive_duplicates", pid, text, lambda private: kb([[app_btn("🏠 Открыть объект", links.property_app(pid), private)]]))
 
 
+CHDUP_DONE = {"deleted": "🗑 Новый пост удалён, объект #{drop} объединён с #{keep}", "kept": "✅ Отмечено: не дубль",
+              "gone": "Один из постов уже снят — ничего не делаю"}
+
+
+def channel_duplicate_text(keep, drop, pct, why, done=None, who=None):
+    def line(p, label):
+        return f"{label} #{g(p, 'id')} · {e(prop_title(p))}\n{e(g(p, 'post_url') or '')}"
+    head = f"♊️ <b>Дубль в канале{f' · {pct}%' if pct else ''}</b>\n{e(why or '')}\n\n" \
+           f"{line(keep, 'Старый пост')}\n\n{line(drop, 'Новый пост')}"
+    if done:
+        return f"{head}\n\n<b>{e(CHDUP_DONE[done].format(keep=g(keep, 'id'), drop=g(drop, 'id')))}</b>" + (f" · {e(who)}" if who else "")
+    return f"{head}\n\nУдалить новый пост? Объект уйдёт в архив как дубль старого: заявки и файлы перейдут к нему."
+
+
+@safe
+def channel_duplicate(keep, drop, pct, why):
+    """David 11-20: the same flat posted twice in the channel (services/channel_dups.py) → the operator confirms."""
+    k, d = g(keep, "id"), g(drop, "id")
+    to_operators("channel_dup", f"{k}:{d}", channel_duplicate_text(keep, drop, pct, why),
+                 lambda private: kb([[cb("🗑 Удалить новый пост", f"chdup:{k}:{d}:1"), cb("Не дубль", f"chdup:{k}:{d}:0")],
+                                     [app_btn("🏠 Новый объект", links.property_app(d), private)]]))
+
+
 DUPS_STATE = {"clear": "эксклюзив подтверждён: дублей нет", "waiting": "ожидается устранение дублей",
               "review": "сомнительные совпадения — ручная проверка", "operator": "дубли остались — решение оператора"}
 DUPS_LEVEL = {"confirmed": "дубль", "probable": "вероятный дубль", "doubtful": "сомнительно"}

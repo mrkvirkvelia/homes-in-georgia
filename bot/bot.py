@@ -569,6 +569,32 @@ async def on_staff_button(update: Update, ctx, data):
     await edit_all(ctx.bot, "review", ref, core.review_card(i, f"\n\n<b>{verdict}</b> · {who}"), None)
 
 
+async def on_channel_dup(update: Update, ctx, data):
+    """«🗑 Удалить новый пост» / «Не дубль» under a channel duplicate (notify.channel_duplicate): operators only."""
+    from app.models import Property, User
+    from app.services import channel_dups
+    from app.telegram import notify
+    q = update.callback_query
+    a = await asyncio.to_thread(staff, update)
+    if not a or a["role"] not in ("operator", "admin", "superadmin"):
+        await journey.answer(q, "Только для операторов")
+        return
+    _, keep, drop, val = data.split(":")
+
+    def snap(s):  # both posts as they are before the decision: the edited message keeps showing them
+        return [{k: getattr(p, k) for k in ("id", "address", "district", "price", "post_url")} if p else {"id": int(i)}
+                for i in (keep, drop) for p in [s.get(Property, int(i))]]
+    (k, d), _ = await journey.svc(snap)
+    res, err = await journey.svc(lambda s: channel_dups.resolve(s, int(keep), int(drop), val == "1", s.get(User, a["id"])))
+    if err:
+        await journey.answer(q, f"Не получилось: {err}")
+        return
+    await journey.answer(q, "Готово")
+    who = f"@{a['username']}" if a.get("username") else a.get("name")
+    text = notify.channel_duplicate_text(k, d, None, None, res, who)
+    await edit_all(ctx.bot, "channel_dup", f"{keep}:{drop}", text, None)
+
+
 async def on_button(update: Update, ctx):
     q = update.callback_query
     if q.data == "noop":
@@ -583,6 +609,8 @@ async def on_button(update: Update, ctx):
         await on_lang_button(update, ctx)
     elif q.data.startswith("mod:"):
         await on_staff_button(update, ctx, q.data)
+    elif q.data.startswith("chdup:"):
+        await on_channel_dup(update, ctx, q.data)
     elif q.data.startswith("plike:"):  # «❤️ I like it» under a channel rich post: the bot opens itself on /start p<id>
         await q.answer(url=f"https://t.me/{ctx.bot.username}?start=p{q.data.split(':', 1)[1]}")
     elif await journey.on_callback(update, ctx, lambda: client_of(q.from_user, update.effective_chat and update.effective_chat.id)):

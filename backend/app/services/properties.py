@@ -2254,6 +2254,8 @@ def publish(db: Session, pid: int, actor: User, text: str | None = None, media_i
             pub.messages = {"chat": str(ref[2]), "ids": ref[3]}
         if ref:  # a repost: the old post leaves the channel (Stanislav 11-16)
             unpost(db, p, actor, keep=pub.id, action="tg_reposted")
+        if ref:  # the same flat already in the channel? the operator decides (services/channel_dups.py, David 11-20)
+            jobs.schedule(db, "channel_dups", p.id, now())
     _status(db, p, "published", actor, post_url=p.post_url if ref else None, channel=channel if tg else None,
             site=not p.site_hidden, **({"dry_run": True} if dry_run else {}))
     db.commit()

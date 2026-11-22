@@ -40,7 +40,26 @@ async def lifespan(app: FastAPI):
                 log.warning("bootstrap superadmin ensured: id=%s login=%s tg_id=%s", u.id, u.login, u.tg_id)
     except Exception:  # noqa: BLE001  (DB not migrated yet: the API still starts, /health shows it)
         log.exception("bootstrap failed")
+    import sys
+    if "pytest" not in sys.modules:
+        import threading
+        threading.Thread(target=_warm_similar, daemon=True).start()
     yield
+
+
+def _warm_similar():
+    """«Похожие» keep every object's and ad's profile in memory: the first card after a restart built them for ~8 s
+    (David 11-22: the spinner in an ad card after a deploy). Built once at start instead."""
+    try:
+        from sqlalchemy import select
+
+        from app.models import Listing
+        from app.services import similar
+        with SessionLocal() as db:
+            if lid := db.scalar(select(Listing.id).where(Listing.status == "published").limit(1)):
+                similar.find(db, f"l:{lid}", None)
+    except Exception:  # noqa: BLE001
+        log.info("similar warm-up skipped", exc_info=True)
 
 
 if settings.APP_ENV != "dev" and (len(settings.SECRET_KEY) < 32 or "change-me" in settings.SECRET_KEY):

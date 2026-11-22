@@ -91,15 +91,52 @@ def _agent(db: Session, text: str) -> int | None:
     return users[0].id if users else None
 
 
-def _point(p: Property) -> None:
+def _queries(address: str):
+    """The address as posted, then «50/3» → «50» without «St», then the street alone (an approximate point)."""
+    a = re.sub(r"\s+", " ", address).strip()
+    yield a, False
+    b = re.sub(r"\b(\d+)[a-zA-Z]?(?:[/-]\d+[a-zA-Z]?)+\b", r"\1", a)
+    b = re.sub(r"\b(St\.?|Street|Ave|Avenue)\b", "", b, flags=re.I).strip(" ,")
+    if b != a:
+        yield b, False
+    if street := re.sub(r"\b\d+\w*\b", "", b).strip(" ,"):
+        yield street, True
+
+
+def _point(p: Property) -> bool:
+    """A map point for the object by its address (the site's map shows only objects with one)."""
     from app.services import geo
-    try:
-        hit = (geo.search(f"{p.address}, Tbilisi").get("items") or [None])[0]
-    except Exception:  # noqa: BLE001 — no map point is no reason to lose the object
-        hit = None
-    if hit:
-        p.lat, p.lng = hit["lat"], hit["lng"]
-        p.district = p.district or hit.get("district")
+    for q, approx in _queries(p.address or "") if p.address else ():
+        try:
+            hit = (geo.search(f"{q}, Tbilisi").get("items") or [None])[0]
+        except Exception:  # noqa: BLE001 — no map point is no reason to lose the object
+            return False
+        if hit:
+            p.lat, p.lng = hit["lat"], hit["lng"]
+            p.district = p.district or hit.get("district")
+            if approx:
+                p.post_fields = {**(p.post_fields or {}), "approx": True}
+            return True
+    return False
+
+
+def locate(db: Session, limit: int = 60) -> int:
+    """Objects on the site without a map point (the old base's, posts with an odd address): a point by the address,
+    `limit` a pass (Nominatim: 1 request a second); the ones not found are tried once a day."""
+    from app.services import site_feed
+    tried = {e for e in db.scalars(select(Event.entity_id).where(Event.action == "no_map_point",
+                                                                 Event.at > now() - timedelta(days=1)))}
+    rows = [p for p in db.scalars(select(Property).where(*site_feed.public_filter(), Property.lat.is_(None),
+                                                          Property.address.is_not(None)).order_by(Property.id.desc()))
+            if str(p.id) not in tried][:limit]
+    n = 0
+    for p in rows:
+        if _point(p):
+            n += 1
+        else:
+            log_event(db, "property", p.id, "no_map_point", None, label="карта", address=p.address)
+        db.commit()
+    return n
 
 
 def _photos(db: Session, p: Property, photos: list[dict]) -> None:
@@ -113,10 +150,12 @@ def _photos(db: Session, p: Property, photos: list[dict]) -> None:
         db.add(PropertyMedia(property_id=p.id, kind="photo", path=key, position=n, dhash=photo_hash(data)))
 
 
-def _relink(db: Session, p: Property, url: str, msg: int, channel: str) -> None:
+def _relink(db: Session, p: Property, url: str, msg: int, price) -> None:
     from app.services import properties as P
     old = p.post_url
     p.post_url, p.post_message_id, p.published_at = url, str(msg), now()
+    if price and p.status == "published":  # a repost with a new price (600$ → 800$)
+        p.price = price
     if p.status == "archived":  # same_flat: only a channel object archived by post_sync
         p.status, p.archive_reason, p.archive_comment, p.archived_at = "published", None, None, None
     if p.status == "published":
@@ -138,7 +177,7 @@ def import_post(db: Session, channel: str, post: dict) -> str:
     if p := same_flat(db, fields["address"], fields["bedrooms"]):
         if p.status not in ("published", "archived"):
             return "skipped"  # the agent is working on it in the CRM: his card, his post
-        _relink(db, p, url, msg, channel)
+        _relink(db, p, url, msg, fields["price"])
         db.commit()
         return "relinked"
     t = now()
@@ -164,7 +203,7 @@ def run(db: Session, channel: str = CHANNEL) -> dict:
     got = posts(channel, start)
     if got is None:
         log.warning("channel import %s: no Telegram account answered", channel)
-        return {}
+        got = []
     counts: dict = {}
     for post in got:
         try:
@@ -181,5 +220,9 @@ def run(db: Session, channel: str = CHANNEL) -> dict:
         site_feed.clear_cache()
         catalog.sync_all(db)
         db.commit()
+    counts["located"] = locate(db)
+    if counts["located"]:
+        from app.services import site_feed
+        site_feed.clear_cache()
     log.info("channel import %s after %s: %s", channel, start, counts)
     return counts

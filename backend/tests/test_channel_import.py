@@ -48,23 +48,24 @@ def test_a_channel_post_becomes_a_published_object_once(db, monkeypatch):
     roman.agent_tag = "Roman2"
     db.commit()
     _fake(monkeypatch, [_post(500), _post(501, "❗️#FlatRented\nNice apartment in 📍Vera found a tenant")])
-    assert CI.run(db) == {"created": 1, "not_object": 1}
+    assert CI.run(db) == {"created": 1, "not_object": 1, "located": 0}
     p = db.query(Property).one()
     assert (p.status, p.site_hidden, p.post_url) == ("published", False, "https://t.me/rent_tbilisi_ge/500")
     assert (p.address, p.bedrooms, float(p.area), p.floor, p.total_floors, float(p.price)) == \
         ("16-18-20 Simon Janashia St", 2, 115.0, 6, 8, 1300.0)
     assert p.agent_id == roman.id and p.post_fields["pets"] == "ByAgreement" and p.post_fields["deposit"] == 1300
     assert db.query(PropertyMedia).filter_by(property_id=p.id, kind="photo").count() == 3
-    assert CI.run(db) == {}  # the cursor moved past 501: nothing new
+    assert CI.run(db) == {"located": 0}  # the cursor moved past 501: nothing new
 
 
 def test_a_repost_moves_the_link_and_a_deleted_post_archives(db, monkeypatch):
     _fake(monkeypatch, [_post(600)])
     CI.run(db)
     pid = db.query(Property).one().id
-    _fake(monkeypatch, [_post(600), _post(610)])  # the same flat posted again
-    assert CI.run(db) == {"relinked": 1}
+    _fake(monkeypatch, [_post(600), _post(610, TEXT.replace("1300$ +", "1400$ +"))])  # the same flat again, dearer
+    assert CI.run(db) == {"relinked": 1, "located": 0}
     assert db.query(Property).count() == 1 and db.get(Property, pid).post_url.endswith("/610")
+    assert float(db.get(Property, pid).price) == 1400
 
     _fake(monkeypatch, [], there=set())  # the account says 610 is gone
     assert post_sync.run(db, pause=0) == 1
@@ -74,6 +75,12 @@ def test_a_repost_moves_the_link_and_a_deleted_post_archives(db, monkeypatch):
     assert db.query(Event).filter_by(entity_id=str(pid), action="archived").one().actor_label == "сверка с каналом"
 
     _fake(monkeypatch, [_post(620)])  # posted once more: back from the archive
-    assert CI.run(db) == {"relinked": 1}
+    assert CI.run(db) == {"relinked": 1, "located": 0}
     db.expire_all()
     assert db.get(Property, pid).status == "published"
+
+
+def test_queries_go_from_the_exact_address_to_the_street():
+    assert list(CI._queries("50/3 Mikheili Tsinamdzghvrishvili St")) == [
+        ("50/3 Mikheili Tsinamdzghvrishvili St", False), ("50 Mikheili Tsinamdzghvrishvili", False),
+        ("Mikheili Tsinamdzghvrishvili", True)]

@@ -672,7 +672,7 @@ export interface NewsItem { id: number; date?: string; text: string }
 export interface UserbotStatus {
   configured: boolean; reachable?: boolean; enabled?: boolean; authorized?: boolean;
   me?: { id: number; username: string | null; name: string } | null;
-  login?: { status: 'idle' | 'starting' | 'qr' | 'password' | 'done' | 'expired' | 'error'; url?: string; qr_svg?: string; error?: string | null };
+  login?: { status: 'idle' | 'starting' | 'qr' | 'code' | 'password' | 'done' | 'expired' | 'error'; url?: string; qr_svg?: string; error?: string | null };
 }
 
 /** GET /sources/schedule: how often the parser runs a source; paid ones: $ per run + $ per hour of new posts (measured). */

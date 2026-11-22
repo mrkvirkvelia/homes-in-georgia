@@ -524,3 +524,59 @@ def test_rich_post_text():
     text, links = userbot.rich_text(rm)
     assert text == "$900  · 2 спальни\n📍 Церетели, 60\nТеги\n#Дидубе"
     assert links == ["https://yandex.com/maps/?pt=44.78,41.73"]
+
+
+def test_phone_login_wrong_code_then_2fa(db):
+    """Stanislav 11-22: login without the QR — the number, the code Telegram sends (a wrong one first), then the 2FA
+    password; the session is saved. The number is normalized, the code passes through."""
+    import threading
+    import time
+
+    import httpx
+    from telethon.errors import PhoneCodeInvalidError, SessionPasswordNeededError
+
+    class Fake:
+        session = type("S", (), {"save": lambda self: "PHONE-SESSION"})()
+        asked = []
+
+        async def send_code_request(self, phone):
+            Fake.asked.append(phone)
+            return type("Sent", (), {"phone_code_hash": "h"})()
+
+        async def sign_in(self, phone=None, code=None, phone_code_hash=None, password=None):
+            if password is not None:
+                return None if password == "pw" else (_ for _ in ()).throw(AssertionError(password))
+            if code != "12345":
+                raise PhoneCodeInvalidError(None)
+            raise SessionPasswordNeededError(None)
+
+    loop = asyncio.new_event_loop()
+    threading.Thread(target=loop.run_forever, daemon=True).start()
+    userbot.STATE["start"] = asyncio.Event()
+    srv = userbot.serve_http(None, loop, 0)
+    url, hdr = f"http://127.0.0.1:{srv.server_port}", {"X-Userbot-Token": userbot.conf("SECRET_KEY")}
+
+    def wait_for(status, error=None):
+        for _ in range(500):
+            st = httpx.get(f"{url}/status", headers=hdr).json()["login"]
+            if st["status"] == status and st.get("error") == error:
+                return st
+            time.sleep(0.02)
+        raise AssertionError(st)
+    try:
+        httpx.post(f"{url}/phone", headers=hdr, json={"phone": "+995 599 12-34-56"})
+        assert userbot.STATE["phone"] == "+995599123456" and userbot.STATE["start"].is_set()
+        done = asyncio.run_coroutine_threadsafe(userbot.login(Fake()), loop)
+        wait_for("code")
+        assert Fake.asked == ["+995599123456"]
+        httpx.post(f"{url}/code", headers=hdr, json={"code": "000"})
+        wait_for("code", "wrong_code")
+        httpx.post(f"{url}/code", headers=hdr, json={"code": " 12345 "})
+        wait_for("password")
+        httpx.post(f"{url}/password", headers=hdr, json={"password": "pw"})
+        assert done.result(5) is True and wait_for("done")
+        assert userbot.stored_session() == "PHONE-SESSION"
+    finally:
+        srv.shutdown()
+        loop.call_soon_threadsafe(loop.stop)
+        userbot.STATE.update(me=None, client=None, login={"status": "idle"}, start=None, phone=None)

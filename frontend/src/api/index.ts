@@ -305,12 +305,16 @@ export const api = {
     status: () => http.get<UserbotStatus>('/userbot'),
     login: () => http.post<UserbotStatus>('/userbot/login', {}),
     password: (password: string) => http.post<UserbotStatus>('/userbot/password', { password }),
+    phone: (phone: string) => http.post<UserbotStatus>('/userbot/phone', { phone }),
+    code: (code: string) => http.post<UserbotStatus>('/userbot/code', { code }),
     logout: () => http.post<UserbotStatus>('/userbot/logout', {}),
   },
   reader: {
     status: () => http.get<UserbotStatus>('/reader'),
     login: () => http.post<UserbotStatus>('/reader/login', {}),
     password: (password: string) => http.post<UserbotStatus>('/reader/password', { password }),
+    phone: (phone: string) => http.post<UserbotStatus>('/reader/phone', { phone }),
+    code: (code: string) => http.post<UserbotStatus>('/reader/code', { code }),
     logout: () => http.post<UserbotStatus>('/reader/logout', {}),
   },
   sources: {

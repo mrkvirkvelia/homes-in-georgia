@@ -81,7 +81,8 @@ def session_key() -> str:
 
 
 # the running process: the Telethon client, who is logged in, and the QR login in progress (shown in the CRM)
-STATE = {"client": None, "me": None, "login": {"status": "idle"}, "start": None, "password": None, "loop": None}
+STATE = {"client": None, "me": None, "login": {"status": "idle"}, "start": None, "password": None, "code": None, "phone": None,
+         "loop": None}
 LOGIN_WINDOW_S = 300  # a QR (refreshed every ~30 s) or a 2FA prompt waits this long, then the admin presses again
 
 
@@ -107,25 +108,53 @@ def status():
             "login": {k: v for k, v in dict(STATE["login"]).items() if k in ("status", "url", "error", "expires")}}
 
 
+async def _phone_login(client, phone, L, deadline) -> bool:
+    """Login by the phone number (Stanislav 11-22: «без QR-кода»): Telegram sends a code to the account's other sessions
+    (or an SMS), the owner types it in the CRM -> True once signed in; False: the window closed. 2FA: the caller's
+    SessionPasswordNeededError branch. The code passes through, never stored."""
+    from telethon.errors import PhoneCodeInvalidError
+    sent = await client.send_code_request(phone)
+    STATE["code"] = asyncio.get_running_loop().create_future()
+    L.update(status="code", url=None, error=None)
+    while True:
+        try:
+            code = await asyncio.wait_for(STATE["code"], max(1, deadline - time.time()))
+        except asyncio.TimeoutError:
+            STATE["login"] = {"status": "expired"}
+            return False
+        try:
+            await client.sign_in(phone=phone, code=code, phone_code_hash=sent.phone_code_hash)
+            return True
+        except PhoneCodeInvalidError:
+            STATE["code"] = asyncio.get_running_loop().create_future()
+            L.update(error="wrong_code")
+
+
 async def login(client):
-    """QR login on a connected, not authorized client -> True once logged in (session saved). STATE["login"]: status
-    qr (url = tg://login?token=…, scan in Telegram → Settings → Devices) -> password (2FA) -> done | expired | error."""
+    """QR (or phone + code: STATE["phone"], POST /phone) login on a connected, not authorized client -> True once logged
+    in (session saved). STATE["login"]: status qr (url = tg://login?token=…, scan in Telegram → Settings → Devices) |
+    code (the code Telegram sent) -> password (2FA) -> done | expired | error."""
     from telethon.errors import PasswordHashInvalidError, SessionPasswordNeededError
+    phone, STATE["phone"] = STATE["phone"], None
     L = STATE["login"] = {"status": "starting"}
     deadline = time.time() + LOGIN_WINDOW_S
     try:
         try:
-            qr = await client.qr_login()
-            while True:
-                L.update(status="qr", url=qr.url, expires=qr.expires.timestamp())
-                try:
-                    await qr.wait()
-                    break
-                except asyncio.TimeoutError:  # this token expired: a new one, until the window closes
-                    if time.time() > deadline:
-                        STATE["login"] = {"status": "expired"}
-                        return False
-                    await qr.recreate()
+            if phone:
+                if not await _phone_login(client, phone, L, deadline):
+                    return False
+            else:
+                qr = await client.qr_login()
+                while True:
+                    L.update(status="qr", url=qr.url, expires=qr.expires.timestamp())
+                    try:
+                        await qr.wait()
+                        break
+                    except asyncio.TimeoutError:  # this token expired: a new one, until the window closes
+                        if time.time() > deadline:
+                            STATE["login"] = {"status": "expired"}
+                            return False
+                        await qr.recreate()
         except SessionPasswordNeededError:
             # the future goes up before the status that invites a password: the HTTP thread may POST it at once
             STATE["password"] = asyncio.get_running_loop().create_future()
@@ -147,7 +176,7 @@ async def login(client):
         STATE["login"] = {"status": "error", "error": type(e).__name__}
         return False
     finally:
-        STATE["password"] = None
+        STATE["password"] = STATE["code"] = None
     save_session(client.session.save())
     STATE["login"] = {"status": "done"}
     return True
@@ -577,7 +606,7 @@ def serve_http(client, loop, port):
 
         def do_POST(self):
             reply = self.reply
-            paths = ("/login", "/password", "/logout", "/channel") + (() if reader() else ("/send", "/delete", "/photo"))
+            paths = ("/login", "/phone", "/code", "/password", "/logout", "/channel") + (() if reader() else ("/send", "/delete", "/photo"))
             if self.path not in paths or not self.allowed():
                 return reply(403, {"ok": False})
             p = json.loads(self.rfile.read(int(self.headers.get("Content-Length") or 0)) or b"{}")
@@ -586,11 +615,20 @@ def serve_http(client, loop, port):
                     loop.call_soon_threadsafe(STATE["start"].set)
                     STATE["login"] = {"status": "starting"}
                 return reply(200, status())
-            if self.path == "/password":
-                fut = STATE["password"]
-                if fut and not fut.done() and p.get("password"):
-                    STATE["login"].update(error=None)  # before the hand-over: a fast «wrong_password» must not be wiped
-                    loop.call_soon_threadsafe(fut.set_result, str(p["password"]))
+            if self.path == "/phone":  # {phone}: login by the number, Telegram sends a code
+                phone = "+" + re.sub(r"\D", "", str(p.get("phone") or ""))
+                busy = STATE["login"].get("status") in ("qr", "password", "starting", "code")
+                if len(phone) >= 9 and not STATE["me"] and STATE["start"] and not busy:
+                    STATE["phone"] = phone
+                    STATE["login"] = {"status": "starting"}
+                    loop.call_soon_threadsafe(STATE["start"].set)
+                return reply(200, status())
+            if self.path in ("/password", "/code"):
+                k = self.path[1:]
+                fut = STATE[k]
+                if fut and not fut.done() and p.get(k):
+                    STATE["login"].update(error=None)  # before the hand-over: a fast «wrong_…» must not be wiped
+                    loop.call_soon_threadsafe(fut.set_result, str(p[k]).strip())
                 return reply(200, status())
             if self.path == "/logout":
                 if STATE["me"] and STATE["client"]:

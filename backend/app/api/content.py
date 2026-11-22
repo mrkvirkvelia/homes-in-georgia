@@ -602,6 +602,34 @@ def userbot_password(body: UserbotPassword, user: User = Depends(require_level("
     return _userbot("POST", "/password", {"password": body.password})
 
 
+class TelegramPhone(BaseModel):
+    phone: str
+
+
+class TelegramCode(BaseModel):
+    code: str
+
+
+@router.post("/userbot/phone")
+def userbot_phone(body: TelegramPhone, user: User = Depends(require_level("superadmin"))):
+    return _userbot("POST", "/phone", {"phone": body.phone})
+
+
+@router.post("/userbot/code")
+def userbot_code(body: TelegramCode, user: User = Depends(require_level("superadmin"))):
+    return _userbot("POST", "/code", {"code": body.code})
+
+
+@router.post("/reader/phone")
+def reader_phone(body: TelegramPhone, user: User = Depends(require_level("superadmin"))):
+    return _userbot("POST", "/phone", {"phone": body.phone}, url=reader_url())
+
+
+@router.post("/reader/code")
+def reader_code(body: TelegramCode, user: User = Depends(require_level("superadmin"))):
+    return _userbot("POST", "/code", {"code": body.code}, url=reader_url())
+
+
 @router.post("/userbot/logout")
 def userbot_logout(db: Session = Depends(get_db, scope="function"), user: User = Depends(require_level("superadmin"))):
     out = _userbot("POST", "/logout", {})

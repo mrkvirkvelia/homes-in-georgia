@@ -395,12 +395,16 @@ function TelegramAccount({ kind }: { kind: 'userbot' | 'reader' }) {
   const qc = useQueryClient();
   const toast = useToast();
   const [pw, setPw] = useState('');
+  const [phone, setPhone] = useState('');
+  const [code, setCode] = useState('');
   const { data: st } = useQuery({
     queryKey: [kind], queryFn: a.status,
-    refetchInterval: (q) => (['starting', 'qr', 'password'].includes(q.state.data?.login?.status || '') ? 2000 : false),
+    refetchInterval: (q) => (['starting', 'qr', 'password', 'code'].includes(q.state.data?.login?.status || '') ? 2000 : false),
   });
   const set = (d: unknown) => qc.setQueryData([kind], d);
   const login = useMutation({ mutationFn: a.login, onSuccess: set, onError: (e) => toast(errText(e), true) });
+  const byPhone = useMutation({ mutationFn: () => a.phone(phone), onSuccess: set, onError: (e) => toast(errText(e), true) });
+  const sendCode = useMutation({ mutationFn: () => a.code(code), onSuccess: (d) => { setCode(''); set(d); }, onError: (e) => toast(errText(e), true) });
   const send = useMutation({ mutationFn: () => a.password(pw), onSuccess: (d) => { setPw(''); set(d); }, onError: (e) => toast(errText(e), true) });
   const logout = useMutation({ mutationFn: a.logout, onSuccess: (d) => { set(d); toast(R ? t('Аккаунт для чтения каналов отключён') : t('Аккаунт оператора отключён')); }, onError: (e) => toast(errText(e), true) });
   const title = R ? t('Аккаунт для чтения каналов') : t('Аккаунт оператора');
@@ -423,6 +427,17 @@ function TelegramAccount({ kind }: { kind: 'userbot' | 'reader' }) {
       <div className="muted" style={{ fontSize: 13 }}>{R ? t('На телефоне с этим аккаунтом: Telegram → Настройки → Устройства → Подключить устройство, наведите камеру на код. Код обновляется сам.') : t('На телефоне оператора: Telegram → Настройки → Устройства → Подключить устройство, наведите камеру на код. Код обновляется сам.')}</div>
     </div>
   );
+  else if (l === 'code') body = (
+    <div className="col gap-sm">
+      <div>{t('Telegram отправил код входа: он придёт в приложение Telegram на этом аккаунте (или по SMS). Введите его:')}</div>
+      <div className="row">
+        <Input inputMode="numeric" autoComplete="one-time-code" value={code} onChange={(e) => setCode(e.target.value)} placeholder={t('Код из Telegram')} onKeyDown={(e) => { if (e.key === 'Enter' && code) sendCode.mutate(); }} />
+        <Button disabled={!code} loading={sendCode.isPending} onClick={() => sendCode.mutate()}>{t('Войти')}</Button>
+      </div>
+      {st.login?.error === 'wrong_code' && <div style={{ color: 'var(--danger, #c00)', fontSize: 13 }}>{t('Неверный код')}</div>}
+      <div className="faint" style={{ fontSize: 12 }}>{t('Код сразу уходит в Telegram и нигде не сохраняется.')}</div>
+    </div>
+  );
   else if (l === 'password') body = (
     <div className="col gap-sm">
       <div>{R ? t('У аккаунта включён облачный пароль. Пусть владелец аккаунта введёт его сам:') : t('У аккаунта включён облачный пароль. Пусть оператор введёт его сам:')}</div>
@@ -441,6 +456,11 @@ function TelegramAccount({ kind }: { kind: 'userbot' | 'reader' }) {
       {l === 'done' || l === 'starting' ? <Loading /> : <>
         <div className="muted" style={{ fontSize: 13 }}>{R ? t('Аккаунт не подключён: каналы, которые не открываются через t.me, парсер читает аккаунтом оператора (если его не забанили). Подключите отдельный аккаунт по QR-коду.') : t('Аккаунт не подключён: клиентам не уходят сообщения от оператора. Подключите аккаунт оператора по QR-коду.')}</div>
         <div><Button loading={login.isPending} onClick={() => login.mutate()}>{t('Подключить по QR-коду')}</Button></div>
+        <div className="muted" style={{ fontSize: 13 }}>{t('Или по номеру телефона аккаунта — Telegram пришлёт код:')}</div>
+        <div className="row">
+          <Input type="tel" autoComplete="off" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+995 5XX XX XX XX" onKeyDown={(e) => { if (e.key === 'Enter' && phone) byPhone.mutate(); }} />
+          <Button variant="secondary" disabled={phone.replace(/\D/g, '').length < 9} loading={byPhone.isPending} onClick={() => byPhone.mutate()}>{t('Получить код')}</Button>
+        </div>
       </>}
     </div>
   );

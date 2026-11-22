@@ -604,8 +604,10 @@ def properties_checklist(pid: int, body: dict, db: Session = Depends(get_db, sco
 
 
 @router.post("/properties/{pid}/submit")
-def properties_submit(pid: int, db: Session = Depends(get_db, scope="function"), user: User = Depends(current_user)):
-    return P.out(db, P.submit_for_review(db, pid, user), user, full=True)
+def properties_submit(pid: int, other_flat: bool = False, db: Session = Depends(get_db, scope="function"),
+                      user: User = Depends(current_user)):
+    """?other_flat=1: «Это другая квартира» after an object_exists answer (the owner's second flat in the house)."""
+    return P.out(db, P.submit_for_review(db, pid, user, other_flat), user, full=True)
 
 
 @router.post("/properties/{pid}/review")

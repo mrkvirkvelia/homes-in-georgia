@@ -865,6 +865,22 @@ def property_idle_returned(prop, agent_id, minutes):
 
 
 @safe
+def owner_transferred(agent_id, owner_name, by_name, props, reason=None):
+    """«Передать собственника агенту…» (David 11-22: Arthur got #8462 and never knew): the new agent gets the owner and a
+    button per object; an archived one says how to bring it back."""
+    ag = store.user(agent_id) or {}
+    if not ag.get("tg_id"):
+        return
+    lines = [f"👤 {e(by_name or 'Оператор')} передал вам собственника <b>{e(owner_name or '—')}</b>"
+             + (f" ({e(reason)})" if reason else "") + "."]
+    for p in props[:10]:
+        st = "в архиве — откройте и нажмите «Снова в работу»" if p["status"] == "archived" else "в работе"
+        lines.append(f"• #{p['id']} {e(p['address'] or '')} — {st}")
+    tg.send(ag["tg_id"], "\n".join(lines),
+            kb([[app_btn(f"🏠 Объект #{p['id']}", links.property_app(p["id"]))] for p in props[:5]]) if props else None)
+
+
+@safe
 def property_owner_followup(prop):
     ag = store.user(g(prop, "agent_id")) or {}
     if ag.get("tg_id"):

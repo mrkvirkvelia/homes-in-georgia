@@ -476,7 +476,20 @@ function PostGeneratorStep({ p, canEdit }: { p: Property; canEdit: boolean }) {
   const order = useMutation({ mutationFn: (ids: number[]) => api.properties.mediaOrder(p.id, ids), onSuccess: set, onError: (e) => { toast(errText(e), true); refresh(); } });
   const room = useMutation({ mutationFn: ([mid, r]: [number, string | null]) => api.properties.mediaRoom(p.id, mid, r), onSuccess: refresh, onError: (e) => toast(errText(e), true) });
   const check = useMutation({ mutationFn: (c: Record<string, boolean>) => api.properties.checklist(p.id, c), onSuccess: set });
-  const submit = useMutation({ mutationFn: async () => { await flush(); return api.properties.submit(p.id); }, onSuccess: (r) => { set(r); toast(t('Отправлено на модерацию')); }, onError: (e) => toast(errText(e), true) });
+  const confirmOther = useConfirm();
+  const submit = useMutation({
+    mutationFn: async () => {
+      await flush();
+      try {
+        return await api.properties.submit(p.id);
+      } catch (e) {  // the owner's other flat in the same house (Irakli 11-22): the agent confirms, the operator sees it
+        if (!(e instanceof ApiError) || e.code !== 'object_exists') throw e;
+        if (!(await confirmOther(`${e.message}. ${t('Это другая квартира того же собственника? Тогда отправим, а оператор увидит вашу отметку.')}`))) throw e;
+        return api.properties.submit(p.id, true);
+      }
+    },
+    onSuccess: (r) => { set(r); toast(t('Отправлено на модерацию')); }, onError: (e) => toast(errText(e), true),
+  });
   const post = useQuery({ queryKey: ['property-post', p.id], queryFn: () => api.properties.post(p.id) });
   const done = ROOMS.filter((r) => checklist[r] || media.some((m) => m.room === r)).length;
   const roomsOn = p.room_picker !== false;
@@ -1395,7 +1408,7 @@ function SiteButton({ p }: { p: Property }) {
 /** «Снять с паузы», or «Снова в работу» for «Собственник сдал» (back to «Взят», call the owner) */
 export function Resume({ p }: { p: Property }) {
   const { toast, set } = useProp(p.id);
-  const work = p.archive_reason === 'rented_by_owner';
+  const work = p.archive_reason !== 'paused';
   const m = useMutation({ mutationFn: () => api.properties.resume(p.id), onSuccess: (r) => { set(r); toast(work ? t('Объект снова в работе') : t('Объект снова в базе')); }, onError: (e) => toast(errText(e), true) });
   return <Button size="sm" loading={m.isPending} onClick={() => m.mutate()}><RotateCcw size={14} />{work ? t('Снова в работу') : t('Снять с паузы')}</Button>;
 }
@@ -1775,7 +1788,8 @@ export function PropertyDetail({ id, compact }: { id: number; compact?: boolean 
                 {p.archive_reason === 'duplicate' && p.duplicate_of ? <> {t('объекта')} <Link to={objLink(p.duplicate_of)}>#{p.duplicate_of}</Link></> : null}
                 {p.archive_comment ? ` · ${p.archive_comment}` : ''}
               </span>
-              {canWork && ['paused', 'rented_by_owner'].includes(p.archive_reason || '') && <Resume p={p} />}
+              {(canWork && ['paused', 'rented_by_owner', 'not_actual', 'idle_return'].includes(p.archive_reason || '')
+                || (p.owner?.agent?.id === user?.id && ['rented_by_owner', 'not_actual', 'idle_return'].includes(p.archive_reason || ''))) && <Resume p={p} />}
             </div>
           )}
           {p.status === 'archived' && p.archive_reason === 'rented_by_owner' && <OwnerLeaseNote p={p} canWork={canWork} />}

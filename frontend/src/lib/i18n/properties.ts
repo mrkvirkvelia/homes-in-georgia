@@ -106,6 +106,8 @@ export const D: Record<string, [ka: string, en: string]> = {
 
   // lists.tsx: property modal and cards
   'Объявление привязано к объекту #{id}': ['განცხადება მიება ობიექტს #{id}', 'Ad linked to property #{id}'],
+  'Объект #{id} снова в работе у вас': ['ობიექტი #{id} ისევ თქვენს მუშაობაშია', 'Property #{id} is back in your work'],
+  'Объявление привязано, но объект в архиве и его собственник закреплён за {agent} — попросите его или оператора передать собственника': ['განცხადება მიება, მაგრამ ობიექტი არქივშია და მესაკუთრე მიმაგრებულია {agent}-ზე — სთხოვეთ მას ან ოპერატორს მესაკუთრის გადმოცემა', 'Ad linked, but the property is archived and its owner belongs to {agent} — ask them or an operator to transfer the owner'],
   'Отмечено: другой объект': ['მოინიშნა: სხვა ობიექტი', 'Marked: a different property'],
   'Объект #{id} в базе': ['ობიექტი #{id} ბაზაში', 'Property #{id} in base'],
   'Цена': ['ფასი', 'Price'],

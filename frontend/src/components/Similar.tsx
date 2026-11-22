@@ -46,7 +46,9 @@ function useDecide(subject: string, x: SimilarItem, qk: unknown[], onLinked?: (p
       qc.invalidateQueries({ queryKey: qk });
       qc.invalidateQueries({ queryKey: ['listings'] });
       qc.invalidateQueries({ queryKey: ['property'] });
-      if (r.linked_to) { toast(t('Объявление привязано к объекту #{id}', { id: r.linked_to })); onLinked?.(r.linked_to); }
+      if (r.revived) { toast(t('Объект #{id} снова в работе у вас', { id: r.revived })); onLinked?.(r.revived); }
+      else if (r.owner_taken) toast(t('Объявление привязано, но объект в архиве и его собственник закреплён за {agent} — попросите его или оператора передать собственника', { agent: r.owner_taken }), true);
+      else if (r.linked_to) { toast(t('Объявление привязано к объекту #{id}', { id: r.linked_to })); onLinked?.(r.linked_to); }
       else toast(verdict === 'same' ? t('Отмечено: дубль') : verdict === 'review' ? t('Отмечено: нужна проверка') : t('Отмечено: другой объект'));
       after?.();
     },

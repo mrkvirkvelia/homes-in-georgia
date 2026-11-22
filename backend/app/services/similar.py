@@ -955,8 +955,10 @@ def decide(db: Session, a: str, b: str, same: bool | None, actor: User, verdict:
             linked = p.id
         else:
             alerts = []
+        revived, owner_taken = _back_to_work(db, p, actor)
     else:
         alerts = []
+        revived, owner_taken = None, None
     ev = {"same": "similar_same", "different": "similar_different", "review": "similar_review"}[verdict]
     for k, other in ((x, y), (y, x)):
         if k.startswith("p:"):
@@ -965,7 +967,28 @@ def decide(db: Session, a: str, b: str, same: bool | None, actor: User, verdict:
     if alerts:
         from app.services import matching
         matching._send(alerts)
-    return {"ok": True, "verdict": d.verdict, "linked_to": linked}
+    return {"ok": True, "verdict": d.verdict, "linked_to": linked, "revived": revived, "owner_taken": owner_taken}
+
+
+def _back_to_work(db: Session, p: Property, actor: User) -> tuple[int | None, str | None]:
+    """David 11-22 #8462: an agent calls a fresh ad «Дубль: это он» of an object dropped into the archive (the old base,
+    «Неактуально», «Возвращён: нет действий») — the flat is for rent again, so the object comes back to work with him,
+    unless its owner belongs to another agent (then he asks them / an operator: «Передать собственника»).
+    -> (the object id if it came back, the owner's agent's tag if he is someone else's). No commit."""
+    from app.models import Owner
+    from app.services import properties as P
+    from app.services import users as users_svc
+    if p.status != "archived" or p.archive_reason not in P.BACK_TO_WORK or not P.is_field(actor):
+        return None, None
+    o = db.get(Owner, p.owner_id) if p.owner_id else None
+    if o is not None and o.agent_id not in (None, actor.id) and not o.is_agent:
+        return None, users_svc.tag_of(db.get(User, o.agent_id))
+    p.agent_id, p.taken_at, p.rent_from, p.rent_to = actor.id, now(), None, None
+    p.archive_reason, p.archive_comment, p.archived_at = None, None, None
+    if o is not None and o.agent_id is None and not o.is_agent:
+        o.agent_id = actor.id
+    P._status(db, p, "taken", actor, "back_to_work", via="дубль нового объявления")
+    return p.id, None
 
 
 def mark_different(db: Session, subject: str, others: list[str], actor: User) -> None:

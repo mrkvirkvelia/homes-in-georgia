@@ -43,7 +43,7 @@ def test_dubl_links_the_ad_to_the_object(db, client):
     pid = _object(db, client, vika)
     make_listing(db, "mh7002", source="myhome", urls=json.dumps(["https://myhome.ge/7002"]), photo_hashes=json.dumps(H[:2]))
     r = client.post("/api/similar/decide", json={"a": "l:mh7002", "b": f"p:{pid}", "same": True}, headers=auth(ana))
-    assert r.json() == {"ok": True, "verdict": "same", "linked_to": pid}
+    assert r.json() == {"ok": True, "verdict": "same", "linked_to": pid, "revived": None, "owner_taken": None}
     assert db.query(PropertyListing).filter_by(listing_id="mh7002").one().property_id == pid
     # the object's card lists it no more as a stray ad: it is the object's own now
     assert all(x.get("listing_id") != "mh7002" for x in client.get(f"/api/properties/{pid}/similar", headers=auth(vika)).json()["items"])

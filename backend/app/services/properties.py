@@ -1164,13 +1164,19 @@ def transfer_owner(db: Session, owner_id: int, to_agent_id: int, by_user: User, 
     data = {"from_agent_id": old.id if old else None, "to_agent_id": to.id, "reason": reason,
             "comment": f"{old.name if old else '—'} → {to.name}" + (f" · {reason}" if reason else "")}
     log_event(db, "owner", o.id, "owner_transferred", by_user, **data)
+    props = []
     for p in db.scalars(select(Property).where(Property.owner_id == o.id).with_for_update()):
-        moved = p.agent_id == (old.id if old else None) and p.status not in ("archived", "rented")
+        # an object dropped into the archive goes along (David 11-22: #8462 handed to Arthur stayed David's, unseen)
+        moved = p.agent_id == (old.id if old else None) and (
+            p.status not in ("archived", "rented") or (p.status == "archived" and p.archive_reason in BACK_TO_WORK))
         if moved:
             p.agent_id, p.updated_at = to.id, now()
         log_event(db, "property", p.id, "owner_transferred", by_user, owner_id=o.id, moved=moved, **data)
+        props.append({"id": p.id, "address": p.address, "status": p.status, "archive_reason": p.archive_reason})
     if commit:
         db.commit()
+    # David 11-22: the new agent learns it from the bot, with the objects (an archived one: «Снова в работу» on its card)
+    _notify("owner_transferred", to.id, o.name, by_user.name, props, reason)
     return o
 
 
@@ -1713,7 +1719,7 @@ def require_min_photos(db: Session, p: Property) -> None:
         raise DomainError("few_photos", f"Нужно минимум {MIN_PHOTOS} фото, сейчас {n}")
 
 
-def submit_for_review(db: Session, pid: int, agent: User) -> Property:
+def submit_for_review(db: Session, pid: int, agent: User, other_flat: bool = False) -> Property:
     p = _prop(db, pid, lock=True)
     _require_owner(p, agent)
     _require_status(p, "media_uploaded", "returned", "shoot_scheduled")
@@ -1727,7 +1733,11 @@ def submit_for_review(db: Session, pid: int, agent: User) -> Property:
     if missing := missing_fields(p):
         raise DomainError("missing_fields", "Заполните перед отправкой: " + ", ".join(missing))
     if other := _same_object(db, p):
-        raise DomainError("object_exists", f"Этот объект уже есть в базе: #{other.id} {other.address or ''}".strip())
+        if not other_flat:  # the owner's other flat in the same house (Irakli 11-22): the agent says so, the operator sees it
+            raise DomainError("object_exists", f"Этот объект уже есть в базе: #{other.id} {other.address or ''}".strip(), 409,
+                              data={"property_id": other.id, "address": other.address})
+        log_event(db, "property", p.id, "other_flat_confirmed", agent, other=other.id,
+                  comment=f"агент: это другая квартира, не #{other.id}")
     _status(db, p, "review", agent)
     db.commit()
     _notify("property_review_request", p)
@@ -2284,12 +2294,22 @@ def set_site(db: Session, pid: int, actor: User, on: bool) -> Property:
     return p
 
 
+BACK_TO_WORK = ("rented_by_owner", "not_actual", "idle_return")  # «Снова в работу» from the archive
+
+
 def resume(db: Session, pid: int, actor: User) -> Property:
     """«Снять с паузы»: a paused object goes back to the base as it was before (published, if it ever was).
     «Снова в работу» («Собственник сдал», the lease ends): back to «Взят» with its agent (an agent: him) to call the owner."""
     p = _prop(db, pid, lock=True)
-    _require_owner(p, actor)
-    if p.status == "archived" and p.archive_reason == "rented_by_owner":
+    o = db.get(Owner, p.owner_id) if p.owner_id else None
+    owners_agent = o is not None and o.agent_id == actor.id
+    if not owners_agent:
+        _require_owner(p, actor)
+    # David 11-22 #8462: an old-base / dropped object whose ad came back («Дубль» on a new ad) goes back to work with the
+    # owner's agent — the owner moved to him (transfer_owner leaves archived objects with the old agent)
+    if p.status == "archived" and p.archive_reason in BACK_TO_WORK:
+        if owners_agent:
+            p.agent_id = actor.id
         p.archive_reason, p.archive_comment, p.archived_at = None, None, None
         if not at_least(actor, "operator") or not p.agent_id:
             p.agent_id = actor.id

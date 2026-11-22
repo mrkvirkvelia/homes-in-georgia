@@ -78,7 +78,7 @@ export const api = {
   similar: {
     /** «Дубль» / «Не дубль» on a pair («l:<ad>» / «p:<object>»); an ad called the same as an object is linked to it */
     /** verdict review: «Нужна проверка» — the pair stays listed, flagged for the operator (David 11-19) */
-    decide: (a: string, b: string, verdict: 'same' | 'different' | 'review') => http.post<{ ok: boolean; verdict: string; linked_to: number | null }>('/similar/decide', { a, b, verdict }),
+    decide: (a: string, b: string, verdict: 'same' | 'different' | 'review') => http.post<{ ok: boolean; verdict: string; linked_to: number | null; revived?: number | null; owner_taken?: string | null }>('/similar/decide', { a, b, verdict }),
   },
 
   properties: {
@@ -139,7 +139,7 @@ export const api = {
     deleteMedia: (id: number, mid: number) => http.del<unknown>(`/properties/${id}/media/${mid}`),
     mediaRoom: (id: number, mid: number, room: string | null) => http.patch<{ id: number; room: string | null }>(`/properties/${id}/media/${mid}`, { room }),
     checklist: (id: number, checklist: Record<string, boolean>) => http.post<Property>(`/properties/${id}/checklist`, { checklist }),
-    submit: (id: number) => http.post<Property>(`/properties/${id}/submit`),
+    submit: (id: number, otherFlat = false) => http.post<Property>(`/properties/${id}/submit${otherFlat ? '?other_flat=1' : ''}`),
     review: (id: number, approve: boolean, comment?: string) => http.post<Property>(`/properties/${id}/review`, { approve, comment }),
     post: (id: number) => http.get<PostDraft>(`/properties/${id}/post`),
     site: (id: number, on: boolean) => then(http.post<Property>(`/properties/${id}/site`, { on }), normProperty),

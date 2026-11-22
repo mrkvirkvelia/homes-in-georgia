@@ -83,8 +83,9 @@ def rates() -> dict:
 # ---------------------------------------------------------------- items
 
 def _agent(u: User | None) -> dict:
-    return {"telegram": (u.username if u and u.username else DEFAULT_AGENT["telegram"]).lstrip("@"),
-            "phone": (u.phone if u and u.phone else DEFAULT_AGENT["phone"])}
+    """The site's «Написать» / «Позвонить»: always the agency's contact (Irakli 11-22: every lead to +995 599 20 67 16),
+    never the object's agent."""
+    return dict(DEFAULT_AGENT)
 
 
 def _usd(price, currency, fx) -> int | None:

@@ -129,8 +129,8 @@ def test_no_private_data(db, client):
     for bad in ("SECRET", "599777777", "599 77 77", "500 00 00", "01.14.12", "tenant_", "owner", "cadastral", "checklist",
                 "ai_flags", "review_comment", "archive", "source_url", "private/", "properties/", "offers/"):
         assert bad.lower() not in blob.lower(), bad
-    assert json.loads(client.get("/api/public/site/listings").text)["items"][0]["agent"] == {
-        "telegram": "zaza", "phone": "+995 555 11 22 33"}
+    # every lead goes to the agency's contact, never the object's agent (Irakli 11-22)
+    assert json.loads(client.get("/api/public/site/listings").text)["items"][0]["agent"] == AGENT
     assert len(client.get(f"/api/public/site/listings/o{pid}").json()["photos"]) == 2  # the private one is not counted
     assert client.get(f"/api/public/site/photos/o{pid}/2").status_code == 404
 

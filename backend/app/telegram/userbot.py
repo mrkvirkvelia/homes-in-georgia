@@ -691,7 +691,10 @@ async def run(client, http=True):
         return
     store.q("INSERT INTO settings (key, value) VALUES ('userbot_tg_id', %s) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
             (str(me.id),))  # the bot answers «slots:» inline queries from this account only
-    await client.get_dialogs(limit=300)  # fills the entity cache (access hashes) for clients who already wrote
+    try:  # fills the entity cache (access hashes) for clients who already wrote
+        await client.get_dialogs(limit=300)
+    except AttributeError as e:  # Telethon 1.46 trips on a «DialogCommunity» (no .peer): the cache stays partial, the
+        log.warning("userbot: dialogs not cached: %r", e)  # account works on — it restarted every 10 s (11-22)
 
     @client.on(events.NewMessage(incoming=True, func=lambda ev: ev.is_private))
     async def incoming(ev):

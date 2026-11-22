@@ -44,3 +44,29 @@ def test_copies_saved_and_shown_in_similar(db, client, monkeypatch):
     res = similar.find(db, f"p:{pid}", vika)
     x = next((c for c in res if c["key"] == "l:mh7"), None)
     assert x is not None and x["level"] in ("same", "maybe") and any("общих фото" in r for r in x["reasons"])
+
+
+def ss_ad(i, **kw):
+    a = {"subdistrictId": 5, "subdistrictTitle": "Vake", "streetId": 77, "streetTitle": "Nino Ramishvili St.", "streetNumber": None}
+    return {"applicationId": i, "detailUrl": f"x-{i}", "totalArea": 57, "floorNumber": "8", "numberOfBedrooms": 1,
+            "price": {"priceUsd": 800}, "title": "ბინა", "description": "ქირავდება", "address": {**a, **kw.pop("address", {})},
+            "appImages": [{"fileName": f"https://ss/{i}/{n}_Thumb.jpg"} for n in range(3)], **kw}
+
+
+def test_ss_candidates_find_the_district_and_street_ids_then_search_them(monkeypatch):
+    from types import SimpleNamespace as N
+    calls = []
+
+    def fake(queries, pages=3):
+        calls.append(queries)
+        if len(calls) == 1:  # the city by the area
+            return [ss_ad(1), ss_ad(2, address={"subdistrictId": 9, "subdistrictTitle": "Saburtalo", "streetId": 8,
+                                                "streetTitle": "Kazbegi"})]
+        return [ss_ad(3, floorNumber="2"), ss_ad(4, numberOfBedrooms=2), ss_ad(5)]
+    monkeypatch.setattr(M, "ss_search", fake)
+    p = N(id=1, bedrooms=1, area=57.0, floor=8, district="Ваке", address="Ramishvili 3")
+    rows = M.ss_candidates(p)
+    assert sorted(r["id"] for r in rows) == ["ss1", "ss5"]  # 2: Saburtalo; 3: 2nd floor; 4: 2 bedrooms
+    assert calls[1] == [{"areaFrom": 50, "areaTo": 64, "subdistrictIds": [5]}, {"areaFrom": 50, "areaTo": 64, "streetIds": [77]}]
+    r = next(r for r in rows if r["id"] == "ss1")
+    assert r["photos"][0] == "https://ss/1/0.jpg" and r["floor"] == 8 and r["district"] == "Ваке" and r["source"] == "ss.ge"

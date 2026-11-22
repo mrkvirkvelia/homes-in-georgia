@@ -106,31 +106,129 @@ def _hashes(urls: list[str]) -> list[int]:
     return out
 
 
+def _mh_row(i: dict) -> dict:
+    return {"id": f"mh{i['id']}", "source": "myhome.ge",
+            "url": f"https://www.myhome.ge/pr/{i['id']}/{i.get('dynamic_slug') or ''}",
+            "photos": [x.get("large") for x in i.get("images") or [] if x.get("large")],
+            "address": i.get("address"), "area": i.get("area"), "floor": i.get("floor"),
+            "bedrooms": int(i["bedroom"]) if str(i.get("bedroom") or "").isdigit() else None,
+            "district": districts.label(i.get("urban_name")) or i.get("urban_name"), "price_usd": _usd(i),
+            "text": re.sub(r"<br\s*/?>", "\n", i.get("comment") or i.get("dynamic_title") or "")}
+
+
 def save(db: Session, items: list[dict]) -> int:
-    """Upsert the ads as listings (an ad the parser already has keeps its status, a gone one becomes a «copy")."""
+    """Upsert the ads (myhome statements, or rows already shaped like _mh_row) as listings (an ad the parser already
+    has keeps its status, a gone one becomes a «copy»)."""
     n, t = 0, now().isoformat(timespec="seconds")
     for i in items:
-        lid = f"mh{i['id']}"
-        photos = [x.get("large") for x in i.get("images") or [] if x.get("large")]
-        l = db.get(Listing, lid)
+        r = i if "source" in i else _mh_row(i)
+        l = db.get(Listing, r["id"])
         if l is None:
-            l = Listing(id=lid, source="myhome.ge", status=STATUS, first_seen=t)
+            l = Listing(id=r["id"], source=r["source"], status=STATUS, first_seen=t)
             db.add(l)
         elif l.status not in ("gone", STATUS):
             continue  # a live ad of the parser: «Похожие» sees it already
-        l.status = STATUS
-        l.urls = json.dumps([f"https://www.myhome.ge/pr/{i['id']}/{i.get('dynamic_slug') or ''}"])
-        l.address, l.area, l.floor = i.get("address"), i.get("area"), i.get("floor")
-        l.bedrooms = int(i["bedroom"]) if str(i.get("bedroom") or "").isdigit() else None
-        l.district = districts.label(i.get("urban_name")) or i.get("urban_name")
-        l.price_usd = _usd(i)
-        l.text = re.sub(r"<br\s*/?>", "\n", i.get("comment") or i.get("dynamic_title") or "")
-        if l.photos != json.dumps(photos):
-            l.photos, l.photo_hashes = json.dumps(photos), json.dumps(_hashes(photos))
+        l.status, l.urls = STATUS, json.dumps([r["url"]])
+        l.address, l.area, l.floor, l.bedrooms = r["address"], r["area"], r["floor"], r["bedrooms"]
+        l.district, l.price_usd, l.text = r["district"], r["price_usd"], r["text"]
+        if l.photos != json.dumps(r["photos"]):
+            l.photos, l.photo_hashes = json.dumps(r["photos"]), json.dumps(_hashes(r["photos"]))
         l.last_seen = l.updated_at = t
         n += 1
     db.commit()
     return n
+
+
+# ------------------------------------------------------------------ ss.ge (David 11-22: «и SS тоже»)
+# Cloudflare blocks the server: the search runs inside Apify (cheerio-scraper, a Georgian residential IP), as the
+# parser's bot/fetch_ss.py. The gateway's own filters: areaFrom/areaTo, subdistrictIds, streetIds (agents included).
+SS_PF = r"""async function pageFunction({ response, body, sendRequest, customData }) {
+  let tok = (body.toString().match(/"credentialsToken":"([^"]+)"/) || [])[1];
+  const c = [].concat(response.headers['set-cookie'] || []).find(x => x.startsWith('ss-session-token='));
+  if (!tok && c) tok = decodeURIComponent(c.split(';')[0].split('=').slice(1).join('='));
+  if (!tok) throw new Error('ss.ge: no token');
+  const items = [];
+  for (const q of customData.queries) {
+    for (let page = 1; page <= customData.pages; page++) {
+      const r = await sendRequest({ url: 'https://api-gateway.ss.ge/v1/RealEstate/LegendSearch', method: 'POST', responseType: 'text',
+        headers: { Authorization: 'Bearer ' + tok, 'Content-Type': 'application/json', Origin: 'https://home.ss.ge', Referer: 'https://home.ss.ge/' },
+        body: JSON.stringify(Object.assign({ realEstateType: 5, realEstateDealType: 1, cityIdList: [95], currencyId: 1, pageSize: 30, order: 1, page }, q)) });
+      const got = JSON.parse(r.body).realStateItemModel || [];
+      items.push(...got);
+      if (got.length < 30) break;
+    }
+  }
+  return { items };
+}"""
+SS_PROXY = {"useApifyProxy": True, "apifyProxyGroups": ["RESIDENTIAL"], "apifyProxyCountry": "GE"}
+
+
+def _apify_tokens() -> list[str]:
+    import os
+    out = [t.strip() for t in os.environ.get("APIFY_TOKENS", "").replace(";", ",").split(",")] + [os.environ.get("APIFY_TOKEN", "").strip()]
+    return list(dict.fromkeys(t for t in out if t))
+
+
+def ss_search(queries: list[dict], pages: int = 3) -> list[dict]:
+    """ss.ge LegendSearch for each query (extra filters), up to `pages` × 30 ads each, run in Apify -> the ads."""
+    import httpx
+    inp = {"startUrls": [{"url": "https://home.ss.ge/en"}], "pageFunction": SS_PF, "proxyConfiguration": SS_PROXY,
+           "maxRequestRetries": 2, "customData": {"queries": queries, "pages": pages}}
+    for tok in _apify_tokens():
+        with httpx.Client(headers={"Authorization": f"Bearer {tok}"}, timeout=60) as c:
+            r = c.post("https://api.apify.com/v2/acts/apify~cheerio-scraper/runs",
+                       params={"memory": 1024, "forcePermissionLevel": "LIMITED_PERMISSIONS"}, json=inp)
+            if r.status_code in (402, 403):
+                continue  # out of usage / not allowed on this key: the next one
+            run = r.raise_for_status().json()["data"]
+            while run["status"] in ("READY", "RUNNING"):
+                time.sleep(5)
+                run = c.get(f"https://api.apify.com/v2/actor-runs/{run['id']}").raise_for_status().json()["data"]
+            out = c.get(f"https://api.apify.com/v2/datasets/{run['defaultDatasetId']}/items", params={"clean": "true"}).json()
+            return [i for x in out for i in x.get("items") or []]
+    raise RuntimeError("no Apify key could run the ss.ge search")
+
+
+def _ss_row(i: dict) -> dict:
+    a = i.get("address") or {}
+    return {"id": f"ss{i['applicationId']}", "source": "ss.ge", "url": f"https://home.ss.ge/ka/udzravi-qoneba/{i['detailUrl']}",
+            "photos": [x["fileName"].replace("_Thumb", "") for x in i.get("appImages") or [] if x.get("fileName")],
+            "address": " ".join(str(x) for x in (a.get("streetTitle"), a.get("streetNumber")) if x) or None,
+            "area": i.get("totalArea"), "floor": int(i["floorNumber"]) if str(i.get("floorNumber") or "").isdigit() else None,
+            "bedrooms": i.get("numberOfBedrooms"), "district": districts.label(a.get("subdistrictTitle")) or a.get("subdistrictTitle"),
+            "price_usd": (i.get("price") or {}).get("priceUsd"), "text": f"{i.get('title') or ''}\n{i.get('description') or ''}".strip()}
+
+
+def ss_candidates(p: Property) -> list[dict]:
+    """ss.ge ads that could be the object: the city by the area finds ss.ge's ids of its district and street, then the
+    district and the street with the area; kept: in the district or on the street, floor ±1, the same bedrooms."""
+    if not p.area:
+        return []
+    a = float(p.area)
+    area = {"areaFrom": int(a * (1 - AREA_TOL)), "areaTo": int(a * (1 + AREA_TOL)) + 1}
+    tag, street = districts.tag(p.district), _street(p.address)
+
+    def addr(i):
+        return i.get("address") or {}
+
+    def on_street(i):
+        return bool(street) and _same_street(street, _street(addr(i).get("streetTitle")))
+
+    def in_district(i):
+        return bool(tag) and districts.tag(addr(i).get("subdistrictTitle")) == tag
+    first = ss_search([area])
+    subs = list({addr(i)["subdistrictId"] for i in first if in_district(i) and addr(i).get("subdistrictId")})[:2]
+    streets = list({addr(i)["streetId"] for i in first if on_street(i) and addr(i).get("streetId")})[:3]
+    more = ss_search([{**area, "subdistrictIds": subs}] * bool(subs) + [{**area, "streetIds": streets}] * bool(streets)) \
+        if subs or streets else []
+    found = {i["applicationId"]: i for i in first + more}
+
+    def fits(i):
+        fl = i.get("floorNumber")
+        floor_ok = p.floor is None or not str(fl or "").isdigit() or abs(int(fl) - int(p.floor)) <= 1
+        bed_ok = p.bedrooms is None or i.get("numberOfBedrooms") is None or int(i["numberOfBedrooms"]) == int(p.bedrooms)
+        return floor_ok and bed_ok
+    return [_ss_row(i) for i in found.values() if (in_district(i) or on_street(i)) and fits(i)]
 
 
 def recent(db: Session, pid: int, hours: int = 24) -> bool:
@@ -152,7 +250,14 @@ def run(db: Session, pid: int, pause: float = 1.0) -> int:
         return 0
     items = candidates(p, pause)
     n = save(db, items)
-    log_event(db, "property", pid, "myhome_copies", None, label="поиск копий на myhome", candidates=len(items), saved=n)
+    try:
+        ss = ss_candidates(p)
+        n_ss = save(db, ss)
+    except Exception as e:  # noqa: BLE001 — ss.ge / Apify down: the myhome copies stand
+        log.warning("ss.ge copies of #%s failed: %r", pid, e)
+        ss, n_ss = [], 0
+    log_event(db, "property", pid, "myhome_copies", None, label="поиск копий на myhome и ss.ge", candidates=len(items),
+              saved=n, ss_candidates=len(ss), ss_saved=n_ss)
     db.commit()
-    log.info("myhome copies of #%s: %s candidates, %s saved", pid, len(items), n)
-    return n
+    log.info("copies of #%s: myhome %s/%s, ss.ge %s/%s", pid, len(items), n, len(ss), n_ss)
+    return n + n_ss

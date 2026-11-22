@@ -221,3 +221,16 @@ def test_a_geocoders_centroid_is_not_the_same_place(db):
     far = sc(a, {"floor": 5, "area": 66.0, "price_usd": 950})
     assert not any(r.startswith("рядом на карте") for r in far["reasons"]) and far["score"] < near["score"]
     similar._crowded.update(t=0.0, pts=frozenset())
+
+
+def test_a_reshot_copy_on_the_street_with_the_same_floor_area_bedrooms_is_maybe():
+    # David 11-22 #15509: myhome copies say «რამიშვილი ნ. ქ.» (no number), other photos, a different price
+    obj = {**F, "address": "3 Nino Ramishvili St", "lat": None, "lng": None, "floor": 8, "area": 57.0, "bedrooms": 1}
+    def copy(b):  # an ad the copies search of this object saved
+        s, c = dup_eval.profile(obj), dup_eval.profile({**obj, **b})
+        return similar.score(s, {**c, "status": "copy"})
+    r = copy({"address": "Nino Ramishvili St", "price_usd": 1000})
+    assert r["level"] == "maybe" and "street_layout" in r["rules"]
+    assert copy({"address": "Nino Ramishvili St", "floor": 5})["level"] is None  # another floor: another flat
+    assert copy({"address": "Nino Ramishvili St", "area": 75.0})["level"] is None
+    assert sc(obj, {"address": "Nino Ramishvili St"})["level"] is None  # the same ad in the feed: params alone (#15488)

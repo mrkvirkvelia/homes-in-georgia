@@ -444,7 +444,7 @@ CONFIG = {
     "blocking": ("cadastre", "flat", "area_30", "type"),
     # hard rules (§8): the score is at least this when the rule holds and nothing blocking contradicts it
     "floors": {"identifier": 0.97, "phone_house": 0.88, "photos_place": 0.88, "photos_any": 0.80, "photo_sim": 0.70,
-               "photo_one": 0.66, "phone": 0.66},
+               "photo_one": 0.66, "phone": 0.66, "street_layout": 0.66},
 }
 GROUPS = ("identifier", "photo", "contact", "location", "property", "text_price", "time")
 LEVEL_TEXT = {"same": "дубль / почти точно", "maybe": "вероятный, нужна проверка"}
@@ -665,6 +665,14 @@ def score(s: dict, c: dict, shared: int = 0, photo: float = 0.0, cfg: dict = CON
         floors.append("photo_one")
     if phone and fits:
         floors.append("phone")
+    # an ad the copies search found for this object (status «copy», services/myhome_copies.py) on the same street (no
+    # house number), the same floor, area and bedrooms: an agent's re-shot copy (David 11-22, #15509: 3 myhome copies,
+    # other photos) — «вероятный», never more. Not for the feed's ads: params alone stay below (Stanislav 11-20, #15488)
+    street_layout = "copy" in (s.get("status"), c.get("status")) and bool(rel or "та же улица" in m["location"]) and same_floor and both("bedrooms") \
+        and int(s["bedrooms"]) == int(c["bedrooms"]) and bool(s.get("area") and c.get("area")) \
+        and _close(s["area"], c["area"], cfg) == 1.0 and fits and not addr_differs
+    if street_layout:
+        floors.append("street_layout")
 
     avail = sum(W[k] for k in g if k in W)
     raw = sum(W[k] * g[k] for k in g if k in W) / max(avail, cfg["min_coverage"]) if avail else 0.0
@@ -685,7 +693,7 @@ def score(s: dict, c: dict, shared: int = 0, photo: float = 0.0, cfg: dict = CON
     # district, bedrooms and price alone): the building or a pin ≤ NEAR_M, a phone / contact / full name, a photo, an
     # identifier. Params, price, district, a street without a number and the dates only weigh such a candidate
     identifying = bool(m["identifier"] or pd or (photo >= PHOTO_SIM_WEIGHT and not addr_differs) or phone or hs or same_name or near
-                       or (rel and not rel.startswith("рядом по улице")))
+                       or (rel and not rel.startswith("рядом по улице")) or street_layout)
     if not identifying:
         sc = min(sc, cfg["maybe"] - 0.01)
     if sc >= cfg["same"] and not sure:

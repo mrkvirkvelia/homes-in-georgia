@@ -44,10 +44,17 @@ def pairs_for(db: Session, pid: int) -> list[dict]:
 
 def check(db: Session, pid: int) -> int:
     """Job channel_dups: ask the operator about each new pair -> how many were sent."""
+    import httpx
+
+    from app.services import post_sync
     from app.telegram import notify
     n = 0
     for x in pairs_for(db, pid):
         keep, drop = db.get(Property, x["keep"]), db.get(Property, x["drop"])
+        # a post deleted by hand in the channel is no duplicate there any more (11-22: 10 of the 12 pairs found)
+        with httpx.Client(headers={"User-Agent": post_sync.UA}, timeout=20, follow_redirects=True) as c:
+            if any(post_sync.gone(c, m[1], int(m[2])) for p in (keep, drop) if (m := post_sync.POST.search(p.post_url))):
+                continue
         notify.channel_duplicate(keep, drop, x["pct"], x["why"])
         log_event(db, ASKED, f"{keep.id}:{drop.id}", "asked", None, label="дубли в канале", pct=x["pct"])
         db.commit()

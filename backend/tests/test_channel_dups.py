@@ -35,6 +35,8 @@ def _two(db, client):
 def test_asked_once_then_deleted(db, client, monkeypatch):
     old, new = _two(db, client)
     sent = []
+    from app.services import post_sync
+    monkeypatch.setattr(post_sync, "gone", lambda c, ch, m: False)
     monkeypatch.setattr(notify, "channel_duplicate", lambda k, d, pct, why: sent.append((k.id, d.id, pct)))
     assert CD.check(db, new) == 1 and sent[0][:2] == (old, new) and sent[0][2] >= 85
     assert CD.check(db, new) == 0  # asked already
@@ -53,3 +55,11 @@ def test_not_a_duplicate_is_remembered(db, client, monkeypatch):
     assert CD.resolve(db, old, new, False, op) == "kept"
     assert db.query(SimilarDecision).filter_by(verdict="different").count() == 1
     assert CD.pairs_for(db, new) == [] and db.get(Property, new).status == "published"
+
+
+def test_a_post_deleted_by_hand_is_not_asked(db, client, monkeypatch):
+    old, new = _two(db, client)
+    from app.services import post_sync
+    monkeypatch.setattr(post_sync, "gone", lambda c, ch, m: m == 100)  # the old post was deleted in the channel
+    monkeypatch.setattr(notify, "channel_duplicate", lambda *a: (_ for _ in ()).throw(AssertionError("asked")))
+    assert CD.check(db, new) == 0

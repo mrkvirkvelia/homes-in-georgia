@@ -63,3 +63,11 @@ def test_a_post_deleted_by_hand_is_not_asked(db, client, monkeypatch):
     monkeypatch.setattr(post_sync, "gone", lambda c, ch, m: m == 100)  # the old post was deleted in the channel
     monkeypatch.setattr(notify, "channel_duplicate", lambda *a: (_ for _ in ()).throw(AssertionError("asked")))
     assert CD.check(db, new) == 0
+
+
+def test_posts_in_two_channels_are_not_a_duplicate(db, client):
+    """11-22: #5130 (rent) / #15375 (sale) — one flat, two channels: nothing to delete."""
+    old, new = _two(db, client)
+    db.get(Property, new).post_url = "https://t.me/sale_in_tbilisi/73621"
+    db.commit()
+    assert CD.pairs_for(db, new) == []

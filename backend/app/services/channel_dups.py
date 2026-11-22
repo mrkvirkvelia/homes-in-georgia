@@ -3,6 +3,7 @@ posted are searched for the same flat (similar.find, level «дубль» ≥ 85
 bot with «🗑 Удалить новый пост» / «Не дубль». Deleting = «В архив → Дубль» of the newer object into the older one
 (its post leaves the channel, leads and files move over); «Не дубль» = the pair's decision, never asked again."""
 import logging
+import re
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -19,6 +20,11 @@ def _posted(p: Property | None) -> bool:
     return p is not None and p.status == "published" and bool(p.post_url)
 
 
+def _channel(p: Property) -> str | None:
+    m = re.search(r"t\.me/([A-Za-z]\w{3,})/\d+", p.post_url or "")
+    return m[1].lower() if m else None
+
+
 def pairs_for(db: Session, pid: int) -> list[dict]:
     """The posted objects that are the same flat as the freshly posted #pid -> [{keep, drop, pct, why}], the newer
     object always the one to drop; pairs already decided or asked about are left out."""
@@ -30,7 +36,7 @@ def pairs_for(db: Session, pid: int) -> list[dict]:
         if c.get("level") != "same" or not c.get("property_id"):
             continue
         o = db.get(Property, c["property_id"])
-        if not _posted(o):
+        if not _posted(o) or _channel(o) != _channel(p):  # rent and sale of one flat in two channels: no duplicate
             continue
         keep, drop = sorted((o.id, p.id))
         a, b = similar._pair(f"p:{keep}", f"p:{drop}")

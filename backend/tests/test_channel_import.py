@@ -84,3 +84,15 @@ def test_queries_go_from_the_exact_address_to_the_street():
     assert list(CI._queries("50/3 Mikheili Tsinamdzghvrishvili St")) == [
         ("50/3 Mikheili Tsinamdzghvrishvili St", False), ("50 Mikheili Tsinamdzghvrishvili", False),
         ("Mikheili Tsinamdzghvrishvili", True)]
+
+
+def test_the_map_point_comes_from_the_posts_google_link_else_the_place(monkeypatch):
+    from app.services import geo
+    p = Property(description="📍[22 Budapesht Street](https://www.google.com/maps?q=41.7288458%2C44.7615617&entry=gps)")
+    assert CI._point(p) and (p.lat, p.lng) == (41.7288458, 44.7615617)
+    asked = []
+    monkeypatch.setattr(geo, "search", lambda q: asked.append(q) or {"items": [{"lat": 41.5, "lng": 45.0}]})
+    p = Property(description="#Isani 🚇 #IsaniMetro\n📍Dirsi\n🏢 #2Bed")
+    assert CI._point(p) and asked == ["Dirsi, Tbilisi"] and p.post_fields == {"approx": True}
+    asked.clear()
+    assert CI._point(Property(address="Rustavi, 28 Leonidze St")) and asked == ["Rustavi, 28 Leonidze St"]

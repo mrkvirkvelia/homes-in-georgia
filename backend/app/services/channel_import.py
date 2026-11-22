@@ -94,7 +94,7 @@ def _agent(db: Session, text: str) -> int | None:
 def _queries(address: str):
     """The address as posted, then «50/3» → «50» without «St», then the street alone (an approximate point)."""
     a = re.sub(r"\s+", " ", address).strip()
-    yield a, False
+    yield a, not re.search(r"\d", a)  # «Dirsi»: a place, not a house
     b = re.sub(r"\b(\d+)[a-zA-Z]?(?:[/-]\d+[a-zA-Z]?)+\b", r"\1", a)
     b = re.sub(r"\b(St\.?|Street|Ave|Avenue)\b", "", b, flags=re.I).strip(" ,")
     if b != a:
@@ -103,12 +103,32 @@ def _queries(address: str):
         yield street, True
 
 
+def _place(text: str | None) -> str | None:
+    """The 📍 line of a post even without a house number («Dirsi», «Vazha-Pshavela IV Block», «Kvemo Lisi»)."""
+    for line in L.plain(text or "").splitlines():
+        if "📍" in line and "ON MAP" not in line.upper():
+            a = re.sub(r"#\w+|💰.*", "", line.split("📍", 1)[1]).strip(" |,")
+            if len(a) > 3:
+                return a
+    return None
+
+
+CITY = re.compile(r"\b(Rustavi|Batumi|Kutaisi|Mtskheta|Saguramo|Tabahmela|Kobuleti|Gudauri|Bakuriani)\b", re.I)
+
+
 def _point(p: Property) -> bool:
-    """A map point for the object by its address (the site's map shows only objects with one)."""
+    """A map point for the object (the site's map shows only objects with one): the Google Maps link of its post
+    (most posts have one, with the exact pin), else its address or 📍 place by OSM."""
     from app.services import geo
-    for q, approx in _queries(p.address or "") if p.address else ():
+    for url in re.findall(r"https?://[^\s)\]]+", p.description or ""):
+        if "goo" in url and (at := geo.point_of(url)):
+            p.lat, p.lng = at
+            return True
+    place = p.address or _place(p.description)
+    city = "" if place and CITY.search(place) else ", Tbilisi"
+    for q, approx in _queries(place) if place else ():
         try:
-            hit = (geo.search(f"{q}, Tbilisi").get("items") or [None])[0]
+            hit = (geo.search(f"{q}{city}").get("items") or [None])[0]
         except Exception:  # noqa: BLE001 — no map point is no reason to lose the object
             return False
         if hit:
@@ -126,8 +146,7 @@ def locate(db: Session, limit: int = 60) -> int:
     from app.services import site_feed
     tried = {e for e in db.scalars(select(Event.entity_id).where(Event.action == "no_map_point",
                                                                  Event.at > now() - timedelta(days=1)))}
-    rows = [p for p in db.scalars(select(Property).where(*site_feed.public_filter(), Property.lat.is_(None),
-                                                          Property.address.is_not(None)).order_by(Property.id.desc()))
+    rows = [p for p in db.scalars(select(Property).where(*site_feed.public_filter(), Property.lat.is_(None)).order_by(Property.id.desc()))
             if str(p.id) not in tried][:limit]
     n = 0
     for p in rows:

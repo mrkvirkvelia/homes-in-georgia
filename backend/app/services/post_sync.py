@@ -11,7 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models import Property
-from app.services.common import log_event
+from app.services.common import log_event, now
 
 log = logging.getLogger(__name__)
 POST = re.compile(r"t\.me/([A-Za-z]\w{3,})/(\d+)")
@@ -32,27 +32,59 @@ def gone(c: httpx.Client, channel: str, msg: int) -> bool | None:
     return False if "tgme_widget_message" in r.text else None
 
 
+def alive(channel: str, msgs: list[int]) -> set[int] | None:
+    """The post ids still in the channel, asked through the Telegram account (channel_import.ask): the web preview
+    can't show the rich posts; None when no account answers."""
+    from app.services.channel_import import ask
+    out = set()
+    for i in range(0, len(msgs), 100):
+        r = ask("/exists", {"user": channel, "ids": msgs[i:i + 100]}, timeout=70)
+        if r is None:
+            return None
+        out |= set(r["ids"])
+    return out
+
+
 def run(db: Session, pause: float = 0.5, out=log.info) -> int:
-    """Hide the objects whose channel post is gone -> how many were hidden."""
-    rows = db.scalars(select(Property).where(Property.status == "published", ~Property.site_hidden,
-                                             Property.post_url.is_not(None))).all()
+    """The objects whose channel post is gone: an object imported from the channel goes to the archive
+    («Неактуально», Stanislav 11-22: what they delete in the channel is gone in the CRM too), any other leaves the
+    site (its card shows why) -> how many."""
+    from app.services import properties as P
+    rows = db.scalars(select(Property).where(Property.status == "published", Property.post_url.is_not(None),
+                                             ~Property.site_hidden | (Property.source_type == "channel"))).all()
     posts = [(p, m) for p in rows if (m := POST.search(p.post_url or ""))]
     dead = []
+    by_channel: dict = {}
+    for p, m in posts:
+        by_channel.setdefault(m[1], []).append((p, int(m[2])))
     with httpx.Client(headers={"User-Agent": UA}, timeout=20, follow_redirects=True) as c:
-        for p, m in posts:
-            if gone(c, m[1], int(m[2])):
-                dead.append(p)
-            time.sleep(pause)
+        for channel, items in by_channel.items():
+            there = alive(channel, [msg for _, msg in items])
+            for p, msg in items:
+                if there is not None:
+                    gone_ = msg not in there
+                else:
+                    gone_ = gone(c, channel, msg)
+                    time.sleep(pause)
+                if gone_:
+                    dead.append(p)
     if len(dead) > 10 and len(dead) > MAX_SHARE * len(posts):
         out(f"post sync: {len(dead)} of {len(posts)} posts look deleted, hiding nothing (t.me answers oddly?)")
         return 0
     for p in dead:
-        p.site_hidden = True
-        log_event(db, "property", p.id, "site_off", None, label="сверка с каналом", reason="пост удалён в канале",
-                  post_url=p.post_url)
+        if p.source_type == "channel":
+            p.archive_reason, p.archive_comment, p.archived_at = "not_actual", "пост удалён в канале", now()
+            P._status(db, p, "archived", None, "archived", label="сверка с каналом", reason="not_actual",
+                      comment="пост удалён в канале", post_url=p.post_url)
+        else:
+            p.site_hidden = True
+            log_event(db, "property", p.id, "site_off", None, label="сверка с каналом", reason="пост удалён в канале",
+                      post_url=p.post_url)
     db.commit()
     if dead:
-        from app.services import site_feed
+        from app.services import catalog, site_feed
         site_feed.clear_cache()
-    out(f"post sync: {len(posts)} posts checked, {len(dead)} deleted -> off the site: {[p.id for p in dead]}")
+        catalog.sync_all(db)
+        db.commit()
+    out(f"post sync: {len(posts)} posts checked, {len(dead)} deleted: {[p.id for p in dead]}")
     return len(dead)

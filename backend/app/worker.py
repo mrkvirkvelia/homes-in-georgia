@@ -1,6 +1,7 @@
 """Scheduler loop: every 30 s run due `jobs` rows (FOR UPDATE SKIP LOCKED). `python -m app.worker [--once]`."""
 import argparse
 import logging
+import threading
 import time
 from datetime import date, datetime, timedelta
 
@@ -412,6 +413,15 @@ def tick(limit: int = 50) -> dict:
     return stats
 
 
+def channel_import_pass():
+    try:
+        from app.services import channel_import
+        with SessionLocal() as db:
+            channel_import.run(db)
+    except Exception:  # noqa: BLE001
+        log.exception("channel import failed")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--once", action="store_true", help="run one pass and exit")
@@ -427,7 +437,9 @@ def main():
     login_bot.start_thread()  # staff invites: /start inv_<token> in the CRM sign-in bot
     last_ical = time.time() - env.DAILY_RENT_ICAL_MINUTES * 60 + 20  # first fetch 20 s after the start, as ApartFlow
     last_avatars = time.time() - 23 * 3600  # first pass an hour after the start, then daily
-    last_posts = time.time() - 5 * 3600  # «сверка с каналом» (services/post_sync.py): an hour after the start, then every 6 h
+    last_posts = time.time() - 3000  # «сверка с каналом» (services/post_sync.py): 10 min after the start, then hourly
+    importer = None
+    last_import = time.time() - 25 * 60  # channel posts → objects (services/channel_import.py): 5 min after the start, every 30 min
     while True:
         from app import keys
         keys.refresh()  # Управление → Ключи
@@ -447,7 +459,7 @@ def main():
                 avatars.run(out=log.info)
             except Exception:  # noqa: BLE001
                 log.exception("avatar sync failed")
-        if time.time() - last_posts >= 6 * 3600:
+        if time.time() - last_posts >= 3600:
             last_posts = time.time()
             try:
                 from app.services import post_sync
@@ -455,6 +467,10 @@ def main():
                     post_sync.run(db)
             except Exception:  # noqa: BLE001
                 log.exception("post sync failed")
+        if time.time() - last_import >= 30 * 60 and not (importer and importer.is_alive()):
+            last_import = time.time()  # a thread: the first pass downloads two weeks of albums, the jobs go on meanwhile
+            importer = threading.Thread(target=channel_import_pass, daemon=True)
+            importer.start()
         try:  # dHash of the objects' photos uploaded before migration 0030, a batch per pass (services/matching.py)
             from app.services import matching
             with SessionLocal() as db:

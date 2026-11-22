@@ -454,12 +454,13 @@ def rich_text(rm) -> tuple[str, list[str]]:
     return "\n".join(lines), list(dict.fromkeys(links))
 
 
-async def channel_posts(client, user, min_id=0, limit=200, photos=3):
-    """A public channel's posts newer than min_id as the operator account reads them (no join, nothing marked read) ->
-    [{id, date, text, links, photos: [{id, b64}]}]: the rich ones and the photo posts with a caption."""
+async def channel_posts(client, user, min_id=0, limit=200, photos=3, max_id=0):
+    """A public channel's posts newer than min_id (older than max_id: paging back) as the operator account reads them
+    (no join, nothing marked read) -> [{id, date, text, links, photos: [{id, b64}]}]: the rich ones and the photo posts
+    with a caption."""
     import base64
     out, albums = [], {}
-    async for m in client.iter_messages(user, limit=limit, min_id=int(min_id or 0)):
+    async for m in client.iter_messages(user, limit=limit, min_id=int(min_id or 0), max_id=int(max_id or 0)):
         rm = getattr(m, "rich_message", None)
         if rm is not None:
             text, links = rich_text(rm)
@@ -598,7 +599,7 @@ def serve_http(client, loop, port):
             try:
                 posts = asyncio.run_coroutine_threadsafe(channel_posts(
                     c, str(p["user"]).lstrip("@"), p.get("min_id") or 0, min(int(p.get("limit") or 200), 500),
-                    min(int(p.get("photos") or 3), 10)), loop).result(240)
+                    min(int(p.get("photos") or 3), 10), p.get("max_id") or 0), loop).result(240)
                 return self.reply(200, {"ok": True, "posts": posts})
             except Exception as e:  # noqa: BLE001
                 log.warning("userbot /channel %s failed: %r", p.get("user"), e)
@@ -606,7 +607,7 @@ def serve_http(client, loop, port):
 
         def do_POST(self):
             reply = self.reply
-            paths = ("/login", "/phone", "/code", "/password", "/logout", "/channel") + (() if reader() else ("/send", "/delete", "/photo"))
+            paths = ("/login", "/phone", "/code", "/password", "/logout", "/channel", "/exists") + (() if reader() else ("/send", "/delete", "/photo"))
             if self.path not in paths or not self.allowed():
                 return reply(403, {"ok": False})
             p = json.loads(self.rfile.read(int(self.headers.get("Content-Length") or 0)) or b"{}")
@@ -645,6 +646,14 @@ def serve_http(client, loop, port):
                 return reply(200, {"ok": True, "b64": base64.b64encode(data).decode() if data else None})
             if self.path == "/channel":
                 return self.channel(p)
+            if self.path == "/exists":  # {user, ids} -> the ids still in the channel (post_sync: deleted posts)
+                try:
+                    ms = asyncio.run_coroutine_threadsafe(c.get_messages(str(p["user"]).lstrip("@"), ids=[int(i) for i in p["ids"]]),
+                                                          loop).result(60)
+                    return reply(200, {"ok": True, "ids": [m.id for m in ms if m]})
+                except Exception as e:  # noqa: BLE001
+                    log.warning("userbot /exists failed: %r", e)
+                    return reply(502, {"ok": False, "error": repr(e)})
             if self.path == "/delete":
                 try:
                     ids = asyncio.run_coroutine_threadsafe(delete_messages(c, p["chat"], p["ids"], p.get("album")), loop).result(50)

@@ -128,7 +128,8 @@ def ads_pending(db: Session, older_than: str | None = None, limit: int | None = 
     """Live ads whose rows are missing or were made from other photos: (id, photos, the fingerprint's fields...)."""
     q = (f"SELECT id, photos, looks, style, renovation, light, furniture, features FROM listings WHERE {LIVE_AD} "
          "AND photos <> '[]' AND photo_vec_sig IS DISTINCT FROM md5(photos)"
-         + (" AND first_seen < :t" if older_than else "") + " ORDER BY first_seen DESC" + (" LIMIT :n" if limit else ""))
+         # a myhome copy (services/myhome_copies.py) has no refresh.sh embedding coming: no grace for it
+         + (" AND (first_seen < :t OR status = 'copy')" if older_than else "") + " ORDER BY first_seen DESC" + (" LIMIT :n" if limit else ""))
     return db.execute(text(q), {"t": older_than, "n": limit}).all()
 
 

@@ -109,7 +109,8 @@ function IdleTimer({ at }: { at: string }) {
   const [, tick] = useState(0);
   useEffect(() => { const id = setInterval(() => tick((x) => x + 1), 30_000); return () => clearInterval(id); }, []);
   const n = Math.max(0, Math.ceil((new Date(at).getTime() - Date.now()) / 60_000));
-  return <div className="alert alert-warn">⏳ {t('вернётся в «Новые объявления» через {n} мин, если не будет действий', { n })}</div>;
+  const left = n >= 120 ? t('{n} ч', { n: Math.floor(n / 60) }) : t('{n} мин', { n });
+  return <div className="alert alert-warn">⏳ {t('вернётся в «Новые объявления» через {left}, если собственник не подтвердит', { left })}</div>;
 }
 
 function CallStep({ p }: { p: Property }) {
@@ -137,7 +138,7 @@ function CallStep({ p }: { p: Property }) {
         <OwnerPhone p={p} />
         {p.call_attempts ? <Badge tone="grey">{t('попыток: {n}', { n: p.call_attempts })}</Badge> : null}
       </div>
-      {p.status === 'taken' && p.idle_return_at && <IdleTimer at={p.idle_return_at} />}
+      {p.idle_return_at && <IdleTimer at={p.idle_return_at} />}
       {p.status === 'call_failed' && p.next_call_at && <div className="alert alert-info">{t('Не дозвонились · бот напомнит в {at}', { at: fmtDateTime(p.next_call_at) })}</div>}
       <div className="alert alert-info" style={{ fontWeight: 500 }}>
         <Sparkles size={16} style={{ flex: 'none', marginTop: 2 }} />

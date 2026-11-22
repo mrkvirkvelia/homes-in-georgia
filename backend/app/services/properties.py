@@ -754,9 +754,13 @@ def _release_owner(db: Session, p: Property, actor: User | None) -> None:
         log_event(db, "owner", o.id, "agent_released", actor, property_id=p.id)
 
 
-# ------------------------------------------------- «Взят» with no action → back to the feed (Stanislav 11-16)
-TAKE_IDLE_WARN_BEFORE = 15  # minutes before the return the agent is warned
-IDLE_NOT_ACTIONS = ("taken", "listing_linked")  # logged by the take itself / the matcher
+# ------------------------------------------------- «Взят», not in work → back to the feed (Stanislav 11-16, David 11-22)
+NOT_IN_WORK = ("taken", "call_failed")  # not reached / reached but not confirmed: a call alone keeps nothing (David 11-22)
+
+
+def take_idle_warn_before(minutes: int) -> int:
+    """Minutes before the return the agent is warned: 15 for the hour, 2 h for the day."""
+    return 120 if minutes >= 720 else 15
 
 
 def take_idle_minutes(db: Session) -> int:
@@ -773,20 +777,22 @@ def plan_take_idle(db: Session, p: Property) -> None:
     if n <= 0:
         return
     ret = aware(p.taken_at) + timedelta(minutes=n)
-    warn = n > TAKE_IDLE_WARN_BEFORE
-    jobs.schedule(db, "take_idle", p.id, ret - timedelta(minutes=TAKE_IDLE_WARN_BEFORE) if warn else ret,
+    w = take_idle_warn_before(n)
+    warn = n > w and ret - timedelta(minutes=w) > now()
+    jobs.schedule(db, "take_idle", p.id, ret - timedelta(minutes=w) if warn else ret,
                   {"agent_id": p.agent_id, "taken_at": aware(p.taken_at).isoformat(), "return_at": ret.isoformat(),
                    "minutes": n, "phase": "warn" if warn else "return"})
 
 
 def idle_since_take(db: Session, p: Property) -> bool:
-    """Still «Взят» and its agent did nothing on the card since the take: an action is any event he logged on the object
-    (call result, owner / contact, field edit, media, checklist, archive, any status change ...)."""
-    if p.status != "taken" or not p.agent_id or not p.taken_at:
+    """Still not in work since the take: «Взят» / «Не дозвонился», whatever was clicked (David 11-22: a day without
+    getting the owner on board → the object goes to someone else). In work = owner confirmed and on, or the owner reached
+    and thinking (a call-back date set)."""
+    if p.status not in NOT_IN_WORK or not p.agent_id or not p.taken_at:
         return False
     return not db.scalar(select(Event.id).where(
         Event.entity == "property", Event.entity_id == str(p.id), Event.actor_id == p.agent_id,
-        Event.at > aware(p.taken_at), Event.action.not_in(IDLE_NOT_ACTIONS)).limit(1))
+        Event.at > aware(p.taken_at), Event.action == "owner_thinking").limit(1))
 
 
 def idle_return_at(db: Session, p: Property) -> str | None:
@@ -803,7 +809,7 @@ def return_idle(db: Session, p: Property, minutes: int) -> int:
     agent = db.get(User, p.agent_id)
     span = f"{minutes // 60} ч" if minutes % 60 == 0 else f"{minutes} мин"
     _release_owner(db, p, None)
-    _archive_now(db, p, None, "idle_return", f"{span} без действий (агент {users_svc.tag_of(agent)})",
+    _archive_now(db, p, None, "idle_return", f"{span} не взят в работу (агент {users_svc.tag_of(agent)})",
                  action="idle_returned")
     agent_id, p.agent_id = p.agent_id, None
     return agent_id

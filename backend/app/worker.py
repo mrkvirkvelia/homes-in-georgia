@@ -82,14 +82,18 @@ def take_idle(db: Session, job: Job):
         return "stale"  # re-taken / reassigned / released: its own job (if any) is planned
     if not properties.idle_since_take(db, p):
         return "acted"
-    if properties.take_idle_minutes(db) <= 0:  # turned off in Управление → Настройки after the take
+    n = properties.take_idle_minutes(db)
+    if n <= 0:  # turned off in Управление → Настройки after the take
         return "off"
+    if n != int(pl.get("minutes") or 60):  # the setting changed after the take: the new span from the take
+        properties.plan_take_idle(db, p)
+        return "replanned"
     if pl.get("phase") == "warn":
-        _best_effort(notify.property_idle_warning, p, properties.TAKE_IDLE_WARN_BEFORE)
+        _best_effort(notify.property_idle_warning, p, properties.take_idle_warn_before(n))
         jobs.schedule(db, "take_idle", p.id, datetime.fromisoformat(pl["return_at"]), {**pl, "phase": "return"})
         return None
-    agent_id = properties.return_idle(db, p, int(pl.get("minutes") or 60))
-    _best_effort(notify.property_idle_returned, p, agent_id, int(pl.get("minutes") or 60))
+    agent_id = properties.return_idle(db, p, n)
+    _best_effort(notify.property_idle_returned, p, agent_id, n)
 
 
 @handler("call_retry")

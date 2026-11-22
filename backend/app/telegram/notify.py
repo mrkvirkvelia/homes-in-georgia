@@ -849,8 +849,10 @@ def property_call_retry(prop):
 @safe
 def property_idle_warning(prop, minutes):
     ag = store.user(g(prop, "agent_id")) or {}
+    left = f"{minutes // 60} ч" if minutes % 60 == 0 else f"{minutes} минут"
     if ag.get("tg_id"):
-        tg.send(ag["tg_id"], f"⏳ Через {minutes} минут объект вернётся в «Новые объявления», если по нему не будет действий: "
+        tg.send(ag["tg_id"], f"⏳ Через {left} объект вернётся в «Новые объявления», если не взять его в работу "
+                             f"(собственник подтвердил или думает): "
                              f"<b>{e(prop_title(prop))}</b> (объект #{g(prop, 'id')})",
                 kb([[app_btn("🏠 Открыть объект", links.property_app(g(prop, "id")))]]))
 
@@ -858,9 +860,9 @@ def property_idle_warning(prop, minutes):
 @safe
 def property_idle_returned(prop, agent_id, minutes):
     ag = store.user(agent_id) or {}
-    span = "часа" if minutes == 60 else f"{minutes} мин"
+    span = "суток" if minutes == 1440 else f"{minutes // 60} ч" if minutes % 60 == 0 else f"{minutes} мин"
     if ag.get("tg_id"):
-        tg.send(ag["tg_id"], f"↩️ Объект возвращён, т.к. не было действий в течение {span}: "
+        tg.send(ag["tg_id"], f"↩️ Объект возвращён: за {span} не взят в работу: "
                              f"<b>{e(prop_title(prop))}</b> (объект #{g(prop, 'id')}). Его снова может взять любой агент.")
 
 

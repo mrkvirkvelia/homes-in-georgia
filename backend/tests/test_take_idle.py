@@ -19,8 +19,8 @@ def test_taken_with_no_action_goes_back_to_the_feed(db, client, sent):
     listing = make_listing(db, "ss7001")
     pid = client.post("/api/properties", json={"listing_id": listing.id}, headers=auth(ag)).json()["id"]
     job = jobs.pending(db, "take_idle", pid)[0]
-    assert job.payload["phase"] == "warn"
-    assert timedelta(minutes=44) < job.due_at - datetime.now(timezone.utc) < timedelta(minutes=46)
+    assert job.payload["phase"] == "warn"  # a day (David 11-22), warned 2 h before
+    assert timedelta(hours=21, minutes=59) < job.due_at - datetime.now(timezone.utc) < timedelta(hours=22, minutes=1)
     assert client.get(f"/api/properties/{pid}", headers=auth(ag)).json()["idle_return_at"]
     assert client.get("/api/listings/new", headers=auth(other)).json()["total"] == 0
 
@@ -39,15 +39,37 @@ def test_taken_with_no_action_goes_back_to_the_feed(db, client, sent):
     assert r["id"] == pid and r["status"] == "taken" and jobs.pending(db, "take_idle", pid)
 
 
-def test_any_action_keeps_the_object(db, client, sent):
+def test_calls_without_the_owner_on_board_still_return(db, client, sent):
+    """David 11-22: «не дозвонился» / a call alone keeps nothing; the owner confirmed or thinking keeps the object."""
     ag = make_user(db, "agent", "Георгий")
-    pid = client.post("/api/properties", json={"listing_id": make_listing(db, "ss7002").id}, headers=auth(ag)).json()["id"]
-    client.post(f"/api/properties/{pid}/call", json={"reached": True}, headers=auth(ag))  # call_reached, still «Взят»
-    assert client.get(f"/api/properties/{pid}", headers=auth(ag)).json()["idle_return_at"] is None
+    failed = client.post("/api/properties", json={"listing_id": make_listing(db, "ss7002").id}, headers=auth(ag)).json()["id"]
+    r = client.post(f"/api/properties/{failed}/call", json={"reached": False}, headers=auth(ag))
+    assert r.status_code == 200 and r.json()["status"] == "call_failed", r.text
+    assert client.get(f"/api/properties/{failed}", headers=auth(ag)).json()["idle_return_at"]
+    kept = client.post("/api/properties", json={"listing_id": make_listing(db, "ss7004").id, "force": True}, headers=auth(ag)).json()["id"]
+    db.get(Property, kept).status = "owner_confirmed"
+    db.commit()
+    for _ in range(2):
+        _due_now(db, failed)
+        _due_now(db, kept)
+        worker.tick()
+    db.expire_all()
+    assert db.get(Property, failed).archive_reason == "idle_return"
+    assert db.get(Property, kept).agent_id == ag.id
+    assert len(sent.of("property_idle_returned")) == 1
+
+
+def test_setting_changed_after_the_take_replans(db, client, sent):
+    ag = make_user(db, "agent", "Георгий")
+    settings.set(db, "take_idle_min", "60")
+    pid = client.post("/api/properties", json={"listing_id": make_listing(db, "ss7005").id, "force": True}, headers=auth(ag)).json()["id"]
+    settings.set(db, "take_idle_min", "1440")
     _due_now(db, pid)
     worker.tick()
     db.expire_all()
-    assert db.get(Property, pid).agent_id == ag.id and not sent.of("property_idle_warning")
+    assert db.get(Property, pid).status == "taken" and not sent.of("property_idle_warning")
+    job = jobs.pending(db, "take_idle", pid)[0]
+    assert job.payload["minutes"] == 1440 and job.due_at - datetime.now(timezone.utc) > timedelta(hours=21)
 
 
 def test_off_and_manual_objects_never_return(db, client):

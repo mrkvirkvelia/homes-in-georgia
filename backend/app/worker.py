@@ -248,7 +248,10 @@ def dup_scan(db: Session, job: Job):
     """An object became exclusive / got its contract / took a «Дубль» in, or new ads look like it: search its duplicates
     everywhere (similar.scan_exclusive)."""
     from app.services import myhome_copies, similar
-    if not myhome_copies.recent(db, _ref_id(job)):  # agents' copies on myhome first (David 11-22), once a day
+    trigger = (job.payload or {}).get("trigger") or "exclusive"
+    # agents' copies on myhome first (David 11-22), once a day; not on the mass re-scans (new photo vectors, new ads:
+    # 613 queued 11-22 would have been 613 myhome searches in a row)
+    if trigger not in ("photo_vectors", "new_ads") and not myhome_copies.recent(db, _ref_id(job)):
         try:
             myhome_copies.run(db, _ref_id(job))
         except Exception:  # noqa: BLE001 — myhome down / changed: the scan of what we have still runs
@@ -313,6 +316,10 @@ def run_job(db: Session, job: Job) -> str:
         with tg.delivery(replay) as d:
             res = fn(db, job) or "ok"
         job = db.get(Job, job_id)
+        if job.done_at is None:
+            # the handler rolled the claim back with its own work (leads.mark_viewing_done on a lead with nothing to
+            # do): claim it again, or the same job comes first in every pass (11-20..11-22: the whole queue stood)
+            job.done_at, job.attempts = now(), (job.attempts or 0) + 1
         if d.failed:
             log.warning("job %s %s:%s: %s", job_id, kind, ref, "; ".join(map(str, d.failed)))
             job.last_error = ((f"{res}; " if res != "ok" else "") + "not delivered: " + "; ".join(map(str, d.failed)))[:500]

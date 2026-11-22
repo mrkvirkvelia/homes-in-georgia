@@ -183,11 +183,21 @@ def import_npz(db: Session, deadline: float = float("inf")) -> int:
 
 
 def _ad_file(ref: str, tmp: str) -> str | None:
-    """An ad's photo ref -> a local file: bot/raw/img/... (relative to bot/), a CRM s3:<key>; remote http ones: None."""
+    """An ad's photo ref -> a local file: bot/raw/img/... (relative to bot/), a CRM s3:<key>, a remote http one
+    downloaded (the myhome copies of services/myhome_copies.py keep their photo urls); None when unreadable."""
     if ref.startswith("s3:"):
         return storage.fetch(ref[3:], tmp)
     if ref.startswith(("http://", "https://")):
-        return None
+        import hashlib
+
+        import httpx
+        f = os.path.join(tmp, hashlib.md5(ref.encode()).hexdigest())
+        try:
+            with open(f, "wb") as out:
+                out.write(httpx.get(ref, timeout=20, follow_redirects=True).raise_for_status().content)
+        except (httpx.HTTPError, OSError):
+            return None
+        return f
     f = ref if os.path.isabs(ref) else str(REPO_ROOT / "bot" / ref)
     return f if os.path.isfile(f) else None
 

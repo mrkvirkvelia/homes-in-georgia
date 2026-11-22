@@ -146,7 +146,7 @@ def test_backfill_is_resumable_and_idempotent(db, client, tmp_path, monkeypatch)
     st = embeddings.run_photos(1, enc, pause=0)
     assert st["media"] >= 1 and st["ads"] == 1
     assert tuple(_rows(db, "media_id IS NOT NULL")) == (3, 2)  # the empty file: a row without a vector, not tried again
-    assert tuple(_rows(db, "listing_id = 'ss9100'")) == (3, 2)  # the remote photo: no vector
+    assert tuple(_rows(db, "listing_id = 'ss9100'")) == (3, 2)  # the remote photo that does not load: no vector
     assert tuple(_rows(db, "listing_id = 'ss9101'")) == (0, 0)
     assert enc.calls == 2 + 2
     # the exclusive is searched again with its vectors

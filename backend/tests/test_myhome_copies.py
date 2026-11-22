@@ -70,3 +70,20 @@ def test_ss_candidates_find_the_district_and_street_ids_then_search_them(monkeyp
     assert calls[1] == [{"areaFrom": 50, "areaTo": 64, "subdistrictIds": [5]}, {"areaFrom": 50, "areaTo": 64, "streetIds": [77]}]
     r = next(r for r in rows if r["id"] == "ss1")
     assert r["photos"][0] == "https://ss/1/0.jpg" and r["floor"] == 8 and r["district"] == "Ваке" and r["source"] == "ss.ge"
+
+
+def test_compare_by_link(db, client, monkeypatch):
+    from tests.conftest import auth
+    vika = make_user(db, "agent", "Вика")
+    pid = _object(db, client, vika)
+    row = {"id": "ss991", "source": "ss.ge", "url": "https://home.ss.ge/ka/udzravi-qoneba/x-991", "photos": ["https://ss/1.jpg"] * 3,
+           "address": "Tsatskhvebi 4", "area": 75.0, "floor": 5, "bedrooms": 2, "district": None, "price_usd": 900, "text": "x"}
+    monkeypatch.setattr(M, "by_link", lambda url: row)
+    monkeypatch.setattr(M, "_hashes", lambda urls: list(H[:3]))  # the owner's photos
+    r = client.post(f"/api/properties/{pid}/compare-link", json={"url": "https://home.ss.ge/ka/udzravi-qoneba/x-991"}, headers=auth(vika))
+    assert r.status_code == 200, r.text
+    assert r.json()["listing_id"] == "ss991" and r.json()["pct"] >= 65 and "общих фото: 3" in r.json()["matched"]
+    assert db.get(Listing, "ss991").status == "copy"
+    monkeypatch.undo()
+    r = client.post(f"/api/properties/{pid}/compare-link", json={"url": "https://example.com/1"}, headers=auth(vika))
+    assert r.status_code == 400 and "myhome" in r.json()["detail"]

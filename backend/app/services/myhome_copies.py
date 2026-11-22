@@ -231,6 +231,72 @@ def ss_candidates(p: Property) -> list[dict]:
     return [_ss_row(i) for i in found.values() if (in_district(i) or on_street(i)) and fits(i)]
 
 
+SS_DETAIL_PF = r"""async function pageFunction({ $ }) {
+  const d = JSON.parse($('#__NEXT_DATA__').text()).props.pageProps.applicationData;
+  return { d };
+}"""
+
+
+def _ss_detail(url: str) -> dict:
+    """One ss.ge ad page (Apify, as ss_search) -> a row like _ss_row."""
+    import httpx
+    inp = {"startUrls": [{"url": url}], "pageFunction": SS_DETAIL_PF, "proxyConfiguration": SS_PROXY, "maxRequestRetries": 2}
+    for tok in _apify_tokens():
+        with httpx.Client(headers={"Authorization": f"Bearer {tok}"}, timeout=90) as c:
+            r = c.post("https://api.apify.com/v2/acts/apify~cheerio-scraper/run-sync-get-dataset-items",
+                       params={"memory": 1024, "forcePermissionLevel": "LIMITED_PERMISSIONS", "timeout": 80}, json=inp)
+            if r.status_code in (402, 403):
+                continue
+            d = r.raise_for_status().json()[0]["d"]
+            desc = d.get("description")
+            desc = " ".join(v for v in desc.values() if v) if isinstance(desc, dict) else desc
+            return _ss_row({"applicationId": d["applicationId"], "detailUrl": url.rsplit("/", 1)[-1], "address": d.get("address"),
+                            "totalArea": d.get("totalArea"), "floorNumber": str(d.get("floor") or ""), "numberOfBedrooms": d.get("bedrooms"),
+                            "price": d.get("price"), "appImages": d.get("appImages"), "title": d.get("title"), "description": desc})
+    raise RuntimeError("no Apify key could open the ss.ge ad")
+
+
+def _mh_detail(mid: str) -> dict:
+    from curl_cffi import requests
+    html = requests.get(f"https://www.myhome.ge/en/pr/{mid}/", impersonate="chrome", timeout=30).text
+    m = re.search(r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>', html, re.S)
+    qs = json.loads(m.group(1))["props"]["pageProps"]["dehydratedState"]["queries"] if m else []
+    st = next((q["state"]["data"]["data"]["statement"] for q in qs if q["queryKey"][1:2] == ["details"]), None)
+    if not st:
+        raise ValueError("myhome: the ad page has no data (removed?)")
+    return _mh_row(st)
+
+
+MH_LINK = re.compile(r"myhome\.ge/(?:[a-z]{2}/)?pr/(\d+)")
+SS_LINK = re.compile(r"ss\.ge/.*?(\d{6,})(?:[/?#]|$)")
+
+
+def by_link(url: str) -> dict:
+    """A myhome / ss.ge ad link -> its row (_mh_row / _ss_row shape); ValueError for another link."""
+    url = url.strip()
+    if m := MH_LINK.search(url):
+        return _mh_detail(m[1])
+    if SS_LINK.search(url):
+        return _ss_detail(url.split("?")[0])
+    raise ValueError("Нужна ссылка на объявление myhome.ge или ss.ge")
+
+
+def compare_link(db: Session, pid: int, url: str) -> dict:
+    """«Сравнить по ссылке» (David 11-22): the ad of a competitor / an owner is saved as a copy and scored against the
+    object as «Похожие» does (photos by their files now, by the rooms once the worker has their vectors)."""
+    from app.services import similar
+    from app.services.common import log_event
+    row = by_link(url)
+    save(db, [row])
+    r = similar.score_pair(db, f"p:{pid}", f"l:{row['id']}") or {}
+    log_event(db, "property", pid, "compare_link", None, label="сравнение по ссылке", url=row["url"], listing_id=row["id"],
+              pct=r.get("pct"))
+    db.commit()
+    return {"listing_id": row["id"], "url": row["url"], "address": row["address"], "area": row["area"], "floor": row["floor"],
+            "bedrooms": row["bedrooms"], "price_usd": row["price_usd"], "photos": row["photos"][:4],
+            **{k: r.get(k) for k in ("pct", "level", "why", "matched", "differs")}}
+
+
 def recent(db: Session, pid: int, hours: int = 24) -> bool:
     from datetime import timedelta
 

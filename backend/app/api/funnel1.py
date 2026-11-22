@@ -533,6 +533,25 @@ def properties_myhome_copies(pid: int, db: Session = Depends(get_db, scope="func
     return {"ok": True}
 
 
+class CompareLink(BaseModel):
+    url: str
+
+
+@router.post("/properties/{pid}/compare-link")
+def properties_compare_link(pid: int, body: CompareLink, db: Session = Depends(get_db, scope="function"),
+                            user: User = Depends(current_user)):
+    """«Сравнить по ссылке» (David 11-22): a myhome / ss.ge ad scored against the object (myhome_copies.compare_link)."""
+    from app.services import myhome_copies
+    from app.services.errors import DomainError
+    p = P.get_visible(db, pid, user)
+    try:
+        return myhome_copies.compare_link(db, p.id, body.url)
+    except ValueError as e:
+        raise DomainError("bad_link", str(e)) from e
+    except Exception as e:  # noqa: BLE001 — the site or Apify did not answer
+        raise DomainError("link_failed", f"Не удалось открыть объявление: {str(e)[:120]}", 502) from e
+
+
 @router.get("/properties/{pid}/originals")
 def properties_originals(pid: int, db: Session = Depends(get_db, scope="function"), user: User = Depends(current_user)):
     """«Скачать оригиналы» (Stanislav 11-22, David 11-21): the object's photos as uploaded — no watermark, that one is put

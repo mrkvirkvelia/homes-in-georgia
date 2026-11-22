@@ -779,12 +779,47 @@ function MyhomeCopies({ p }: { p: Property }) {
   const run = useMutation({
     mutationFn: () => api.properties.myhomeCopies(p.id),
     onSuccess: () => {
-      toast(t('Ищем копии на myhome — через минуту список обновится'));
+      toast(t('Ищем копии на myhome и ss.ge — через пару минут список обновится'));
       setTimeout(() => qc.invalidateQueries({ queryKey: ['similar'] }), 75_000);
+      setTimeout(() => qc.invalidateQueries({ queryKey: ['similar'] }), 180_000);
     },
     onError: (e) => toast(errText(e), true),
   });
-  return <Button variant="secondary" size="sm" loading={run.isPending} onClick={() => run.mutate()}>{t('Найти копии на myhome')}</Button>;
+  return <Button variant="secondary" size="sm" loading={run.isPending} onClick={() => run.mutate()}>{t('Найти копии на myhome и ss.ge')}</Button>;
+}
+
+/** «Сравнить по ссылке» (David 11-22): an ad of a competitor / an owner on myhome or ss.ge scored against the object. */
+function CompareLink({ p }: { p: Property }) {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const [url, setUrl] = useState('');
+  const run = useMutation({
+    mutationFn: () => api.properties.compareLink(p.id, url.trim()),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['similar'] }),
+    onError: (e) => toast(errText(e), true),
+  });
+  const r = run.data;
+  const verdict = r?.level === 'same' ? t('дубль / почти точно') : r?.level === 'maybe' ? t('вероятный, нужна проверка') : t('скорее другой объект');
+  const facts = r ? [r.address, r.area ? `${r.area} м²` : null, r.floor != null ? `${t('этаж')} ${r.floor}` : null,
+    r.bedrooms != null ? `${t('спален')}: ${r.bedrooms}` : null, r.price_usd ? `$${r.price_usd}` : null].filter(Boolean).join(' · ') : '';
+  return (
+    <div style={{ marginTop: 12, borderTop: '1px solid var(--border, #e5e7eb)', paddingTop: 12 }}>
+      <div className="muted" style={{ fontSize: 13, marginBottom: 6 }}>{t('Сравнить с объявлением по ссылке (myhome.ge или ss.ge)')}</div>
+      <div style={{ display: 'flex', gap: 8 }}>
+        <div style={{ flex: 1 }}><Input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://www.myhome.ge/pr/…" /></div>
+        <Button variant="secondary" size="sm" loading={run.isPending} disabled={!url.trim()} onClick={() => run.mutate()}>{t('Сравнить')}</Button>
+      </div>
+      {r && (
+        <div style={{ marginTop: 10, fontSize: 14 }}>
+          <div><b>{r.pct ?? 0}% · {verdict}</b> · <a href={r.url} target="_blank" rel="noreferrer">{t('Открыть объявление')}</a></div>
+          {facts && <div className="muted" style={{ marginTop: 4 }}>{facts}</div>}
+          {r.why && <div style={{ marginTop: 4 }}>{r.why}</div>}
+          {!!r.photos?.length && <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>{r.photos.map((src) => <img key={src} src={src} alt="" style={{ width: 72, height: 54, objectFit: 'cover', borderRadius: 6 }} />)}</div>}
+          <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>{t('Сходство по ракурсам фото досчитается в течение 10 минут — тогда объявление появится в «Похожих», если это та же квартира.')}</div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 /** Own photos/videos, or the origin ad's photos until the shoot. */
@@ -1755,6 +1790,7 @@ export function PropertyDetail({ id, compact }: { id: number; compact?: boolean 
               <DupScan p={p} />
               <div className="muted" style={{ fontSize: 13, marginBottom: 8 }}>{t('Те же фото, адрес, собственник или параметры — в нашей базе, на ss.ge / myhome.ge и у конкурентов. Отметьте: дубль или нет.')}</div>
               <SimilarList subject={`p:${p.id}`} emptyText={t('Похожих объектов не найдено: ни в базе, ни на сайтах, ни у конкурентов.')} />
+              <CompareLink p={p} />
             </Card>
           )}
           {!mediaInAction && <Gallery p={p} />}

@@ -521,6 +521,30 @@ async def public_exclusive_sign(token: str, request: Request, file: UploadFile =
     return P.sign_view(db, token)
 
 
+@router.get("/properties/{pid}/originals")
+def properties_originals(pid: int, db: Session = Depends(get_db, scope="function"), user: User = Depends(current_user)):
+    """«Скачать оригиналы» (Stanislav 11-22, David 11-21): the object's photos as uploaded — no watermark, that one is put
+    only on the channel post — in the gallery order, one zip, for posting on myhome / ss by hand."""
+    import io
+    import os
+    import zipfile
+
+    from fastapi.responses import Response
+
+    from app import storage
+    from app.models import PropertyMedia
+    p = P.get_visible(db, pid, user)
+    keys = db.scalars(select(PropertyMedia.path).where(PropertyMedia.property_id == p.id, PropertyMedia.kind == "photo")
+                      .order_by(PropertyMedia.position, PropertyMedia.id)).all()
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_STORED) as z:  # JPEGs: nothing to deflate
+        for n, k in enumerate((k for k in keys if not k.startswith(P.PRIVATE_PREFIX)), 1):
+            if (data := storage.read(k)) is not None:
+                z.writestr(f"{p.id}_{n:02d}{os.path.splitext(k)[1].lower() or '.jpg'}", data)
+    return Response(buf.getvalue(), media_type="application/zip",
+                    headers={"Content-Disposition": f'attachment; filename="object_{p.id}_originals.zip"'})
+
+
 @router.put("/properties/{pid}/media/order")
 def properties_media_order(pid: int, body: dict, db: Session = Depends(get_db, scope="function"),
                            user: User = Depends(current_user)):

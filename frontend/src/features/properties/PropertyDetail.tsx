@@ -775,8 +775,21 @@ export function MediaGrid({ p, items, grouped, onDelete, onRoom, onOrder, off, o
 function Gallery({ p }: { p: Property }) {
   const own = shotsOf(p);
   const fromAd = (p.listing?.photos || []).map((src, i): Shot => ({ id: `l${i}`, kind: 'photo', src }));
+  const toast = useToast();
+  const [busy, setBusy] = useState(false);
+  const originals = async () => {  // the photos as uploaded, without the channel watermark: for myhome / ss by hand
+    setBusy(true);
+    try {
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(await api.properties.originals(p.id));
+      a.download = `object_${p.id}_originals.zip`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+    } catch (e) { toast(errText(e), true); } finally { setBusy(false); }
+  };
   return (
-    <Card label={t('Фото и видео')} title={own.length ? `${t('Файлы объекта')} · ${own.length}` : fromAd.length ? t('Фото из объявления') : t('Галерея')}>
+    <Card label={t('Фото и видео')} title={own.length ? `${t('Файлы объекта')} · ${own.length}` : fromAd.length ? t('Фото из объявления') : t('Галерея')}
+      actions={own.some((x) => x.kind === 'photo') ? <Button variant="secondary" size="sm" loading={busy} onClick={originals}>{t('Скачать оригиналы')}</Button> : undefined}>
       <MediaGrid items={own.length ? own : fromAd} />
     </Card>
   );

@@ -55,6 +55,7 @@ def test_a_channel_post_becomes_a_published_object_once(db, monkeypatch):
         ("16-18-20 Simon Janashia St", 2, 115.0, 6, 8, 1300.0)
     assert p.agent_id == roman.id and p.post_fields["pets"] == "ByAgreement" and p.post_fields["deposit"] == 1300
     assert db.query(PropertyMedia).filter_by(property_id=p.id, kind="photo").count() == 3
+    assert not p.is_exclusive
     assert CI.run(db) == {"located": 0}  # the cursor moved past 501: nothing new
 
 
@@ -74,10 +75,12 @@ def test_a_repost_moves_the_link_and_a_deleted_post_archives(db, monkeypatch):
     assert (p.status, p.archive_reason) == ("archived", "not_actual")
     assert db.query(Event).filter_by(entity_id=str(pid), action="archived").one().actor_label == "сверка с каналом"
 
-    _fake(monkeypatch, [_post(620)])  # posted once more: back from the archive
+    _fake(monkeypatch, [_post(620, "❗️#Exclusive\n" + TEXT)])  # posted once more, now ours: back from the archive
     assert CI.run(db) == {"relinked": 1, "located": 0}
     db.expire_all()
-    assert db.get(Property, pid).status == "published"
+    assert db.get(Property, pid).status == "published" and db.get(Property, pid).is_exclusive
+    from app.models import Job
+    assert db.query(Job).filter_by(kind="dup_scan").count() == 1
 
 
 def test_queries_go_from_the_exact_address_to_the_street():

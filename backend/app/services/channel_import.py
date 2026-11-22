@@ -169,7 +169,19 @@ def _photos(db: Session, p: Property, photos: list[dict]) -> None:
         db.add(PropertyMedia(property_id=p.id, kind="photo", path=key, position=n, dhash=photo_hash(data)))
 
 
-def _relink(db: Session, p: Property, url: str, msg: int, price) -> None:
+EXCLUSIVE = re.compile(r"#exclusive\b", re.I)
+
+
+def _exclusive(db: Session, p: Property, text: str) -> None:
+    """«#Exclusive» in the post: the object is ours exclusively — marked, and the duplicate search runs at once (its
+    copies on myhome, ss.ge…, Irakli 11-18) like for an exclusive typed into the CRM."""
+    from app.services import properties as P
+    if EXCLUSIVE.search(text) and not p.is_exclusive:
+        p.is_exclusive = True
+        P.schedule_dup_scan(db, p, "exclusive")
+
+
+def _relink(db: Session, p: Property, url: str, msg: int, price, text: str) -> None:
     from app.services import properties as P
     old = p.post_url
     p.post_url, p.post_message_id, p.published_at = url, str(msg), now()
@@ -181,6 +193,7 @@ def _relink(db: Session, p: Property, url: str, msg: int, price) -> None:
         p.site_hidden = False
     P.record_publication(db, p, "tg", url, str(msg))
     log_event(db, "property", p.id, "channel_repost", None, label="пост в канале", post_url=url, old_post_url=old)
+    _exclusive(db, p, text)
 
 
 def import_post(db: Session, channel: str, post: dict) -> str:
@@ -196,7 +209,7 @@ def import_post(db: Session, channel: str, post: dict) -> str:
     if p := same_flat(db, fields["address"], fields["bedrooms"]):
         if p.status not in ("published", "archived"):
             return "skipped"  # the agent is working on it in the CRM: his card, his post
-        _relink(db, p, url, msg, fields["price"])
+        _relink(db, p, url, msg, fields["price"], text)
         db.commit()
         return "relinked"
     t = now()
@@ -213,6 +226,7 @@ def import_post(db: Session, channel: str, post: dict) -> str:
     _photos(db, p, post["photos"])
     P.record_publication(db, p, "tg", url, str(msg))
     log_event(db, "property", p.id, "imported_from_channel", None, label="пост в канале", post_url=url)
+    _exclusive(db, p, text)
     db.commit()
     return "created"
 

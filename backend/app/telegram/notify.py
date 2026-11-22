@@ -1047,6 +1047,39 @@ def _album(items, n_photos=9):
     return out[:10]
 
 
+COLLAGE_TILE, COLLAGE_GAP = (427, 320), 4
+
+
+def _collage(paths, tmp):
+    """The first 9 photos in a 3×3 grid (each cropped to 4:3 from its centre, thin white gaps) -> a JPEG path, or None."""
+    from PIL import Image, ImageOps
+    tw, th = COLLAGE_TILE
+    try:
+        sheet = Image.new("RGB", (3 * tw + 2 * COLLAGE_GAP, 3 * th + 2 * COLLAGE_GAP), "white")
+        for n, p in enumerate(paths[:9]):
+            with Image.open(p) as im:
+                tile = ImageOps.fit(ImageOps.exif_transpose(im).convert("RGB"), (tw, th), Image.LANCZOS)
+            sheet.paste(tile, ((n % 3) * (tw + COLLAGE_GAP), (n // 3) * (th + COLLAGE_GAP)))
+        out = os.path.join(tmp, "collage.jpg")
+        sheet.save(out, "JPEG", quality=88)
+        return out
+    except Exception:  # noqa: BLE001 — no cover is no reason to lose the post
+        log.warning("collage failed", exc_info=True)
+        return None
+
+
+def with_collage(media, tmp):
+    """Irakli 11-22: the album opens with a 3×3 collage of its first 9 photos, then the photos one by one in their order
+    (the collage is a cover, it replaces none). Telegram's 10-item limit: collage + 9 photos, or collage + 8 photos +
+    the video. Fewer than 9 photos: no collage."""
+    photos = [p for k, p in media if k != "video"]
+    if len(photos) < 9 or not (c := _collage(photos, tmp)):
+        return media
+    videos = [x for x in media if x[0] == "video"][:1]
+    keep = 9 - len(videos)
+    return [("photo", c)] + [x for x in media if x[0] != "video"][:keep] + videos
+
+
 def media_paths(pid, tmp, ids=None):
     """[(kind, local path, storage key)] of the album's files that exist (MEDIA_STORAGE=s3: downloaded into the tmp dir):
     _album() of ids, the operator's pick in album order (None = all, by position)."""
@@ -1281,7 +1314,7 @@ def publish_post(prop):
             progress.step(pk, "video", n=n + 1, of=len(videos))
             prepared[key] = _tg_video(key, tmp, p)
         progress.step(pk, "photos")
-        ready = _bot_media([(k, prepared[key] if k == "video" else p) for k, p, key in media], tmp)
+        ready = with_collage(_bot_media([(k, prepared[key] if k == "video" else p) for k, p, key in media], tmp), tmp)
         progress.step(pk, "post", chat=chat)
         # RICH_POSTS=1: the post as a rich message (Irakli 2026-11-09), unless the operator rewrote the caption by hand;
         # Telegram refusing it falls back to the album below

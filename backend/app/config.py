@@ -33,6 +33,7 @@ class Settings(BaseSettings):
     OPERATOR_USERBOT_SESSION: str = ""  # Telethon StringSession, created by the operator (docs in userbot.py)
     API_ID: str = ""
     API_HASH: str = ""
+    READER_URL: str = ""                # the channel reader account (userbot USERBOT_ROLE=reader); empty = http://reader:8092 with a USERBOT_URL
     USERBOT_URL: str = ""               # where the CRM/bot reach the userbot, e.g. http://userbot:8091; empty = no slots to clients
     TG_API_BASE: str = "https://api.telegram.org"
     OPERATORS_CHAT_ID: str = ""

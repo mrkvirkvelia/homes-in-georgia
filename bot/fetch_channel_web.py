@@ -144,11 +144,21 @@ def via_userbot(user, kind, photos, old):
     """Posts the web preview can't show («Please open Telegram to view this post»: Telegram's rich posts, flats_in_georgia
     since 11-16) as the operator account reads them (backend userbot POST /channel). [] without a userbot."""
     import base64
-    url, key = os.environ.get("USERBOT_URL", "").strip().rstrip("/"), os.environ.get("SECRET_KEY", "")
-    if not url:
+    op = os.environ.get("USERBOT_URL", "").strip().rstrip("/")
+    urls = [u for u in (os.environ.get("READER_URL", "").strip().rstrip("/") or (op and "http://reader:8092"), op) if u]
+    r = None
+    for url in urls:  # the reader account first (11-22: the operator's is banned in flats_in_georgia), then the operator's
+        try:
+            r = httpx.post(f"{url}/channel", json={"user": user, "min_id": max(old, default=0), "photos": photos},
+                           headers={"X-Userbot-Token": os.environ.get("SECRET_KEY", "")}, timeout=300)
+        except httpx.HTTPError as e:
+            print(f"{user}: {url} unreachable: {e!r}")
+            continue
+        if r.status_code == 200:
+            break
+        print(f"{user}: {url} /channel {r.status_code}: {r.text[:150]}")
+    if r is None:
         return []
-    r = httpx.post(f"{url}/channel", json={"user": user, "min_id": max(old, default=0), "photos": photos},
-                   headers={"X-Userbot-Token": key}, timeout=300)
     r.raise_for_status()
     items = []
     for p in r.json()["posts"]:

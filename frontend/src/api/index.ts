@@ -307,6 +307,12 @@ export const api = {
     password: (password: string) => http.post<UserbotStatus>('/userbot/password', { password }),
     logout: () => http.post<UserbotStatus>('/userbot/logout', {}),
   },
+  reader: {
+    status: () => http.get<UserbotStatus>('/reader'),
+    login: () => http.post<UserbotStatus>('/reader/login', {}),
+    password: (password: string) => http.post<UserbotStatus>('/reader/password', { password }),
+    logout: () => http.post<UserbotStatus>('/reader/logout', {}),
+  },
   sources: {
     list: () => http.get<L<Source>>('/sources'),
     create: (b: Partial<Source>) => http.post<Source>('/sources', b),

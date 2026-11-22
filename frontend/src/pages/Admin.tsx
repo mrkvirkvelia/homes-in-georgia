@@ -386,21 +386,25 @@ function TickerAdmin() {
 const METRICS: [string, string][] = [['deals', t('Сделки')], ['platform', t('Комиссия платформы')], ['active_objects', t('Активные объекты')], ['reposts', t('Репосты')],
   ['leaderboard', t('Топ-5 агентов')], ['telegram_top', t('Telegram топ-10')], ['funnel', t('Объекты и заявки по этапам')], ['response_times', t('Время реакции')]];
 
-/** The operator's Telegram account for the userbot (DMs with clients, slot cards): log in by a QR code from here. */
-function OperatorAccount() {
+/** The operator's Telegram account for the userbot (DMs with clients, slot cards) or the channel reader (the parser reads
+ * competitors' channels with it, 11-22): log in by a QR code from here. */
+function TelegramAccount({ kind }: { kind: 'userbot' | 'reader' }) {
+  const R = kind === 'reader';
+  const a = api[kind];
   const confirm = useConfirm();
   const qc = useQueryClient();
   const toast = useToast();
   const [pw, setPw] = useState('');
   const { data: st } = useQuery({
-    queryKey: ['userbot'], queryFn: api.userbot.status,
+    queryKey: [kind], queryFn: a.status,
     refetchInterval: (q) => (['starting', 'qr', 'password'].includes(q.state.data?.login?.status || '') ? 2000 : false),
   });
-  const set = (d: unknown) => qc.setQueryData(['userbot'], d);
-  const login = useMutation({ mutationFn: api.userbot.login, onSuccess: set, onError: (e) => toast(errText(e), true) });
-  const send = useMutation({ mutationFn: () => api.userbot.password(pw), onSuccess: (d) => { setPw(''); set(d); }, onError: (e) => toast(errText(e), true) });
-  const logout = useMutation({ mutationFn: api.userbot.logout, onSuccess: (d) => { set(d); toast(t('Аккаунт оператора отключён')); }, onError: (e) => toast(errText(e), true) });
-  if (!st) return <Card label="Telegram" title={t('Аккаунт оператора')}><Loading /></Card>;
+  const set = (d: unknown) => qc.setQueryData([kind], d);
+  const login = useMutation({ mutationFn: a.login, onSuccess: set, onError: (e) => toast(errText(e), true) });
+  const send = useMutation({ mutationFn: () => a.password(pw), onSuccess: (d) => { setPw(''); set(d); }, onError: (e) => toast(errText(e), true) });
+  const logout = useMutation({ mutationFn: a.logout, onSuccess: (d) => { set(d); toast(R ? t('Аккаунт для чтения каналов отключён') : t('Аккаунт оператора отключён')); }, onError: (e) => toast(errText(e), true) });
+  const title = R ? t('Аккаунт для чтения каналов') : t('Аккаунт оператора');
+  if (!st) return <Card label="Telegram" title={title}><Loading /></Card>;
   const l = st.login?.status;
   let body;
   if (!st.configured) body = <div className="muted">{t('Сервис userbot не настроен: на сервере нужен USERBOT_URL и сервис userbot (docs/DEPLOY.md).')}</div>;
@@ -409,19 +413,19 @@ function OperatorAccount() {
   else if (st.authorized && st.me) body = (
     <div className="col gap-sm">
       <div>{t('Подключён:')} <b>{st.me.name}</b>{st.me.username && <span className="muted"> @{st.me.username}</span>}</div>
-      <div className="muted" style={{ fontSize: 12 }}>{t('С этого аккаунта уходят сообщения клиентам и карточки времени просмотра, его входящие попадают в заявки.')}</div>
-      <div><Button variant="secondary" loading={logout.isPending} onClick={async () => { if (await confirm(t('Отключить аккаунт оператора? Сеанс завершится в Telegram, сообщения клиентам перестанут уходить.'))) logout.mutate(); }}>{t('Отключить')}</Button></div>
+      <div className="muted" style={{ fontSize: 12 }}>{R ? t('Через этот аккаунт парсер читает каналы конкурентов, которые не открываются через t.me. Он ничего не пишет и никуда не вступает.') : t('С этого аккаунта уходят сообщения клиентам и карточки времени просмотра, его входящие попадают в заявки.')}</div>
+      <div><Button variant="secondary" loading={logout.isPending} onClick={async () => { if (await confirm(R ? t('Отключить аккаунт для чтения каналов? Сеанс завершится в Telegram, парсер перестанет читать через него каналы.') : t('Отключить аккаунт оператора? Сеанс завершится в Telegram, сообщения клиентам перестанут уходить.'))) logout.mutate(); }}>{t('Отключить')}</Button></div>
     </div>
   );
   else if (l === 'qr' && st.login?.qr_svg) body = (
     <div className="col gap-sm">
       <div style={{ width: 220, background: '#fff', borderRadius: 8 }} dangerouslySetInnerHTML={{ __html: st.login.qr_svg }} />
-      <div className="muted" style={{ fontSize: 13 }}>{t('На телефоне оператора: Telegram → Настройки → Устройства → Подключить устройство, наведите камеру на код. Код обновляется сам.')}</div>
+      <div className="muted" style={{ fontSize: 13 }}>{R ? t('На телефоне с этим аккаунтом: Telegram → Настройки → Устройства → Подключить устройство, наведите камеру на код. Код обновляется сам.') : t('На телефоне оператора: Telegram → Настройки → Устройства → Подключить устройство, наведите камеру на код. Код обновляется сам.')}</div>
     </div>
   );
   else if (l === 'password') body = (
     <div className="col gap-sm">
-      <div>{t('У аккаунта включён облачный пароль. Пусть оператор введёт его сам:')}</div>
+      <div>{R ? t('У аккаунта включён облачный пароль. Пусть владелец аккаунта введёт его сам:') : t('У аккаунта включён облачный пароль. Пусть оператор введёт его сам:')}</div>
       <div className="row">
         <Input type="password" autoComplete="off" value={pw} onChange={(e) => setPw(e.target.value)} placeholder={t('Облачный пароль Telegram')} onKeyDown={(e) => { if (e.key === 'Enter' && pw) send.mutate(); }} />
         <Button disabled={!pw} loading={send.isPending} onClick={() => send.mutate()}>{t('Войти')}</Button>
@@ -435,12 +439,12 @@ function OperatorAccount() {
       {l === 'expired' && <div className="muted">{t('Время на вход вышло (5 минут), начните заново.')}</div>}
       {l === 'error' && <div className="muted">{t('Не получилось войти ({e}), попробуйте ещё раз.', { e: st.login?.error ?? '' })}</div>}
       {l === 'done' || l === 'starting' ? <Loading /> : <>
-        <div className="muted" style={{ fontSize: 13 }}>{t('Аккаунт не подключён: клиентам не уходят сообщения от оператора. Подключите аккаунт оператора по QR-коду.')}</div>
+        <div className="muted" style={{ fontSize: 13 }}>{R ? t('Аккаунт не подключён: каналы, которые не открываются через t.me, парсер читает аккаунтом оператора (если его не забанили). Подключите отдельный аккаунт по QR-коду.') : t('Аккаунт не подключён: клиентам не уходят сообщения от оператора. Подключите аккаунт оператора по QR-коду.')}</div>
         <div><Button loading={login.isPending} onClick={() => login.mutate()}>{t('Подключить по QR-коду')}</Button></div>
       </>}
     </div>
   );
-  return <Card label="Telegram" title={t('Аккаунт оператора')}>{body}</Card>;
+  return <Card label="Telegram" title={title}>{body}</Card>;
 }
 
 function SettingsAdmin() {
@@ -468,7 +472,8 @@ function SettingsAdmin() {
   };
   return (
     <div className="grid g2">
-      <OperatorAccount />
+      <TelegramAccount kind="userbot" />
+      <TelegramAccount kind="reader" />
       <Card label={t('Заявки')} title={t('Сроки (SLA), минуты')}>
         <div className="col" style={{ marginBottom: 12 }}>
           <Switch checked={str('sla_enabled') !== '0'} onChange={(v) => setK('sla_enabled', v ? '1' : '0')} label={t('SLA включён')} />

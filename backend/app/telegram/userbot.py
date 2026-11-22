@@ -42,6 +42,7 @@ import asyncio
 import hmac
 import json
 import logging
+import os
 import re
 import threading
 import time
@@ -69,6 +70,16 @@ def enabled():
     return all(conf(k).strip() for k in ("API_ID", "API_HASH"))
 
 
+def reader() -> bool:
+    """USERBOT_ROLE=reader: the second process (compose service «reader», Stanislav 11-22): an account that only reads
+    public channels for the parser (POST /channel) — flats_in_georgia banned the operator's. No DMs, no sending."""
+    return os.environ.get("USERBOT_ROLE", "operator") == "reader"
+
+
+def session_key() -> str:
+    return "reader_session" if reader() else "userbot_session"
+
+
 # the running process: the Telethon client, who is logged in, and the QR login in progress (shown in the CRM)
 STATE = {"client": None, "me": None, "login": {"status": "idle"}, "start": None, "password": None, "loop": None}
 LOGIN_WINDOW_S = 300  # a QR (refreshed every ~30 s) or a 2FA prompt waits this long, then the admin presses again
@@ -76,16 +87,16 @@ LOGIN_WINDOW_S = 300  # a QR (refreshed every ~30 s) or a 2FA prompt waits this 
 
 def stored_session():
     """The QR login saved by this process wins; OPERATOR_USERBOT_SESSION (.env) is the old manual way."""
-    r = store.q("SELECT value FROM settings WHERE key = 'userbot_session'", one=True)
+    r = store.q("SELECT value FROM settings WHERE key = %s", (session_key(),), one=True)
     v = (r and r["value"] or "").strip()
-    return "" if v == "-" else v or conf("OPERATOR_USERBOT_SESSION").strip()
+    return "" if v == "-" or reader() and not v else v or conf("OPERATOR_USERBOT_SESSION").strip()
 
 
 def save_session(value):
     """value: a StringSession; "" = logged out from the CRM ("-": the .env session is not used either)."""
-    store.q("INSERT INTO settings (key, value) VALUES ('userbot_session', %s) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
-            (value or "-",))
-    if not value:
+    store.q("INSERT INTO settings (key, value) VALUES (%s, %s) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
+            (session_key(), value or "-"))
+    if not value and not reader():
         store.q("DELETE FROM settings WHERE key = 'userbot_tg_id'")
 
 
@@ -566,7 +577,8 @@ def serve_http(client, loop, port):
 
         def do_POST(self):
             reply = self.reply
-            if self.path not in ("/send", "/delete", "/login", "/password", "/logout", "/photo", "/channel") or not self.allowed():
+            paths = ("/login", "/password", "/logout", "/channel") + (() if reader() else ("/send", "/delete", "/photo"))
+            if self.path not in paths or not self.allowed():
                 return reply(403, {"ok": False})
             p = json.loads(self.rfile.read(int(self.headers.get("Content-Length") or 0)) or b"{}")
             if self.path == "/login":
@@ -621,6 +633,15 @@ async def run(client, http=True):
     from telethon import events
     me = STATE["me"] = await client.get_me()
     STATE["client"] = client
+    if reader():  # reads channels on request (POST /channel), nothing else
+        if http:
+            serve_http(client, asyncio.get_running_loop(), int(conf("USERBOT_PORT", "8091")))
+        log.info("reader up as @%s", me.username)
+        try:
+            await client.run_until_disconnected()
+        finally:
+            STATE["me"] = None
+        return
     store.q("INSERT INTO settings (key, value) VALUES ('userbot_tg_id', %s) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
             (str(me.id),))  # the bot answers «slots:» inline queries from this account only
     await client.get_dialogs(limit=300)  # fills the entity cache (access hashes) for clients who already wrote

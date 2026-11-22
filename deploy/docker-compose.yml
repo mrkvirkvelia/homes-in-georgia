@@ -67,6 +67,13 @@ services:
     command: ["sh", "-c", "cd backend && python -m app.telegram.userbot"]
     depends_on: { api: { condition: service_started } }
 
+  # the account that only reads competitors' channels for the parser (bot/fetch_channel_web.py → POST /channel): rich posts
+  # t.me/s can't show; flats_in_georgia banned the operator's account (11-22). QR login: CRM → Управление → Telegram
+  reader:
+    <<: *app
+    command: ["sh", "-c", "cd backend && USERBOT_ROLE=reader USERBOT_PORT=8092 python -m app.telegram.userbot"]
+    depends_on: { api: { condition: service_started } }
+
   # Optional S3-compatible storage for local tests of MEDIA_STORAGE=s3 (production uses R2 / Hetzner): uncomment and set
   # MEDIA_STORAGE=s3 S3_ENDPOINT=http://minio:9000 S3_BUCKET=homes S3_ACCESS_KEY=minio S3_SECRET_KEY=<secret> in .env.
   # minio:

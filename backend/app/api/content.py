@@ -557,12 +557,17 @@ def schedule_put(body: dict[str, int], db: Session = Depends(get_db, scope="func
 
 # ---------------------------------------------------------------- operator account (userbot QR login)
 
-def _userbot(method: str, path: str, body: dict | None = None) -> dict:
+def reader_url() -> str:
+    """The channel reader (compose service «reader», userbot.reader()): READER_URL, else next to the userbot."""
+    return (env.READER_URL or ("http://reader:8092" if env.USERBOT_URL else "")).strip().rstrip("/")
+
+
+def _userbot(method: str, path: str, body: dict | None = None, url: str | None = None) -> dict:
     """The userbot process (USERBOT_URL) owns the operator's Telegram session; the CRM only asks it. The QR url is
-    rendered here as SVG, the 2FA password passes through and is never stored."""
+    rendered here as SVG, the 2FA password passes through and is never stored. url: the reader's instead."""
     import httpx
     import segno
-    url = (env.USERBOT_URL or "").strip().rstrip("/")
+    url = (env.USERBOT_URL if url is None else url or "").strip().rstrip("/")
     if not url:
         return {"configured": False}
     try:
@@ -601,6 +606,29 @@ def userbot_password(body: UserbotPassword, user: User = Depends(require_level("
 def userbot_logout(db: Session = Depends(get_db, scope="function"), user: User = Depends(require_level("superadmin"))):
     out = _userbot("POST", "/logout", {})
     log_event(db, "settings", "-", "userbot_logout", user)
+    db.commit()
+    return out
+
+
+@router.get("/reader")
+def reader_status(user: User = Depends(require_level("admin"))):
+    return _userbot("GET", "/status", url=reader_url())
+
+
+@router.post("/reader/login")
+def reader_login(user: User = Depends(require_level("superadmin"))):
+    return _userbot("POST", "/login", {}, url=reader_url())
+
+
+@router.post("/reader/password")
+def reader_password(body: UserbotPassword, user: User = Depends(require_level("superadmin"))):
+    return _userbot("POST", "/password", {"password": body.password}, url=reader_url())
+
+
+@router.post("/reader/logout")
+def reader_logout(db: Session = Depends(get_db, scope="function"), user: User = Depends(require_level("superadmin"))):
+    out = _userbot("POST", "/logout", {}, url=reader_url())
+    log_event(db, "settings", "-", "reader_logout", user)
     db.commit()
     return out
 

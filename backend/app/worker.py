@@ -400,6 +400,7 @@ def main():
     login_bot.start_thread()  # staff invites: /start inv_<token> in the CRM sign-in bot
     last_ical = time.time() - env.DAILY_RENT_ICAL_MINUTES * 60 + 20  # first fetch 20 s after the start, as ApartFlow
     last_avatars = time.time() - 23 * 3600  # first pass an hour after the start, then daily
+    last_posts = time.time() - 5 * 3600  # «сверка с каналом» (services/post_sync.py): an hour after the start, then every 6 h
     while True:
         from app import keys
         keys.refresh()  # Управление → Ключи
@@ -419,6 +420,14 @@ def main():
                 avatars.run(out=log.info)
             except Exception:  # noqa: BLE001
                 log.exception("avatar sync failed")
+        if time.time() - last_posts >= 6 * 3600:
+            last_posts = time.time()
+            try:
+                from app.services import post_sync
+                with SessionLocal() as db:
+                    post_sync.run(db)
+            except Exception:  # noqa: BLE001
+                log.exception("post sync failed")
         try:  # dHash of the objects' photos uploaded before migration 0030, a batch per pass (services/matching.py)
             from app.services import matching
             with SessionLocal() as db:

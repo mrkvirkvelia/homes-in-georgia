@@ -18,12 +18,12 @@ import { LANG, LANGS, setLang, t } from '../lib/i18n';
 
 interface NavItem { to: string; label: string; icon: LucideIcon; roles?: Role[]; also?: string[] }  // also: sibling pages of one item
 const STAFF = STAFF_ROLES;
-const AGENT_UP: Role[] = [...STAFF_ROLES, 'agent'];  // recruits: no contracts or deals (Irakli 11-12)
+const LADDER: Role[] = [...STAFF_ROLES, 'agent', 'recruit'];  // contracts: recruits too (Irakli 11-22)
 export const NAV: NavItem[] = [
   { to: '/', label: t('Главная'), icon: Home },
   { to: '/objects', label: t('Объекты'), icon: Building2 },
   { to: '/leads', label: t('Заявки'), icon: Inbox },
-  { to: '/contracts', label: t('Договоры'), icon: FileText, roles: AGENT_UP },
+  { to: '/contracts', label: t('Договоры'), icon: FileText, roles: LADDER },
   { to: '/calendar', label: t('Календарь'), icon: CalendarDays },
   // hge.ge's cars (sales are objects: «Объекты» → Продажа, Stanislav 11-15)
   { to: '/cars', label: t('Авто'), icon: Car, roles: CARS_ROLES },
@@ -40,7 +40,7 @@ export const NAV: NavItem[] = [
 const QUICK: { to: string; title: string; sub: string; icon: LucideIcon; agent?: boolean }[] = [
   { to: '/objects?new=1', title: t('Объект'), sub: t('Завести вручную'), icon: Plus },
   { to: '/deals/new', title: t('Сделку'), sub: t('Расчёт и День 0'), icon: Handshake, agent: true },  // Irakli 2026-11-11: back in «Добавить»
-  { to: '/contracts?new=1', title: t('Договор'), sub: t('Создать договор'), icon: FileText, agent: true },
+  { to: '/contracts?new=1', title: t('Договор'), sub: t('Создать договор'), icon: FileText },
   { to: '/reports?kind=general', title: t('Отчёт'), sub: t('Общий отчёт'), icon: ClipboardList },
   { to: '/reports?kind=showing', title: t('Показ'), sub: t('Отчёт о показе'), icon: Eye },
   { to: '/reports?tab=check', title: t('Проверку'), sub: t('Найти дубликат'), icon: Search },

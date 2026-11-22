@@ -1758,7 +1758,7 @@ export function PropertyDetail({ id, compact }: { id: number; compact?: boolean 
         <div className="divider" />
         <Stepper current={step} />
         {/* Irakli 11-15: the same wizard as «Новый договор», the object chosen and prefilled; the object turns «Сдано» on its deal's confirm */}
-        {canWork && atLeast(user, 'agent') && p.status !== 'archived' && (
+        {canWork && p.status !== 'archived' && (  // recruits too (Irakli 11-22)
           <div className="row mt"><Link className="btn btn-secondary" to={`${compact ? '/m' : ''}/contracts?property_id=${p.id}`}><FileText size={16} />{t('Оформить договор аренды')}</Link></div>
         )}
       </div>

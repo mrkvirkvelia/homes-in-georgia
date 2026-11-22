@@ -14,7 +14,7 @@ from app.services import contracts as C, esign as E
 from app.services.errors import DomainError
 from app.telegram import client as tg
 
-router = APIRouter(tags=["contracts"], dependencies=[Depends(require_level("agent"))])  # recruits: no contracts (Irakli 11-12)
+router = APIRouter(tags=["contracts"], dependencies=[Depends(require_level("recruit"))])  # recruits too (Irakli 11-22; 11-12 had them out)
 public = APIRouter(tags=["contracts"])
 
 

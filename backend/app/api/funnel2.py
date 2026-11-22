@@ -73,7 +73,7 @@ def _num(v) -> str:
 
 
 @router.get("/leads/{lead_id}/contract")
-def leads_contract(lead_id: int, db: Session = Depends(get_db, scope="function"), user: User = Depends(require_level("agent"))):
+def leads_contract(lead_id: int, db: Session = Depends(get_db, scope="function"), user: User = Depends(require_level("recruit"))):
     """Contract generator prefill (frontend ContractWizard CxData keys) from the lead, its object, owner and deal.
     Contacts follow the lead card rules (client after contacts are shared, owner while the lead is active)."""
     lead = _visible(db, lead_id, user)
@@ -188,7 +188,7 @@ def leads_outcome(lead_id: int, body: OutcomeIn, db: Session = Depends(get_db, s
 
 
 @router.post("/leads/{lead_id}/start-contract")
-def leads_start_contract(lead_id: int, db: Session = Depends(get_db, scope="function"), user: User = Depends(require_level("agent"))):
+def leads_start_contract(lead_id: int, db: Session = Depends(get_db, scope="function"), user: User = Depends(require_level("recruit"))):
     _visible(db, lead_id, user)
     return L.detail(db, L.start_contract(db, lead_id, user), user)
 

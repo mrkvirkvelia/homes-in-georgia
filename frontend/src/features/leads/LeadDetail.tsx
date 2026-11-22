@@ -240,7 +240,8 @@ export function LeadDetail({ id, compact }: { id: number; compact?: boolean }) {
   if (error || !lead) return <ErrorBox error={error} />;
   const c = lead.client;
   const isAgent = lead.agent_id === user?.id || lead.agent?.id === user?.id;
-  const canDeal = (isAgent || isStaff) && atLeast(user, 'agent');  // recruits: no contracts or deals (Irakli 11-12)
+  const canContract = isAgent || isStaff;  // recruits make contracts (Irakli 11-22), not deals (11-12)
+  const canDeal = canContract && atLeast(user, 'agent');
   const liveContract = lead.contract && lead.contract.status !== 'closed_no_deal' ? lead.contract : null;  // closed: a new one can be made
   const closed = ['rented', 'refused'].includes(lead.status);
   const l = lead.listing;
@@ -275,10 +276,10 @@ export function LeadDetail({ id, compact }: { id: number; compact?: boolean }) {
                 <MorePhones phones={lead.owner?.phones} />
               </div>
             )}
-            {canDeal && CONTRACT_FROM.includes(lead.status) && !liveContract && (
+            {canContract && CONTRACT_FROM.includes(lead.status) && !liveContract && (
               <Button size="lg" loading={toContract.isPending} onClick={() => toContract.mutate()}><FileText size={18} />{t('Составить договор')}</Button>
             )}
-            {canDeal && liveContract && (
+            {canContract && liveContract && (
               <Link className="btn btn-secondary btn-lg" to={`${base}/contracts?id=${liveContract.id}`}><FileText size={18} />{t('Договор:')} {liveContract.status_label}</Link>
             )}
             {isStaff && lead.status === 'new' && <Button size="lg" loading={take.isPending} onClick={() => take.mutate()}><Hand size={18} />{t('Взять')}</Button>}
@@ -310,7 +311,7 @@ export function LeadDetail({ id, compact }: { id: number; compact?: boolean }) {
             <Card label={t('Шаг C9a')} title={t('Итог просмотра')}><AgentOutcome lead={lead} /></Card>
           )}
           {showOutcome && <Card label={t('Шаг B6')} title={t('Итог: агент и клиент')}><OutcomeCompare lead={lead} /></Card>}
-          {canDeal && lead.status === 'contract' && <Card label={t('Этап')} title={t('Договор')}><ContractStep lead={lead} base={base} /></Card>}
+          {canContract && lead.status === 'contract' && <Card label={t('Этап')} title={t('Договор')}><ContractStep lead={lead} base={base} /></Card>}
           {lead.deal_id ? (
             <Card label={t('Сделка')} title={t('Сделка #{id}', { id: lead.deal_id })}><DealView id={lead.deal_id} onClose={() => qc.invalidateQueries({ queryKey: ['lead', lead.id] })} /></Card>
           ) : lead.status === 'deal_pending' && canDeal && (

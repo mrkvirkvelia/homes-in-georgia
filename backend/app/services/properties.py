@@ -2355,6 +2355,7 @@ def publish(db: Session, pid: int, actor: User, text: str | None = None, media_i
             jobs.schedule(db, "channel_dups", p.id, now())
     _status(db, p, "published", actor, post_url=p.post_url if ref else None, channel=channel if tg else None,
             site=not p.site_hidden, **({"dry_run": True} if dry_run else {}))
+    schedule_dup_scan(db, p, "published")  # David 11-23: on publishing any object looks for its copies at once
     db.commit()
     from app.services import catalog, site_feed
     site_feed.clear_cache()

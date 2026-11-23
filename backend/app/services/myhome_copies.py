@@ -322,22 +322,50 @@ def recent(db: Session, pid: int, hours: int = 24) -> bool:
                      .limit(1)) is not None
 
 
+LINK_CARDS = 2  # linked ads searched by their own address / area besides the object
+
+
+def cards(db: Session, p: Property) -> list:
+    """What the copies are searched by: the object, then (David 11-23, «по ссылке составляет карточку объекта и по ней
+    находит все матчи») each linked outside ad (the owner's ad from «Сравнить по ссылке») whose street / area / floor
+    differ from the object's — the agents copied the owner's ad, not our card."""
+    from types import SimpleNamespace
+
+    from sqlalchemy import select
+
+    from app.models import PropertyListing
+    out, seen = [p], {(_street(p.address), float(p.area or 0), p.floor)}
+    for l in db.scalars(select(Listing).join(PropertyListing, PropertyListing.listing_id == Listing.id)
+                        .where(PropertyListing.property_id == p.id, Listing.source.not_in(("object", "agency")))
+                        .order_by(PropertyListing.id.desc())):
+        c = SimpleNamespace(address=l.address or p.address, district=l.district or p.district, area=l.area or p.area,
+                            floor=l.floor if l.floor is not None else p.floor, rooms=None,
+                            bedrooms=l.bedrooms if l.bedrooms is not None else p.bedrooms)
+        sig = (_street(c.address), float(c.area or 0), c.floor)
+        if sig not in seen and len(out) <= LINK_CARDS:
+            seen.add(sig)
+            out.append(c)
+    return out
+
+
 def run(db: Session, pid: int, pause: float = 1.0) -> int:
-    """Job myhome_copies: search, save -> how many ads were saved (an event on the object says when)."""
+    """Job myhome_copies: search (the object and its linked ads, cards()), save -> how many ads were saved (an event
+    on the object says when)."""
     from app.services.common import log_event
     p = db.get(Property, pid)
     if p is None or not (p.area or p.bedrooms is not None or p.rooms):
         return 0
-    items = candidates(p, pause)
+    cs = cards(db, p)
+    items = list({i["id"]: i for c in cs for i in candidates(c, pause)}.values())
     n = save(db, items)
     try:
-        ss = ss_candidates(p)
+        ss = list({i["id"]: i for c in cs for i in ss_candidates(c)}.values())
         n_ss = save(db, ss)
     except Exception as e:  # noqa: BLE001 — ss.ge / Apify down: the myhome copies stand
         log.warning("ss.ge copies of #%s failed: %r", pid, e)
         ss, n_ss = [], 0
     log_event(db, "property", pid, "myhome_copies", None, label="поиск копий на myhome и ss.ge", candidates=len(items),
-              saved=n, ss_candidates=len(ss), ss_saved=n_ss)
+              saved=n, ss_candidates=len(ss), ss_saved=n_ss, cards=len(cs))
     db.commit()
     log.info("copies of #%s: myhome %s/%s, ss.ge %s/%s", pid, len(items), n, len(ss), n_ss)
     return n + n_ss

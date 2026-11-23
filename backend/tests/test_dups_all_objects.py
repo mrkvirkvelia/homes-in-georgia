@@ -40,3 +40,15 @@ def test_live_non_exclusive_is_searched_daily_without_alerts(db, client, sent, m
     assert not sent.of("exclusive_duplicates")  # no exclusive to defend: the card and «Похожие» only
     assert properties.schedule_daily_dup_scans(db) == 0  # searched today
     assert db.query(Event).filter_by(entity_id=str(pid), action="duplicate_scan").count() == 1
+
+
+def test_publishing_queues_the_search(db):
+    from app.services import jobs
+    from tests.test_david_feedback import _ready
+    ag, op = make_user(db, "agent"), make_user(db, "operator")
+    p = _ready(db, ag, "ss1", address="Пекини 1")
+    jobs.cancel(db, "dup_scan", p.id)
+    p.status = "review"
+    db.commit()
+    properties.publish(db, p.id, op)
+    assert jobs.pending(db, "dup_scan", p.id)[0].payload == {"trigger": "published"}

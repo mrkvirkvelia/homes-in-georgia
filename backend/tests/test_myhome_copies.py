@@ -124,3 +124,25 @@ def test_link_forms(monkeypatch):
         assert M.by_link(u) == "26740808", u
     with pytest.raises(ValueError):
         M.by_link("https://www.myhome.ge/ka/s/")
+
+
+def test_copies_are_searched_by_the_linked_ad_too(db, client, monkeypatch):
+    """David 11-23 (call, 14:36): «по ссылке составил карточку объекта и начал искать такие же» — the owner's ad on
+    another street / area than our card is searched by its own address and area as well (myhome and ss.ge)."""
+    from app.models import Property, PropertyListing
+    vika = make_user(db, "agent", "Вика")
+    pid = _object(db, client, vika)
+    p = db.get(Property, pid)
+    p.address, p.area, p.floor = "Ateni 16", 55, 5
+    make_listing(db, "mh8801", source="myhome", address="Ramishvili 3", area=57.0, floor=8, status="copy")
+    make_listing(db, "mh8802", source="myhome", address="Ateni 16", area=55.0, floor=5, status="copy")  # same as the card
+    db.add_all([PropertyListing(property_id=pid, listing_id="mh8801", source="myhome"),
+                PropertyListing(property_id=pid, listing_id="mh8802", source="myhome")])
+    db.commit()
+    seen, ss_seen = [], []
+    monkeypatch.setattr(M, "candidates", lambda c, pause=1.0: seen.append((c.address, float(c.area), c.floor)) or [])
+    monkeypatch.setattr(M, "ss_candidates", lambda c: ss_seen.append(c.address) or [])
+    M.run(db, pid)
+    # the object first, the owner's ad by its own card, the ad matching the card not twice
+    assert seen[:2] == [("Ateni 16", 55.0, 5), ("Ramishvili 3", 57.0, 8)] and ss_seen[:2] == ["Ateni 16", "Ramishvili 3"]
+    assert [x[0] for x in seen].count("Ateni 16") == 1 and len(seen) <= 1 + M.LINK_CARDS

@@ -94,7 +94,7 @@ def test_point_facts_district_and_metro(client, db, monkeypatch):
     for name, (lat, lng), district, metro in [
             ("Old", (41.7036, 44.7900), "Сололаки", "Rustaveli"),  # next to Rustaveli station: the fine tag now
             ("Bagebi", (41.7120, 44.7320), "Багеби", "VazhaPshavela"),  # ~1.3 km from Vazha-Pshavela
-            ("Vake District", (41.7090, 44.7550), "Ваке", "Delisi"),  # Vake Park: ~2 km, the nearest still fills (11-11)
+            ("Vake District", (41.7090, 44.7550), "Ваке", "Rustaveli"),  # Vake: always Rustaveli (David 11-23), not the nearest Delisi
             ("Saburtalo", (41.7240, 44.7310), "Нуцубидзе", "VazhaPshavela"),  # «Nutsubidze Plateau» -> #Nutsubidze
             ("Didi", (41.7900, 44.7600), "Диди Дигоми", "Guramishvili"),  # Dighomi spelling, not plain #Digomi
             ("OldOnly", (41.6900, 44.8100), "Старый город", "AvlabariMetro")]:  # no finer name: the old coarse value

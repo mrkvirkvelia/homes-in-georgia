@@ -316,6 +316,8 @@ def create(db: Session, data: dict, actor: User | None, commit: bool = True, not
         db.commit()
         if t0_ev is not None:
             evaluations.notify_if_alarming(t0_ev)
+        if actor is not None and not at_least(actor, "operator"):  # staff confirm their own deals in the CRM
+            notify.deal_created(deal)
     return deal
 
 

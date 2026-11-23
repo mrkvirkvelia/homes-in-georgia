@@ -24,6 +24,7 @@ export const NAV: NavItem[] = [
   { to: '/objects', label: t('Объекты'), icon: Building2 },
   { to: '/leads', label: t('Заявки'), icon: Inbox },
   { to: '/contracts', label: t('Договоры'), icon: FileText, roles: LADDER },
+  { to: '/deals', label: t('Сделки'), icon: Handshake, roles: STAFF },  // operators confirm agents' deals here (David 11-23)
   { to: '/calendar', label: t('Календарь'), icon: CalendarDays },
   // hge.ge's cars (sales are objects: «Объекты» → Продажа, Stanislav 11-15)
   { to: '/cars', label: t('Авто'), icon: Car, roles: CARS_ROLES },

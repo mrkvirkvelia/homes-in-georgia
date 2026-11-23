@@ -759,6 +759,19 @@ def fmt_date(d):
 
 
 @safe
+def deal_created(deal):
+    """A deal written by an agent / a recruit waits for the operator's confirmation (David 11-23: «уведомления не
+    пришло оператору»)."""
+    ag = store.user(g(deal, "agent_id")) or {}
+    did = g(deal, "id")
+    t = (f"🤝 <b>Новая сделка на подтверждение</b> #{did}\n\n"
+         f"🏠 {html.escape(g(deal, 'address') or '—')}\n👤 Агент: {html.escape(ag.get('name') or '—')}\n"
+         f"💵 Цена: <b>{texts.money(g(deal, 'price'))}</b> · комиссия {texts.money(g(deal, 'commission_total'))}\n"
+         f"🙋 Клиент: {html.escape(g(deal, 'client_name') or '—')}")
+    to_operators(None, did, t, lambda private: kb([[app_btn("📋 Открыть сделку", links.deal_app(did), private)]]))
+
+
+@safe
 def deal_confirmed(deal):
     """C9c to the agent. Everything else lives in the CRM: no #Rented to a work group (Stanislav 2026-11-08)."""
     ag = store.user(g(deal, "agent_id")) or {}

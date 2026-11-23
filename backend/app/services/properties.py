@@ -1884,11 +1884,19 @@ def nearest_metro_m(lat: float, lng: float) -> tuple[float, str]:
     return min((111_000 * math.hypot(lat - a, (lng - b) * 0.75), t) for t, (a, b) in METRO.items())
 
 
-def nearest_metro(lat: float | None, lng: float | None) -> str | None:
+DISTRICT_METRO = {"Vake": "Rustaveli"}  # David 11-23: «в Ваке у нас всегда метро Руставели» (the pin says Техуниверситет)
+
+
+def district_metro(district: str | None) -> str | None:
+    from app import districts
+    return DISTRICT_METRO.get(districts.tag(district) or "")
+
+
+def nearest_metro(lat: float | None, lng: float | None, district: str | None = None) -> str | None:
     if lat is None or lng is None:
         return None
     d, tag = nearest_metro_m(lat, lng)
-    return tag if d <= METRO_RADIUS_M else None
+    return (district_metro(district) or tag) if d <= METRO_RADIUS_M else None
 
 
 def listing_prefill(listing: Listing) -> tuple[dict, dict]:
@@ -1906,7 +1914,7 @@ def listing_prefill(listing: Listing) -> tuple[dict, dict]:
           "design": _P_DESIGN.get(d.get("condition")), "heating": _P_HEATING.get(d.get("heating")),
           "pets": _P_PETS.get(d.get("pets")),
           "bathrooms": f"{min(baths, 4)}Bathroom" if baths else None,
-          "metro": METRO_NAME.get(d.get("metro_en") or "") or nearest_metro(listing.lat, listing.lng),
+          "metro": METRO_NAME.get(d.get("metro_en") or "") or nearest_metro(listing.lat, listing.lng, listing.district),
           "amenities": yes, "periods": terms,
           "tenants": int(tenants[-1]) if tenants else None, "deposit": _int(d.get("deposit_usd"))}
     return {k: v for k, v in card.items() if v}, clean_post_fields({k: v for k, v in pf.items() if v not in (None, [])})

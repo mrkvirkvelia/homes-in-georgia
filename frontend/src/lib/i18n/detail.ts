@@ -494,7 +494,7 @@ export const D: Record<string, [ka: string, en: string]> = {
   "свободна с {d}": ["თავისუფალია {d}-დან", "free from {d}"],
   // Irakli 11-18: the exclusive's duplicate search, «Без электронной подписи»
   "найдено: {n}": ["ნაპოვნია: {n}", "found: {n}"],
-  "Поиск дублей эксклюзива": ["ექსკლუზივის დუბლების ძიება", "Exclusive duplicate search"],
+  "Поиск дублей": ["დუბლების ძიება", "Duplicate search"],
   "Договор без электронной подписи: подтвердил оператор": ["ხელშეკრულება ელექტრონული ხელმოწერის გარეშე: ოპერატორმა დაადასტურა", "Contract without e-signature: confirmed by the operator"],
   "Загружен эксклюзивный договор": ["ექსკლუზიური ხელშეკრულება ატვირთულია", "Exclusive contract uploaded"],
   "Собственник подписал эксклюзивный договор": ["მესაკუთრემ ხელი მოაწერა ექსკლუზიურ ხელშეკრულებას", "The owner signed the exclusive contract"],
@@ -516,9 +516,10 @@ export const D: Record<string, [ka: string, en: string]> = {
   "бумажный договор, фото или PDF — необязательно": ["ქაღალდის ხელშეკრულება, ფოტო ან PDF — არასავალდებულო", "paper contract, photo or PDF — optional"],
   "Отправить оператору": ["ოპერატორს გაგზავნა", "Send to the operator"],
   "Запросить снова: без электронной подписи": ["ხელახლა მოთხოვნა: ელექტრონული ხელმოწერის გარეშე", "Ask again: without e-signature"],
-  "Ищем дубли эксклюзива везде: в базе, на сайтах и у конкурентов…": ["ექსკლუზივის დუბლებს ყველგან ვეძებთ: ბაზაში, საიტებზე და კონკურენტებთან…", "Searching the exclusive's duplicates everywhere: our base, the sites, competitors…"],
+  "Ищем дубли и копии везде: в базе, на сайтах и у конкурентов…": ["დუბლებს და ასლებს ყველგან ვეძებთ: ბაზაში, საიტებზე და კონკურენტებთან…", "Searching for duplicates and copies everywhere: our base, the sites and competitors…"],
   "Поиск дублей: ничего не найдено": ["დუბლების ძიება: არაფერი მოიძებნა", "Duplicate search: nothing found"],
   "Найдены возможные дубли: {n}": ["ნაპოვნია შესაძლო დუბლები: {n}", "Possible duplicates found: {n}"],
+  "Сильные совпадения:": ["ძლიერი დამთხვევები:", "Strong matches:"],
   "Сильные совпадения — агент и оператор получили уведомление:": ["ძლიერი დამთხვევები — აგენტმა და ოპერატორმა შეტყობინება მიიღეს:", "Strong matches — the agent and the operator were notified:"],
   "Свой запрос решает другой оператор": ["საკუთარ მოთხოვნას სხვა ოპერატორი წყვეტს", "Another operator decides your own request"],
   // §12 duplicates gate (David 11-19)

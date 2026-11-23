@@ -1016,9 +1016,11 @@ def scan_exclusive(db: Session, pid: int, trigger: str = "exclusive") -> dict | 
     """«При эксклюзиве — сразу поиск дублей везде»: find() over the whole base (any status) and every live outside ad,
     competitors' channels too. Stored as a «duplicate_scan» event (the card shows «Найдены возможные дубли: N»);
     candidates with a strong signal not seen by the previous scan go to the object's agent and the operators.
-    A re-scan after new ads (trigger «new_ads») is logged only when the candidates changed. Commits."""
+    A re-scan after new ads (trigger «new_ads») is logged only when the candidates changed. David 11-23: an object in
+    work / published that is not an exclusive is searched too, shown on the card and in «Похожие» only (no alerts:
+    there is no exclusive to defend). Commits."""
     p = db.get(Property, pid)
-    if p is None or not p.is_exclusive:
+    if p is None or not (p.is_exclusive or p.status in P.DUP_LIVE):
         return None
     items = find(db, key("p", pid), None, limit=500)
     strong = [{"key": x["key"], "where": x["where"], "property_id": x["property_id"], "listing_id": x["listing_id"],
@@ -1037,7 +1039,7 @@ def scan_exclusive(db: Session, pid: int, trigger: str = "exclusive") -> dict | 
     if gate:
         P._notify("exclusive_dups_gate", p, *gate)
     fresh = [s for s in strong if s["key"] not in prev_keys]
-    if fresh and not gate:  # the gate's message lists them already
+    if fresh and not gate and p.is_exclusive:  # the gate's message lists them already
         P._notify("exclusive_duplicates", p, len(items), fresh)
     return {"n": len(items), "strong": strong, "fresh": fresh, "gate": gate[0] if gate else None}
 

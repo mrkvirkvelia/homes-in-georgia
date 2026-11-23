@@ -357,7 +357,7 @@ const ACTION_TEXT: Record<string, string> = tmap({
   from_deal: 'Создан из сделки', fast_track: 'Собственник согласен · объект показан клиентам',
   agent_bound: 'Собственник закреплён за агентом', agent_released: 'Собственник освобождён',
   listing_linked: 'Найдено объявление этого объекта', exclusive_conflict: 'Эксклюзив висит на другом сайте', ad_removed_checked: 'Проверено: объявление снято',
-  duplicate_scan: 'Поиск дублей эксклюзива', exclusive_contract_waived: 'Договор без электронной подписи: подтвердил оператор',
+  duplicate_scan: 'Поиск дублей', exclusive_contract_waived: 'Договор без электронной подписи: подтвердил оператор',
   exclusive_dups_clear: 'Эксклюзив подтверждён: дублей нет', exclusive_dups_waiting: 'Ожидается устранение дублей (24 ч)',
   exclusive_dups_review: 'Сомнительные совпадения — ручная проверка', exclusive_dups_operator: 'Дубли остались — решение оператора',
   exclusive_contract_uploaded: 'Загружен эксклюзивный договор', exclusive_contract_signed: 'Собственник подписал эксклюзивный договор',

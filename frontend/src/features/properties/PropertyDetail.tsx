@@ -1275,21 +1275,21 @@ function NoEsign({ p, canEdit }: { p: Property; canEdit: boolean }) {
   );
 }
 
-/** Irakli 11-18: what the exclusive's duplicate search found (backend similar.scan_exclusive): the count, and the
+/** Irakli 11-18, David 11-23 (any live object): what the duplicate search found (backend similar.scan_exclusive): the count, and the
  * strong ones (a shared photo, the owner's phone, the cadastral code); the full list is «Похожие объекты» below. */
 function DupScan({ p }: { p: Property }) {
   const s = p.duplicate_scan;
   const qc = useQueryClient();
   useEffect(() => { if (s?.at) qc.invalidateQueries({ queryKey: ['similar', `p:${p.id}`] }); }, [s?.at, p.id, qc]);  // a new search → the list below again
-  if (!p.is_exclusive || !s) return null;
-  if (s.n === undefined) return <div className="alert alert-info"><Clock size={14} /> {t('Ищем дубли эксклюзива везде: в базе, на сайтах и у конкурентов…')}</div>;
+  if (!s) return null;
+  if (s.n === undefined) return <div className="alert alert-info"><Clock size={14} /> {t('Ищем дубли и копии везде: в базе, на сайтах и у конкурентов…')}</div>;
   if (!s.n) return <div className="alert alert-ok"><CheckCircle2 size={14} /> {t('Поиск дублей: ничего не найдено')}{s.at ? ` · ${fmtDateTime(s.at)}` : ''}</div>;
   return (
     <div className={`alert ${s.strong?.length ? 'alert-warn' : 'alert-info'}`}>
       <span>
         <b>{t('Найдены возможные дубли: {n}', { n: s.n })}</b>{s.at ? <span className="muted"> · {fmtDateTime(s.at)}</span> : null}
         {!!s.strong?.length && <>
-          <br />{t('Сильные совпадения — агент и оператор получили уведомление:')}
+          <br />{p.is_exclusive ? t('Сильные совпадения — агент и оператор получили уведомление:') : t('Сильные совпадения:')}
           {s.strong.slice(0, 5).map((x) => <div key={x.key} style={{ fontSize: 13 }}>• {x.where}{x.property_id ? ` #${x.property_id}` : ''}{x.address ? ` · ${x.address}` : ''}: {x.reasons.join(', ')}</div>)}
         </>}
       </span>
@@ -1754,7 +1754,7 @@ export function PropertyDetail({ id, compact }: { id: number; compact?: boolean 
             <div className="row row-wrap gap-sm mt">
               <PropertyStatusBadge status={p.status} />
               {p.is_exclusive && <Badge tone="solid">{t('эксклюзив')}</Badge>}
-              {p.is_exclusive && !!p.duplicate_scan?.n && <Badge tone={p.duplicate_scan.strong?.length ? 'red' : 'warn'}>{t('Найдены возможные дубли: {n}', { n: p.duplicate_scan.n })}</Badge>}
+              {!!p.duplicate_scan?.n && <Badge tone={p.duplicate_scan.strong?.length ? 'red' : 'warn'}>{t('Найдены возможные дубли: {n}', { n: p.duplicate_scan.n })}</Badge>}
               <ExclusiveConflictBadge p={p} />
               <AiFlagBadges flags={p.ai_flags} />
             </div>

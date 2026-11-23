@@ -250,8 +250,9 @@ def dup_purge(db: Session, job: Job):
 
 @handler("dup_scan")
 def dup_scan(db: Session, job: Job):
-    """An object became exclusive / got its contract / took a «Дубль» in, or new ads look like it: search its duplicates
-    everywhere (similar.scan_exclusive)."""
+    """An object became exclusive / got its contract / took a «Дубль» in, new ads look like it, or the daily pass of the
+    live objects (properties.schedule_daily_dup_scans, any object in work): search its duplicates everywhere
+    (similar.scan_exclusive)."""
     from app.services import myhome_copies, similar
     trigger = (job.payload or {}).get("trigger") or "exclusive"
     # agents' copies on myhome first (David 11-22), once a day; not on the mass re-scans (new photo vectors, new ads:
@@ -441,6 +442,7 @@ def main():
     login_bot.start_thread()  # staff invites: /start inv_<token> in the CRM sign-in bot
     last_ical = time.time() - env.DAILY_RENT_ICAL_MINUTES * 60 + 20  # first fetch 20 s after the start, as ApartFlow
     last_avatars = time.time() - 23 * 3600  # first pass an hour after the start, then daily
+    last_dups = time.time() - 3000  # the daily duplicate search (properties.schedule_daily_dup_scans): 10 min after the start
     last_posts = time.time() - 3000  # «сверка с каналом» (services/post_sync.py): 10 min after the start, then hourly
     importer = None
     last_import = time.time() - 25 * 60  # channel posts → objects (services/channel_import.py): 5 min after the start, every 30 min
@@ -463,6 +465,15 @@ def main():
                 avatars.run(out=log.info)
             except Exception:  # noqa: BLE001
                 log.exception("avatar sync failed")
+        if time.time() - last_dups >= 3600:  # David 11-23: copies / duplicates of every live object, once a day each
+            last_dups = time.time()
+            try:
+                from app.services import properties
+                with SessionLocal() as db:
+                    if n := properties.schedule_daily_dup_scans(db):
+                        log.info("daily dup scans queued: %s", n)
+            except Exception:  # noqa: BLE001
+                log.exception("daily dup scans failed")
         if time.time() - last_posts >= 3600:
             last_posts = time.time()
             try:

@@ -1275,7 +1275,7 @@ def upload_media(db: Session, pid: int, files: list[tuple[str, bytes]], room: st
             _status(db, p, "media_uploaded", actor, files=len(files))
         else:
             log_event(db, "property", p.id, "media_added", actor, files=len(files))
-        if p.is_exclusive and "photo" in kinds:
+        if (p.is_exclusive or p.status in DUP_LIVE) and "photo" in kinds:
             # the photos come after the exclusive's first search (a manual object: made, then the photos): searched
             # again with them, or the ad they were taken from is never found (Irakli 11-19, myhome 26699303)
             schedule_dup_scan(db, p, "media")
@@ -1597,6 +1597,31 @@ def contract_done(db: Session, p: Property) -> bool:
         return True
     w = no_esign(db, p.id)
     return w is not None and w.status == "approved"
+
+
+# David 11-23: not only exclusives — an object taken into work or published looks for its copies and duplicates too
+DUP_LIVE = (*AGENT_MEDIA_STATUSES, "review", "published")
+DUP_DAILY_DAYS = 30   # the daily search: objects published / taken in the last 30 days (agents copy new ads)
+DUP_DAILY_BATCH = 20  # per hourly pass: ≤ 480 a day, the myhome requests and the ss.ge Apify runs spread out
+
+
+def schedule_daily_dup_scans(db: Session) -> int:
+    """The worker's hourly pass: live objects (DUP_LIVE, exclusives too) of the last DUP_DAILY_DAYS whose copies were
+    not searched for a day get a dup_scan (myhome + ss.ge copies, then the duplicates). Commits -> how many.
+    ponytail: a 30-day window caps the Apify spend (~0.003 $ a search); widen it or add a weekly tier for older ones."""
+    since = now() - timedelta(days=DUP_DAILY_DAYS)
+    fresh = select(Event.entity_id).where(Event.entity == "property", Event.action == "myhome_copies",
+                                          Event.at > now() - timedelta(hours=24))
+    from app.models import Job
+    queued = select(Job.ref).where(Job.kind == "dup_scan", Job.done_at.is_(None))
+    rows = list(db.scalars(select(Property).where(
+        Property.status.in_(DUP_LIVE), func.coalesce(Property.published_at, Property.taken_at, Property.created_at) > since,
+        cast(Property.id, Text).not_in(fresh), cast(Property.id, Text).not_in(queued))
+        .order_by(Property.id.desc()).limit(DUP_DAILY_BATCH)))
+    for p in rows:
+        jobs.schedule(db, "dup_scan", p.id, now(), {"trigger": "daily"}, replace=False)
+    db.commit()
+    return len(rows)
 
 
 def schedule_dup_scan(db: Session, p: Property, trigger: str) -> None:
@@ -2608,7 +2633,7 @@ def out(db: Session, p: Property, user: User, full: bool = False, cache: dict | 
         d["no_esign"] = _no_esign_out(db, w, can_see_owner(p, user)) if w else None
         if p.is_exclusive and not c and not (w and w.status == "approved"):
             d["missing"].append("эксклюзивный договор (PDF)")
-        scan = dup_scan(db, p.id) if p.is_exclusive else None
+        scan = dup_scan(db, p.id)
         if scan and not can_see_owner(p, user):  # ad links lead to the owner's phone
             scan["strong"] = [{**x, "url": None} for x in scan.get("strong") or []]
         d["duplicate_scan"] = scan

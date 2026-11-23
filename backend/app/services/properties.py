@@ -1676,7 +1676,7 @@ def set_media_room(db: Session, pid: int, mid: int, room: str | None, actor: Use
     m = db.get(PropertyMedia, mid)
     if not m or m.property_id != p.id:
         raise DomainError("not_found", "media not found")
-    m.room = ((room or "").strip() or None) if m.kind == "photo" else None  # a video has no room
+    m.room = ((room or "").strip()[:60] or None) if m.kind == "photo" else None  # a video has no room; an agent's own tag is free text
     db.commit()
     return m
 

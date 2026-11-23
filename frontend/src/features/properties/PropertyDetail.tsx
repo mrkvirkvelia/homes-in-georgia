@@ -47,6 +47,7 @@ export const ROOMS = ['Гостиная', 'Кухня', 'Спальня 1', 'С�
 /** Room tags under a photo: Управление → Настройки (photo_rooms), the built-in list until the backend sends one. */
 export const roomsOf = (p?: Property) => (p?.photo_rooms?.length ? p.photo_rooms : ROOMS);
 // «Кабинет» is also the nav's «My account» in the shared dictionary: the room gets its own translation
+const CUSTOM_ROOM = '\u0000custom';
 const roomT = (r: string) => (r === 'Кабинет' ? lx(r, 'კაბინეტი', 'Study') : t(r));
 const STEPS = ['Взят', 'Звонок', 'Собственник', 'Съёмка', 'Пост и фото', 'Проверка', 'Публикация'].map((s) => t(s));
 
@@ -482,6 +483,12 @@ function PostGeneratorStep({ p, canEdit }: { p: Property; canEdit: boolean }) {
   const room = useMutation({ mutationFn: ([mid, r]: [number, string | null]) => api.properties.mediaRoom(p.id, mid, r), onSuccess: refresh, onError: (e) => toast(errText(e), true) });
   const check = useMutation({ mutationFn: (c: Record<string, boolean>) => api.properties.checklist(p.id, c), onSuccess: set });
   const confirmOther = useConfirm();
+  const askRoom = useActionDialog();
+  // «Свой вариант…» under a photo: the agent's own tag, saved on that photo only (not added to the settings list)
+  const pickRoom = async (id: number, r: string | null) => {
+    const v = r === CUSTOM_ROOM ? (await askRoom(t('Своя категория для этого фото'), { label: t('Категория'), required: true }))?.trim().slice(0, 60) : r;
+    if (v !== undefined && v !== '') room.mutate([id, v]);
+  };
   const submit = useMutation({
     mutationFn: async () => {
       await flush();
@@ -628,7 +635,7 @@ function PostGeneratorStep({ p, canEdit }: { p: Property; canEdit: boolean }) {
             )}
           </>
         )}
-        <MediaGrid p={p} grouped onOrder={canEdit ? (ids) => order.mutate(ids.map(Number)) : undefined} onDelete={canEdit ? (id) => del.mutate(Number(id)) : undefined} onRoom={canEdit && roomsOn ? (id, r) => room.mutate([id, r]) : undefined} />
+        <MediaGrid p={p} grouped onOrder={canEdit ? (ids) => order.mutate(ids.map(Number)) : undefined} onDelete={canEdit ? (id) => del.mutate(Number(id)) : undefined} onRoom={canEdit && roomsOn ? pickRoom : undefined} />
         {roomsOn && <>
           <div className="row row-between"><span className="label">{t('Что снято · необязательно')}</span><span className="muted num" style={{ fontWeight: 700 }}>{done}/{rooms.length}</span></div>
           <div className="row row-wrap gap-sm">
@@ -761,6 +768,7 @@ export function MediaGrid({ p, items, grouped, onDelete, onRoom, onOrder, off, o
           <select value={m.room || ''} aria-label={t('Комната')} onChange={(e) => onRoom(Number(m.id), e.target.value || null)}>
             <option value="">{t('Не указана')}</option>
             {(m.room && !roomsOf(p).includes(m.room) ? [...roomsOf(p), m.room] : roomsOf(p)).map((r) => <option key={r} value={r}>{roomT(r)}</option>)}
+            <option value={CUSTOM_ROOM}>{t('Свой вариант…')}</option>
           </select>
         </span>
       ) : m.room && m.kind !== 'video' && <span className="room badge badge-blue">{roomT(m.room)}</span>}

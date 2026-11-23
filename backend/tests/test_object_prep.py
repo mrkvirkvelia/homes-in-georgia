@@ -143,6 +143,9 @@ def test_photo_rooms_editable_and_bathroom_renamed(db):
     assert o["media"][0]["room"] == "Санузел" and o["checklist"] == {"Санузел": True}
     settings.set(db, "photo_rooms", "Кухня\n  \nМансарда\n")
     assert properties.out(db, p, ag, full=True)["photo_rooms"] == ["Кухня", "Мансарда"]
+    m = properties.set_media_room(db, p.id, o["media"][0]["id"], "  Постирочная " + "x" * 80, ag)  # an agent's own tag
+    assert m.room.startswith("Постирочная x") and len(m.room) == 60
+    assert "Постирочная" not in settings.get(db, "photo_rooms")
 
 def test_media_order_saved_and_rooms_photo_only(db, client):
     ag, p = _object(db, "ss904")

@@ -1097,9 +1097,8 @@ def agency_chat():
     return ch
 
 
-# David 11-23: flats / houses for rent → the agency channel; sale, commercial, cars → HOMES IN GEORGIA (a channel without
-# topics). Управление → Настройки: settings publish_chat_<kind> (services/settings.DEFAULTS), empty → the defaults here.
-HOMES_CHANNEL = "@homesingeorgia"
+# David / Stanislav 11-23: flats / houses for rent → the agency channel; sale → @sale_in_tbilisi, commercial → @homesingeorgia
+# (the Homes in Georgia community). Управление → Настройки: settings publish_chat_<kind>, empty → the agency channel.
 
 
 def _can_post(chat):
@@ -1111,10 +1110,13 @@ def _can_post(chat):
 
 
 def post_chat(kind):
-    """-> (chat, warning) for a post of this kind (rent | sale | commercial | cars). The bot without the rights there:
+    """-> (chat, warning) for a post of this kind (rent | sale | commercial | cars | daily | developments). The bot without the rights there:
     the agency channel and the warning (the object card shows it) — publishing never breaks over the channel."""
     main = agency_chat()
-    chat = (store.setting(f"publish_chat_{kind}") or "").strip() or (main if kind == "rent" else HOMES_CHANNEL)
+    from app.services.settings import DEFAULTS  # store.setting reads the row only: no row = the default
+    key = f"publish_chat_{kind}"
+    raw = store.setting(key)
+    chat = (DEFAULTS.get(key, "") if raw is None else raw).strip() or main
     if chat == main or _can_post(chat):
         return chat, None
     log.warning("publish: the bot can't post to %s (%s), the post goes to %s", chat, kind, main)

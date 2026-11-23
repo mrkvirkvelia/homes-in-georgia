@@ -506,6 +506,7 @@ export const D: Record<string, [ka: string, en: string]> = {
   'Каналы публикаций': ['გამოქვეყნების არხები', 'Publishing channels'],
   'Аренда квартир и домов': ['ბინების და სახლების ქირავნობა', 'Rent of flats and houses'],
   'Машины': ['მანქანები', 'Cars'],
+  'Новостройки': ['ახალი მშენებლობები', 'New developments'],
   'основной канал (PUBLISH_CHAT_ID)': ['მთავარი არხი (PUBLISH_CHAT_ID)', 'main channel (PUBLISH_CHAT_ID)'],
   '@username или id канала. Бот должен быть в нём админом с правами публикации и удаления — иначе пост уходит в основной канал, а в карточке объекта будет предупреждение. Меняет суперадмин.': ['არხის @username ან id. ბოტი უნდა იყოს ადმინი გამოქვეყნების და წაშლის უფლებით — სხვაგვარად პოსტი მთავარ არხში წავა და ობიექტის ბარათში გაფრთხილება გამოჩნდება. ცვლის სუპერადმინი.', 'Channel @username or id. The bot must be its admin with post and delete rights — otherwise the post goes to the main channel and the object card shows a warning. Superadmin only.'],
   'Категории фото, по одной в строке': ['ფოტოს კატეგორიები, თითო ხაზზე', 'Photo categories, one per line'],

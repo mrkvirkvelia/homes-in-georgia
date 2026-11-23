@@ -1,5 +1,6 @@
-"""David 11-23: posts go to the channel of their kind — flats / houses for rent → the agency channel, sale / commercial /
-cars → @homesingeorgia (Управление → Настройки publish_chat_<kind>); the bot not admin there → the agency channel and a
+"""David / Stanislav 11-23: posts go to the channel of their kind — flats / houses for rent → the agency channel, sale →
+@sale_in_tbilisi, commercial → @homesingeorgia, cars (channel unknown yet) → the agency channel (Управление → Настройки
+publish_chat_<kind>); the bot not admin there → the agency channel and a
 warning on the object card. Telegram is mocked (tg.call)."""
 from types import SimpleNamespace
 
@@ -45,11 +46,14 @@ def _post(kind):
 
 
 def test_kinds_route_to_their_channels(bot):
-    bot.admins["@homesingeorgia"] = ADMIN
+    bot.admins["@homesingeorgia"] = bot.admins["@sale_in_tbilisi"] = ADMIN
     assert notify.publish_post(_post("rent"))[2:] == (MAIN, [5], None)
-    for kind in ("sale", "commercial", "cars"):
+    assert notify.publish_post(_post("cars"))[2:] == (MAIN, [5], None)  # an empty setting: the agency channel
+    for kind, chat in (("sale", "sale_in_tbilisi"), ("commercial", "homesingeorgia")):
         ref = notify.publish_post(_post(kind))
-        assert ref[1] == "https://t.me/homesingeorgia/5" and ref[2] == "@homesingeorgia" and ref[4] is None
+        assert ref[1] == f"https://t.me/{chat}/5" and ref[2] == f"@{chat}" and ref[4] is None
+    bot.settings["publish_chat_sale"] = ""  # cleared by hand in Настройки: the agency channel, not the default
+    assert notify.publish_post(_post("sale"))[2] == MAIN
     bot.settings["publish_chat_cars"] = "@cars_tbilisi"
     bot.admins["@cars_tbilisi"] = ADMIN
     assert notify.publish_post(_post("cars"))[2] == "@cars_tbilisi"
@@ -57,8 +61,8 @@ def test_kinds_route_to_their_channels(bot):
 
 def test_bot_not_admin_falls_back_to_the_main_channel_with_a_warning(bot):
     ref = notify.publish_post(_post("sale"))  # getChatMember refused: «member list is inaccessible»
-    assert ref[2] == MAIN and "@homesingeorgia" in ref[4] and bot.sent == [("sendMessage", MAIN)]
-    bot.admins["@homesingeorgia"] = {"status": "administrator", "can_post_messages": True, "can_delete_messages": False}
+    assert ref[2] == MAIN and "@sale_in_tbilisi" in ref[4] and bot.sent == [("sendMessage", MAIN)]
+    bot.admins["@sale_in_tbilisi"] = {"status": "administrator", "can_post_messages": True, "can_delete_messages": False}
     assert notify.publish_post(_post("sale"))[2] == MAIN  # no delete right: unpost could not take it down later
 
 

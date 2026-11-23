@@ -467,7 +467,7 @@ function TelegramAccount({ kind }: { kind: 'userbot' | 'reader' }) {
   return <Card label="Telegram" title={title}>{body}</Card>;
 }
 
-const CHANNEL_KINDS: [string, string][] = [['rent', t('Аренда квартир и домов')], ['sale', t('Продажа')], ['commercial', t('Коммерция')], ['cars', t('Машины')]];
+const CHANNEL_KINDS: [string, string][] = [['rent', t('Аренда квартир и домов')], ['sale', t('Продажа')], ['commercial', t('Коммерция')], ['cars', t('Машины')], ['daily', t('Посуточная аренда')], ['developments', t('Новостройки')]];
 
 function SettingsAdmin() {
   const qc = useQueryClient();
@@ -523,7 +523,7 @@ function SettingsAdmin() {
       </Card>
       <Card label={t('Telegram')} title={t('Каналы публикаций')}>
         <div className="col">
-          {CHANNEL_KINDS.map(([k, label]) => <Field key={k} label={label}><Input value={str(`publish_chat_${k}`)} placeholder={k === 'rent' ? t('основной канал (PUBLISH_CHAT_ID)') : '@homesingeorgia'} onChange={(e) => setK(`publish_chat_${k}`, e.target.value)} /></Field>)}
+          {CHANNEL_KINDS.map(([k, label]) => <Field key={k} label={label}><Input value={str(`publish_chat_${k}`)} placeholder={t('основной канал (PUBLISH_CHAT_ID)')} onChange={(e) => setK(`publish_chat_${k}`, e.target.value)} /></Field>)}
           <Field label={t('Чат для оригиналов фото')}><Input value={str('originals_chat_id')} placeholder="-100…" onChange={(e) => setK('originals_chat_id', e.target.value)} /></Field>
           <div className="muted" style={{ fontSize: 12 }}>{t('Фото без водяного знака документами + описание — при первой публикации и при смене фото. Проще всего: добавьте бота в группу и отправьте там /originals_here — id подставится сам.')}</div>
           <div className="muted" style={{ fontSize: 12 }}>{t('@username или id канала. Бот должен быть в нём админом с правами публикации и удаления — иначе пост уходит в основной канал, а в карточке объекта будет предупреждение. Меняет суперадмин.')}</div>

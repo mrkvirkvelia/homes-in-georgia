@@ -809,7 +809,13 @@ function CompareLink({ p }: { p: Property }) {
   const [url, setUrl] = useState('');
   const run = useMutation({
     mutationFn: () => api.properties.compareLink(p.id, url.trim()),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['similar'] }),
+    onSuccess: () => {  // the ad is the object's now (David 11-23): the card lists it, the dup search runs with its photos
+      setUrl('');
+      qc.invalidateQueries({ queryKey: ['property', p.id] });
+      qc.invalidateQueries({ queryKey: ['similar'] });
+      setTimeout(() => qc.invalidateQueries({ queryKey: ['similar'] }), 60_000);
+      setTimeout(() => qc.invalidateQueries({ queryKey: ['similar'] }), 180_000);
+    },
     onError: (e) => toast(errText(e), true),
   });
   const r = run.data;
@@ -829,7 +835,9 @@ function CompareLink({ p }: { p: Property }) {
           {facts && <div className="muted" style={{ marginTop: 4 }}>{facts}</div>}
           {r.why && <div style={{ marginTop: 4 }}>{r.why}</div>}
           {!!r.photos?.length && <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>{r.photos.map((src) => <img key={src} src={src} alt="" style={{ width: 72, height: 54, objectFit: 'cover', borderRadius: 6 }} />)}</div>}
-          <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>{t('Сходство по ракурсам фото досчитается в течение 10 минут — тогда объявление появится в «Похожих», если это та же квартира.')}</div>
+          <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>{r.linked
+            ? t('Объявление привязано к объекту («Объявления на других сайтах»). По его фото ищем все копии — через пару минут они появятся в «Похожих».')
+            : t('Это объявление уже привязано к объекту #{n}', { n: r.other_object ?? '' })}</div>
         </div>
       )}
     </div>

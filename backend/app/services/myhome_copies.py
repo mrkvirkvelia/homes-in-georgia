@@ -282,19 +282,32 @@ def by_link(url: str) -> dict:
     raise ValueError("Нужна ссылка на объявление myhome.ge или ss.ge")
 
 
-def compare_link(db: Session, pid: int, url: str) -> dict:
+def compare_link(db: Session, pid: int, url: str, actor=None) -> dict:
     """«Сравнить по ссылке» (David 11-22): the ad of a competitor / an owner is saved as a copy and scored against the
-    object as «Похожие» does (photos by their files now, by the rooms once the worker has their vectors)."""
-    from app.services import similar
+    object as «Похожие» does. David 11-23: the link names the object's ad — it is linked to the object (stays on the
+    card, «Объявления на других сайтах»), so the owner's photos in it become the object's and the duplicate search
+    (dup_scan, right after) finds every ad that re-posts them, though our own shoot shares none."""
+    from sqlalchemy import select
+
+    from app.models import PropertyListing
+    from app.services import matching, similar
+    from app.services import properties as P
     from app.services.common import log_event
     row = by_link(url)
     save(db, [row])
     r = similar.score_pair(db, f"p:{pid}", f"l:{row['id']}") or {}
-    log_event(db, "property", pid, "compare_link", None, label="сравнение по ссылке", url=row["url"], listing_id=row["id"],
-              pct=r.get("pct"))
+    p, l = db.get(Property, pid), db.get(Listing, row["id"])
+    owner = db.scalar(select(PropertyListing.property_id).where(PropertyListing.listing_id == l.id)) \
+        or db.scalar(select(Property.id).where(Property.listing_id == l.id, Property.id != pid))
+    if owner is None:
+        matching.attach(db, p, l, actor, ["добавлено по ссылке"], "compare_link")  # no exclusive alert: he linked it
+        P.schedule_dup_scan(db, p, "compare_link")
+    log_event(db, "property", pid, "compare_link", actor, label="сравнение по ссылке", url=row["url"], listing_id=row["id"],
+              pct=r.get("pct"), linked=owner is None)
     db.commit()
     return {"listing_id": row["id"], "url": row["url"], "address": row["address"], "area": row["area"], "floor": row["floor"],
             "bedrooms": row["bedrooms"], "price_usd": row["price_usd"], "photos": row["photos"][:4],
+            "linked": owner in (None, pid), "other_object": owner if owner not in (None, pid) else None,
             **{k: r.get(k) for k in ("pct", "level", "why", "matched", "differs")}}
 
 

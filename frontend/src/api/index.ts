@@ -83,7 +83,7 @@ export const api = {
 
   properties: {
     myhomeCopies: (id: number) => http.post<{ ok: boolean }>(`/properties/${id}/myhome-copies`, {}),
-    compareLink: (id: number, url: string) => http.post<{ listing_id: string; url: string; address: string | null; area: number | null; floor: number | null; bedrooms: number | null; price_usd: number | null; photos: string[]; pct: number | null; level: 'same' | 'maybe' | null; why: string | null }>(`/properties/${id}/compare-link`, { url }),
+    compareLink: (id: number, url: string) => http.post<{ listing_id: string; url: string; address: string | null; area: number | null; floor: number | null; bedrooms: number | null; price_usd: number | null; photos: string[]; pct: number | null; level: 'same' | 'maybe' | null; why: string | null; linked: boolean; other_object: number | null }>(`/properties/${id}/compare-link`, { url }),
     originals: (id: number) => fetchBlob(`/properties/${id}/originals`),
     list: (q?: PropertyScope & { q?: string; rented?: number; freeing?: number; limit?: number; offset?: number; source?: string[]; district?: string[]; metro?: string; bedrooms?: string; price_min?: string; price_max?: string; archive_reason?: string }) => then(http.get<L<Property>>('/properties', { limit: LIMIT, ...q }), (d) => normPage(d, normProperty)),
     /** the base tabs' filter options with counts (Stanislav 11-13) */

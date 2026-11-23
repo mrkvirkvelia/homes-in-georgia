@@ -545,7 +545,7 @@ def properties_compare_link(pid: int, body: CompareLink, db: Session = Depends(g
     from app.services.errors import DomainError
     p = P.get_visible(db, pid, user)
     try:
-        return myhome_copies.compare_link(db, p.id, body.url)
+        return myhome_copies.compare_link(db, p.id, body.url, user)
     except ValueError as e:
         raise DomainError("bad_link", str(e)) from e
     except Exception as e:  # noqa: BLE001 — the site or Apify did not answer

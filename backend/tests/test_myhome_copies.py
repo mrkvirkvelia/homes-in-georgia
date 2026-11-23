@@ -83,10 +83,35 @@ def test_compare_by_link(db, client, monkeypatch):
     r = client.post(f"/api/properties/{pid}/compare-link", json={"url": "https://home.ss.ge/ka/udzravi-qoneba/x-991"}, headers=auth(vika))
     assert r.status_code == 200, r.text
     assert r.json()["listing_id"] == "ss991" and r.json()["pct"] >= 65 and "общих фото: 3" in r.json()["matched"]
-    assert db.get(Listing, "ss991").status == "copy"
+    assert db.get(Listing, "ss991").status == "copy" and r.json()["linked"]
     monkeypatch.undo()
     r = client.post(f"/api/properties/{pid}/compare-link", json={"url": "https://example.com/1"}, headers=auth(vika))
     assert r.status_code == 400 and "myhome" in r.json()["detail"]
+
+
+def test_linked_owner_ad_finds_the_copies_of_its_photos(db, client, monkeypatch):
+    """David 11-23: our shoot shares no photo with the agents' copies; the owner's ad pasted by link does — it stays on
+    the card and its photos lead «Похожие» to every copy of them, a duplicate search is queued."""
+    from app.models import Job, PropertyListing
+    from tests.conftest import auth
+    vika = make_user(db, "agent", "Вика")
+    pid = _object(db, client, vika)
+    G = [0x7777000077770000, 0x3C3C3C3C3C3C3C3C, 0x6A6A6A6A01010101]  # the owner's photos: none of ours (H)
+    monkeypatch.setattr(M, "_hashes", lambda urls: list(G))
+    M.save(db, [ad(31, area=70, floor=4, bedroom="2")])  # an agent's copy with the owner's photos
+
+    def copy():
+        return next((c for c in similar.find(db, f"p:{pid}", vika) if c["key"] == "l:mh31"), {"reasons": []})
+    assert not any("общих фото" in r for r in copy()["reasons"])
+    row = {"id": "mh30", "source": "myhome.ge", "url": "https://www.myhome.ge/pr/30/x", "photos": ["https://img/30.jpg"] * 3,
+           "address": "x", "area": 70.0, "floor": 4, "bedrooms": 2, "district": None, "price_usd": 900, "text": "x"}
+    monkeypatch.setattr(M, "by_link", lambda url: row)
+    r = client.post(f"/api/properties/{pid}/compare-link", json={"url": "https://www.myhome.ge/pr/30/"}, headers=auth(vika))
+    assert r.status_code == 200 and r.json()["linked"], r.text
+    assert db.query(PropertyListing).filter_by(property_id=pid, listing_id="mh30").count() == 1
+    assert any(x["listing_id"] == "mh30" for x in client.get(f"/api/properties/{pid}", headers=auth(vika)).json()["listings"])
+    assert db.query(Job).filter_by(kind="dup_scan").count() == 1
+    assert any("общих фото" in r for r in copy()["reasons"])
 
 
 def test_link_forms(monkeypatch):

@@ -8,6 +8,13 @@ A fresh database (dropped and migrated), the API (uvicorn in a thread, real HTTP
       .venv/bin/python backend/scripts/e2e_channel.py [--keep]   # --keep: leave the stack up at the end (Ctrl-C)
 
 Prints «step → expected → got → ok/BUG» per check and exits 1 on any BUG.
+
+The real Telegram (E2E_REAL=1, test bot and test channels only — never prod): the bot's calls go to api.telegram.org
+and are recorded here; what is in a channel is read back read-only through a Telethon user session
+(skills/telegram-user-session `tg --account work`), a post «deleted by hand» is deleted by the bot outside the CRM.
+
+  E2E_REAL=1 BOT_TOKEN=$(cat token) E2E_CHANNELS=channels.json E2E_TG_ID=<the tester's id, /start-ed the bot> \
+      .venv/bin/python backend/scripts/e2e_channel.py      # channels.json: {"rent": -100…, "sale", "commercial", "originals"}
 """
 import json
 import os
@@ -38,16 +45,25 @@ TG_PORT, API_PORT = free_port(), free_port()
 TMP = Path(tempfile.mkdtemp(prefix="e2e_channel_"))
 BOT_ID = 7000000001
 CH = {"rent": "@e2e_rent", "sale": "@e2e_sale", "commercial": "@e2e_commercial", "originals": "@e2e_originals"}
+REAL = os.environ.get("E2E_REAL") == "1"
+TG_READER = os.environ.get("E2E_TG_READER", str(Path.home() / ".claude/skills/telegram-user-session/runtime/tg/tg"))
+if REAL:
+    if not os.environ.get("BOT_TOKEN") or not os.environ.get("E2E_CHANNELS") or not os.environ.get("E2E_TG_ID"):
+        sys.exit("E2E_REAL=1 needs BOT_TOKEN (a test bot), E2E_CHANNELS (test channel ids json) and E2E_TG_ID")
+    CH = {k: str(v) for k, v in json.loads(Path(os.environ["E2E_CHANNELS"]).read_text()).items()}
 os.environ.update({
     "DATABASE_URL": DB_URL, "TEST_DATABASE_URL": "", "SECRET_KEY": "e2e-secret-key-that-is-long-enough-for-hs256-ok",
-    "APP_ENV": "dev", "BOT_TOKEN": f"{BOT_ID}:test", "BOT_USERNAME": "homes_e2e_bot", "TG_API_BASE": f"http://127.0.0.1:{TG_PORT}",
+    "APP_ENV": "dev", "BOT_USERNAME": "homes_e2e_bot",
+    "BOT_TOKEN": os.environ["BOT_TOKEN"] if REAL else f"{BOT_ID}:test",
+    "TG_API_BASE": "https://api.telegram.org" if REAL else f"http://127.0.0.1:{TG_PORT}",
     "PUBLISH_CHAT_ID": CH["rent"], "AGENCY_CHANNEL": CH["rent"][1:], "RICH_POSTS": os.environ.get("RICH_POSTS", "1"),
     "MEDIA_STORAGE": "local", "MEDIA_DIR": str(TMP / "media"), "ADMIN_BOOTSTRAP_LOGIN": "", "SUPERADMIN_TG_IDS": "",
     "OPERATORS_CHAT_ID": "", "WORK_GROUP_CHAT_ID": "", "USERBOT_URL": "", "READER_URL": "", "OPENAI_API_KEY": "", "APIFY_TOKEN": "",
     "GOOGLE_SA_JSON": "", "PHOTO_VECTORS": "0", "PUBLIC_URL": "https://crm.e2e.test", "CHROME_BIN": os.environ.get("CHROME_BIN", "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"), "SITE_URL": "https://site.e2e.test",
     # every outbound request dies at a dead proxy; only the fake Telegram and the API on localhost answer
     "HTTP_PROXY": "http://127.0.0.1:9", "HTTPS_PROXY": "http://127.0.0.1:9", "ALL_PROXY": "http://127.0.0.1:9",
-    "NO_PROXY": "127.0.0.1,localhost", "no_proxy": "127.0.0.1,localhost",
+    "NO_PROXY": "127.0.0.1,localhost" + (",api.telegram.org" if REAL else ""),
+    "no_proxy": "127.0.0.1,localhost" + (",api.telegram.org" if REAL else ""),
 })
 sys.path.insert(0, str(BACKEND))
 sys.path.insert(0, str(REPO / "bot" / "test" / "e2e"))
@@ -107,6 +123,9 @@ class FakeTG(fake_tg.FakeTelegram):
     def chat_of(self, name):
         return self.cid(name)
 
+    def alive_ids(self, chat):
+        return set(self.live.get(int(chat), {}))
+
     def posts(self, name):
         """The posts in a chat now: one per send call with a live message (an album = one post), oldest first."""
         chat = self.chat_of(name)
@@ -126,7 +145,160 @@ class FakeTG(fake_tg.FakeTelegram):
         return [x for x in self.calls(chat=int(tg_id), since=since) if x["method"] in SENDS]
 
 
+class RealTG:
+    """The real Bot API: every call of the CRM's Telegram client is recorded (as FakeTG logs them), and what a chat
+    holds now is read through a Telethon user session (a reader process, read-only)."""
+
+    def __init__(self):
+        from app.telegram import client as tgc
+        self.log, self.lock, self.seq = [], threading.Lock(), 0
+        orig = tgc._call
+
+        def rec(method, files=None, **params):
+            res = orig(method, files, **params)
+            with self.lock:
+                self.seq += 1
+                e = {"seq": self.seq, "dir": "out", "method": method, "t": time.time(), **params,
+                     "ok": res is not None and not isinstance(res, tuple)}
+                if str(params.get("chat_id", "")).lstrip("-").isdigit():
+                    e["chat"] = int(params["chat_id"])
+                if isinstance(res, list):
+                    e["message_ids"] = [m["message_id"] for m in res]
+                    e["message_id"] = e["message_ids"][0] if res else None
+                elif isinstance(res, dict) and res.get("message_id"):
+                    e["message_id"], e["message_ids"] = res["message_id"], [res["message_id"]]
+                self.log.append(e)
+            return res
+        tgc._call = rec
+        script = TMP / "tg_reader.py"
+        script.write_text(READER)
+        self.proc = subprocess.Popen([TG_READER, "--account", "work", str(script)], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                     text=True, bufsize=1)
+        if self._read() != "ready":
+            sys.exit("the Telethon reader did not start")
+
+    def _read(self):
+        while True:
+            line = self.proc.stdout.readline()
+            if not line:
+                sys.exit("the Telethon reader exited")
+            if line.startswith("@@"):
+                return json.loads(line[2:])
+
+    def ask(self, **req):
+        self.proc.stdin.write(json.dumps(req) + "\n")
+        self.proc.stdin.flush()
+        out = self._read()
+        if isinstance(out, dict) and out.get("error"):
+            raise RuntimeError(f"reader: {out['error']}")
+        return out
+
+    def mark(self):
+        with self.lock:
+            return self.seq
+
+    def calls(self, chat=None, method=None, since=0):
+        with self.lock:
+            return [x for x in self.log if x["seq"] > since and (chat is None or x.get("chat") == chat)
+                    and (method is None or x["method"] == method)]
+
+    def dms(self, tg_id, since=0):
+        return [x for x in self.calls(chat=int(tg_id), since=since) if x["method"] in SENDS]
+
+    def chat_of(self, name):
+        return int(name)
+
+    def real(self, chat):
+        """The chat's last 200 messages as Telegram has them now."""
+        return self.ask(op="get", chat=int(chat), limit=200)
+
+    def alive_ids(self, chat):
+        return {m["id"] for m in self.real(chat)}
+
+    def posts(self, name):
+        """This run's posts in the chat now (an album = one post): the recorded send call + what Telegram shows."""
+        chat = self.chat_of(name)
+        msgs = self.real(chat)
+        by_id = {}
+        with self.lock:
+            for e in self.log:
+                if e.get("chat") == chat and e["method"] in SENDS:
+                    for mid in e.get("message_ids") or []:
+                        by_id[mid] = e
+        out = {}
+        for m in sorted(msgs, key=lambda m: m["id"]):
+            e = by_id.get(m["id"])
+            if e is None:
+                continue
+            x = out.setdefault(e["seq"], {**e, "real_text": "", "real_urls": [], "real_buttons": [], "real_ids": [], "real_media": []})
+            x["real_ids"].append(m["id"])
+            x["real_media"].append(m["media"])
+            x["real_text"] += m["text"]
+            x["real_urls"] += m["urls"]
+            x["real_buttons"] += m["buttons"]
+        return [out[k] for k in sorted(out)]
+
+    def delete_by_hand(self, name, mid):
+        """Someone deletes the post in the channel (here: the bot, outside the CRM — the CRM is not told)."""
+        e = next(x for x in self.log if x.get("chat") == self.chat_of(name) and mid in (x.get("message_ids") or []))
+        r = httpx.post(f"https://api.telegram.org/bot{os.environ['BOT_TOKEN']}/deleteMessages",
+                       data={"chat_id": name, "message_ids": json.dumps(e["message_ids"])})
+        assert r.json().get("ok"), r.text[:200]
+
+    def dump(self, folder, chats):
+        return self.ask(op="dump", folder=str(folder), chats=chats)
+
+
+READER = r'''
+import asyncio, json, os, sys
+loop = asyncio.get_event_loop()
+
+def msg(m):
+    urls = [e.url for e in (m.entities or []) if getattr(e, "url", None)]
+    btns = []
+    for r in getattr(m.reply_markup, "rows", None) or []:
+        for b in r.buttons:
+            btns.append(b.text)
+            if getattr(b, "url", None):
+                urls.append(b.url)
+    return {"id": m.id, "grouped_id": m.grouped_id, "text": m.message or "", "urls": urls, "buttons": btns,
+            "media": type(m.media).__name__ if m.media else None, "file": m.file.name if m.file else None,
+            "mime": m.file.mime_type if m.file else None, "date": m.date.isoformat()}
+
+print("@@" + json.dumps("ready"), flush=True)
+while True:
+    line = await loop.run_in_executor(None, sys.stdin.readline)
+    if not line:
+        break
+    req = json.loads(line)
+    try:
+        if req["op"] == "get":
+            out = [msg(m) for m in await client.get_messages(int(req["chat"]), limit=req.get("limit", 200))]
+        elif req["op"] == "dump":  # [{"name", "chat", "ids", "media_ids"}]: the messages as text + their photos
+            os.makedirs(req["folder"], exist_ok=True)
+            out = []
+            for c in req["chats"]:
+                ms = [m for m in await client.get_messages(int(c["chat"]), ids=c["ids"]) if m]
+                with open(os.path.join(req["folder"], c["name"] + ".txt"), "w") as f:
+                    for m in ms:
+                        d = msg(m)
+                        f.write(f"--- #{m.id} {d['date']} {d['media'] or ''} {d['file'] or ''}\n{d['text']}\n"
+                                + (f"[buttons] {' | '.join(d['buttons'])}\n" if d["buttons"] else "")
+                                + "".join(f"[link] {u}\n" for u in d["urls"]))
+                for m in ms:
+                    if m.id in c.get("media_ids", []) and m.photo:
+                        out.append(await client.download_media(m, os.path.join(req["folder"], f"{c['name']}_{m.id}.jpg")))
+        else:
+            out = {"error": "unknown op"}
+    except Exception as e:
+        out = {"error": repr(e)}
+    print("@@" + json.dumps(out, default=str), flush=True)
+'''
+
+
 def text_of(x):
+    if x.get("real_text"):
+        return x["real_text"] + " " + " ".join(x.get("real_urls") or [])
     t = x.get("text") or x.get("caption") or ""
     if x.get("media"):
         t = t or " | ".join(m.get("caption") or "" for m in x["media"])
@@ -136,6 +308,9 @@ def text_of(x):
 
 
 def buttons_of(x):
+    # a rich message reaches a user session as MessageMediaUnsupported (Telethon's layer): its buttons only as sent
+    if "real_buttons" in x and "MessageMediaUnsupported" not in x.get("real_media", []):
+        return x["real_buttons"]
     if x.get("rich_message"):
         import re
         return re.findall(r"<tg-button[^>]*>([^<]*)</tg-button>", x["rich_message"].get("html", ""))
@@ -239,8 +414,12 @@ def make_users():
     from app.db import SessionLocal
     from app.models import User
     from app.services import users as U
-    people = {"admin": ("superadmin", 9100001, "Стас"), "op": ("operator", 9100002, "Зураб"), "agent": ("agent", 9100003, "Нино"),
-              "agent2": ("agent", 9100005, "Гио"), "recruit": ("recruit", 9100004, "Леван")}
+    # REAL: the agent is the tester's own account (it /start-ed the bot); the others are ids nobody has, the bot can't
+    # reach them and the run still shows whom it tried to tell
+    base = 9_990_000_000 if REAL else 9_100_000
+    people = {"admin": ("superadmin", base + 1, "Стас"), "op": ("operator", base + 2, "Зураб"),
+              "agent": ("agent", int(os.environ["E2E_TG_ID"]) if REAL else base + 3, "Нино"),
+              "agent2": ("agent", base + 5, "Гио"), "recruit": ("recruit", base + 4, "Леван")}
     out = {}
     with SessionLocal() as db:
         for key, (role, tg_id, name) in people.items():
@@ -330,8 +509,9 @@ def new_object(agent="agent", address="ул. Палиашвили 12", price=900
 
 def posts_of(name, pid):
     """The live posts in a chat that are this object's (its «Contact» / CRM link carries p<id>)."""
-    return [x for x in FAKE.posts(name) if f"start=p{pid}" in json.dumps(x, ensure_ascii=False)
-            or f"q=o{pid}" in json.dumps(x, ensure_ascii=False)]
+    import re
+    own = re.compile(rf"(?:start=p|q=o){pid}(?!\d)")
+    return [x for x in FAKE.posts(name) if own.search(json.dumps(x, ensure_ascii=False))]
 
 
 def one_post(step, pid, name=None):
@@ -422,7 +602,8 @@ def step1():
     mark = FAKE.mark()
     p = A["op"].post(f"/properties/{pid}/review", json={"approve": True, "comment": "ок"})
     eq("1 опубликован", "published", p["status"])
-    check("1 ссылка на пост в канале аренды", f"t.me/{CH['rent'][1:]}/…", p.get("post_url"), f"t.me/{CH['rent'][1:]}/" in (p.get("post_url") or ""))
+    link = f"t.me/c/{CH['rent'][4:]}/" if REAL else f"t.me/{CH['rent'][1:]}/"
+    check("1 ссылка на пост в канале аренды", f"{link}…", p.get("post_url"), link in (p.get("post_url") or ""))
     post = one_post("1 пост в канале аренды", pid)
     if post and post["method"] == "sendRichMessage":
         eq("1 кнопки под постом", ["📍 On the map", "💬 Contact"], buttons_of(post))
@@ -434,10 +615,11 @@ def step1():
     work()
     oc = [x for x in FAKE.calls(chat=FAKE.chat_of(CH["originals"]), since=mark)]
     seq = [x["method"] + (":" + ",".join(m["type"] for m in x["media"]) if x.get("media") else "") for x in oc]
+    eq("1 оригиналы в группе сейчас: 3 сообщения/альбома", 3, len([x for x in FAKE.posts(CH["originals"]) if x["seq"] > mark]))
     check("1 оригиналы: документы → текст → видео", "sendMediaGroup:document×9, sendMessage, sendDocument", seq,
           len(oc) == 3 and oc[0]["method"] == "sendMediaGroup" and all(m["type"] == "document" for m in oc[0]["media"])
           and len(oc[0]["media"]) == 9 and oc[1]["method"] == "sendMessage" and oc[2]["method"] == "sendDocument"
-          and (oc[2].get("file") or "").endswith(".mp4"))
+          and (REAL or (oc[2].get("file") or "").endswith(".mp4")))
     audience("1 агенту «опубликован», оператору (нажал сам) — нет", mark, f"#{pid}", {"agent"}, {"op"})
     work()
     one_post("1 после воркера дублей нет", pid)
@@ -464,8 +646,9 @@ def step2():
     p = A["op"].post(f"/properties/{pid}/publish", json={"channel": "tg", "tg": True, "site": True})
     post = one_post("2 «Обновить пост»: один пост", pid)
     check("2 «Обновить пост»: старый удалён, новый вышел", f"старый #{old} удалён, новый ≠ {old}",
-          post and post["message_id"], post and post["message_id"] != old and old not in FAKE.live.get(FAKE.chat_of(CH["rent"]), {}))
-    eq("2 ссылка в CRM на новый пост", f"https://t.me/{CH['rent'][1:]}/{post['message_id'] if post else '?'}", p["post_url"])
+          post and post["message_id"], post and post["message_id"] != old and old not in FAKE.alive_ids(FAKE.chat_of(CH["rent"])))
+    link = f"t.me/c/{CH['rent'][4:]}" if REAL else f"t.me/{CH['rent'][1:]}"
+    eq("2 ссылка в CRM на новый пост", f"https://{link}/{post['message_id'] if post else '?'}", p["post_url"])
     work()
     oc = FAKE.calls(chat=FAKE.chat_of(CH["originals"]), since=mark)
     eq("2 оригиналы при перевыкладке с теми же фото не шлются", 0, len(oc))
@@ -593,7 +776,11 @@ def step4():
     pid = STATE["pid"]
     post = posts_of(CH["rent"], pid)[0]
     FAKE.delete_by_hand(CH["rent"], post["message_id"])
-    post_sync.alive = lambda channel, msgs: {m for m in msgs if m in FAKE.live.get(FAKE.chat_of("@" + channel), {})}
+    if REAL:  # the test channels are private (t.me/c/<id>/<n>); prod's are public, which is all post_sync reads
+        import re
+        post_sync.POST = re.compile(r"t\.me/(c/\d+|[A-Za-z]\w{3,})/(\d+)")
+    chat = lambda ch: int("-100" + ch[2:]) if ch.startswith("c/") else FAKE.chat_of("@" + ch)  # noqa: E731
+    post_sync.alive = lambda channel, msgs: set(msgs) & FAKE.alive_ids(chat(channel))
     mark = FAKE.mark()
     with SessionLocal() as db:
         n = post_sync.run(db, pause=0)
@@ -621,7 +808,10 @@ def step5():
     one_post("5 коммерция → канал коммерции", comm["id"], CH["commercial"])
     p = A["op"].post(f"/properties/{sale['id']}/publish", json={"channel": "tg", "tg": True, "site": True})
     one_post("5 «Обновить пост» продажи: в том же канале, один", sale["id"], CH["sale"])
-    FAKE.refuse.add(FAKE.chat_of(CH["sale"]))
+    if REAL:  # a channel the bot is not in: the real Telegram refuses it
+        A["admin"].put("/settings", json={"publish_chat_sale": "-1001000000001"})
+    else:
+        FAKE.refuse.add(FAKE.chat_of(CH["sale"]))
     sale2 = publish_new("agent2", address="ул. Барнова 7", price=99000, phone="+995 555 70 70 70",
                         post_fields={**POST_FIELDS, "deal": "Sale", "sale_price": 99000})
     one_post("5 канал продажи отказал → основной канал", sale2["id"], CH["rent"])
@@ -630,9 +820,13 @@ def step5():
     p = A["op"].post(f"/properties/{sale['id']}/publish", json={"channel": "tg", "tg": True, "site": True})
     eq("5 перевыкладка продажи при отказе канала → основной канал", 1, len(posts_of(CH["rent"], sale["id"])))
     pubs = [x for x in p.get("publications") or [] if x.get("delete_error")]
-    check("5 старый пост в отказавшем канале не удалить — карточка показывает ошибку", "delete_error в publications",
-          [(x.get("url"), x.get("delete_error")) for x in pubs], len(posts_of(CH["sale"], sale["id"])) == 1 and pubs)
-    FAKE.refuse.discard(FAKE.chat_of(CH["sale"]))
+    if REAL:  # the bot is still admin where the old post is: it is deleted
+        eq("5 старый пост в канале продажи удалён", 0, len(posts_of(CH["sale"], sale["id"])))
+        A["admin"].put("/settings", json={"publish_chat_sale": CH["sale"]})
+    else:
+        check("5 старый пост в отказавшем канале не удалить — карточка показывает ошибку", "delete_error в publications",
+              [(x.get("url"), x.get("delete_error")) for x in pubs], len(posts_of(CH["sale"], sale["id"])) == 1 and pubs)
+        FAKE.refuse.discard(FAKE.chat_of(CH["sale"]))
     STATE["sale"] = sale["id"]
 
 
@@ -804,9 +998,12 @@ def step8():
 def main():
     global FAKE, PHOTOS, VIDEO
     fresh_db()
-    FAKE = FakeTG(str(TMP / "tgfiles"))
-    FAKE.serve(TG_PORT)
     no_network_stubs()
+    if REAL:
+        FAKE = RealTG()
+    else:
+        FAKE = FakeTG(str(TMP / "tgfiles"))
+        FAKE.serve(TG_PORT)
     start_api()
     import logging
     logging.getLogger("app.request").setLevel(logging.WARNING)
@@ -830,6 +1027,14 @@ def main():
             for x in FAKE.calls(chat=int(tg_id)):
                 f.write(f"#{x['seq']} {x['method']}: {text_of(x)[:300]!r}\n")
     print("dms:", TMP / "dms.txt")
+    if REAL and os.environ.get("E2E_DUMP"):  # the channels' messages of this run as text + a few photos
+        chats = []
+        for name, chat in CH.items():
+            sent = [x for x in FAKE.calls(chat=int(chat)) if x["method"] in SENDS and x.get("message_ids")]
+            ids = sorted({i for x in sent for i in x["message_ids"]})
+            firsts = [x["message_ids"][0] for x in sent][-6:]
+            chats.append({"name": name, "chat": chat, "ids": ids, "media_ids": firsts})
+        print("dump:", FAKE.dump(os.environ["E2E_DUMP"], chats))
     (TMP / "report.json").write_text(json.dumps(ROWS, ensure_ascii=False, indent=1))
     print("report:", TMP / "report.json")
     if "--keep" in sys.argv:

@@ -93,11 +93,20 @@ def test_publish_records_the_channel_and_the_warning(db, client, monkeypatch):
 # Irakli 11-23: «HIG Original Photos» — the photos without the watermark after a publication, once per photo set
 
 
-def test_originals_post_sends_text_then_albums_of_ten(bot, monkeypatch):
-    monkeypatch.setattr(store, "q", lambda sql, args: [{"path": f"k{n}"} for n in range(12)])
-    monkeypatch.setattr(notify, "storage", SimpleNamespace(fetch=lambda key, tmp: f"/tmp/{key}.jpg"))
-    assert notify.originals_post(5, "-4001", "🏠 x") == 12
-    assert bot.sent == [("sendMessage", "-4001"), ("sendMediaGroup", "-4001"), ("sendMediaGroup", "-4001")]
+def test_originals_post_photos_then_text_then_video(bot, monkeypatch, tmp_path):
+    big, small = tmp_path / "big.mp4", tmp_path / "small.mp4"
+    small.write_bytes(b"v")
+    with open(big, "wb") as f:
+        f.truncate(notify.BOT_UPLOAD_MAX + 1)
+    rows = [{"kind": "photo", "path": f"k{n}"} for n in range(12)] + [{"kind": "video", "path": "small"}, {"kind": "video", "path": "big"}]
+    monkeypatch.setattr(store, "q", lambda sql, args: rows)
+    paths = {"small": str(small), "big": str(big)}
+    monkeypatch.setattr(notify, "storage", SimpleNamespace(fetch=lambda key, tmp: paths.get(key, f"/tmp/{key}.jpg")))
+    texts = []
+    monkeypatch.setattr(tg, "send", lambda chat, text, *a, **kw: texts.append(text) or bot.sent.append(("sendMessage", chat)) or {"message_id": 1})
+    assert notify.originals_post(5, "-4001", "🏠 x") == 13
+    assert bot.sent == [("sendMediaGroup", "-4001"), ("sendMediaGroup", "-4001"), ("sendMessage", "-4001"), ("sendDocument", "-4001")]
+    assert texts[0].startswith("🏠 x") and "больше 50 МБ" in texts[0]
 
 
 def test_originals_once_per_photo_set(db, client, monkeypatch):
@@ -108,6 +117,7 @@ def test_originals_once_per_photo_set(db, client, monkeypatch):
     sent = []
     monkeypatch.setattr(notify, "publish_post", lambda prop: (7, "https://t.me/rent_tbilisi_ge/7", MAIN, [7]))
     monkeypatch.setattr(notify, "originals_post", lambda pid, chat, text: sent.append((pid, chat, text)) or 2)
+    monkeypatch.setattr(notify, "post_html", REAL_NOTIFY["post_html"])
     _, nino, pid, _ = _submitted(db, client)
     properties.publish(db, pid, nino)
     worker.tick()
@@ -115,7 +125,8 @@ def test_originals_once_per_photo_set(db, client, monkeypatch):
     settings.set(db, "originals_chat_id", "-4001")
     properties.publish(db, pid, nino)
     worker.tick()
-    assert len(sent) == 1 and sent[0][1] == "-4001" and f"Объект #{pid}" in sent[0][2] and "t.me/rent_tbilisi_ge/7" in sent[0][2]
+    assert len(sent) == 1 and sent[0][1] == "-4001" and f"CRM #{pid}" in sent[0][2] and "t.me/rent_tbilisi_ge/7" in sent[0][2]
+    assert sent[0][2].startswith(notify.post_html(properties.post_text(db, db.get(Property, pid)), pid)[:40])
     properties.publish(db, pid, nino)  # a repost, the same photos: nothing
     worker.tick()
     assert len(sent) == 1

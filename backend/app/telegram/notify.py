@@ -1439,17 +1439,31 @@ def publish_post(prop):
 
 @safe
 def originals_post(pid, chat, text):
-    """«HIG Original Photos» (Irakli 11-23): the text, then every photo of the object without the watermark as documents,
-    albums of 10. -> how many files went out, or None."""
+    """«HIG Original Photos» (Irakli / David 11-23, their sample): every photo without the watermark as documents (albums
+    of 10), then the post text (HTML), then the videos as documents. A video over BOT_UPLOAD_MAX (the Bot API's 50 MB) is
+    left out with a line in the text. -> how many files went out, or None."""
     with tempfile.TemporaryDirectory() as tmp:
-        rows = store.q("SELECT path FROM property_media WHERE property_id = %s AND kind = 'photo' ORDER BY position, id", (pid,))
-        files = [p for r in rows if (p := storage.fetch(r["path"], tmp))]
-        if not files or not tg.send(chat, text):
+        rows = store.q("SELECT kind, path FROM property_media WHERE property_id = %s AND kind IN ('photo', 'video') "
+                       "ORDER BY position, id", (pid,))
+        files = [(r["kind"], p) for r in rows if (p := storage.fetch(r["path"], tmp))]
+        photos = [p for k, p in files if k == "photo"]
+        videos, big = [], []
+        for k, p in files:
+            if k == "video":
+                (videos if os.path.getsize(p) <= BOT_UPLOAD_MAX else big).append(p)
+        if not photos:
             return None
         n = 0
-        for i in range(0, len(files), 10):
-            if send_group(chat, None, [("document", p) for p in files[i:i + 10]]):
-                n += len(files[i:i + 10])
+        for i in range(0, len(photos), 10):
+            if send_group(chat, None, [("document", p) for p in photos[i:i + 10]]):
+                n += len(photos[i:i + 10])
+        for p in big:
+            log.warning("originals of %s: video %s is %d MB, over the Bot API limit — not sent", pid, p, os.path.getsize(p) >> 20)
+        note = "".join(f"\n\n🎥 Видео {os.path.getsize(p) >> 20} МБ больше 50 МБ — не отправлено, оригинал в CRM" for p in big)
+        tg.send(chat, text + note)
+        for p in videos:
+            if tg.call("sendDocument", files={"document": p}, chat_id=chat):
+                n += 1
         return n or None
 
 

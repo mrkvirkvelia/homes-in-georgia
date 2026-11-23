@@ -260,7 +260,7 @@ def tg_originals(db: Session, job: Job):
     """After a publication: the photos without the watermark into the originals chat (properties.send_originals)."""
     from app.services import properties
     p = db.get(Property, _ref_id(job))
-    return properties.send_originals(db, p) if p is not None else "noop"
+    return properties.send_originals(db, p, (job.payload or {}).get("text")) if p is not None else "noop"
 
 
 @handler("tg_repost")

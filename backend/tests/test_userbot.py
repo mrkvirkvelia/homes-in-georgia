@@ -565,6 +565,10 @@ def test_phone_login_wrong_code_then_2fa(db):
         raise AssertionError(st)
     try:
         httpx.post(f"{url}/phone", headers=hdr, json={"phone": "+995 599 12-34-56"})
+        for _ in range(250):  # set through loop.call_soon_threadsafe: a beat later than the response (CI 11-23 flake)
+            if userbot.STATE["start"].is_set():
+                break
+            time.sleep(0.02)
         assert userbot.STATE["phone"] == "+995599123456" and userbot.STATE["start"].is_set()
         done = asyncio.run_coroutine_threadsafe(userbot.login(Fake()), loop)
         wait_for("code")

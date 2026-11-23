@@ -154,6 +154,9 @@ function clauseText(bs: DraftBlock[], k: string): string | null {
 }
 
 /** Standalone HTML (opens in Word / LibreOffice as an editable document, like the old «Редактировать DOC»). */
+// a phone can't open the .doc (HTML for Word): iOS «This file cannot be previewed» (Irakli 11-23); the PDF is there
+const PHONE = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+
 function docHtml(doc: ContractDoc): string {
   const inner = docInner(doc);  // clause edits are in the doc itself (buildContract + data._edits)
   return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(doc.title)}</title><style>body{font-family:${DOC_FONT};font-size:${pageOf(doc).pt}pt;line-height:normal}${DOC_CSS}</style></head><body><div class="contract-doc">${inner}</div></body></html>`;
@@ -741,7 +744,7 @@ export function ContractWizard({ compact }: { compact?: boolean }) {
             <Button loading={save.isPending} onClick={() => save.mutate()}><Save size={16} />{saved ? t('Обновить PDF') : t('Сохранить PDF')}</Button>
             {!tg && <Button variant="secondary" onClick={print}><Printer size={16} />{t('Печать')}</Button>}
             {tg ? <Button variant="secondary" loading={sendTg.isPending} onClick={() => sendTg.mutate()}><Send size={16} />{t('.doc в Telegram')}</Button>
-              : <Button variant="secondary" onClick={download}><Download size={16} />{t('Скачать .doc')}</Button>}
+              : !PHONE && <Button variant="secondary" onClick={download}><Download size={16} />{t('Скачать .doc')}</Button>}
             <Button variant="ghost" onClick={() => setStep(3)}>{t('Изменить данные')}</Button>
           </div>
           {saved && (

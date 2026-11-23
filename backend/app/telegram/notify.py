@@ -1619,11 +1619,12 @@ OPEN = {"property": ("🏠 Открыть объект", links.property_app), "l
 
 @safe
 def staff_event(text, kind, ref, agents=(), actor=None, ops=True):
-    """To the agents (user ids) and, ops, the operators (operators_targets: the connected operator account) — never to
-    the one who pressed it (actor: user id), nobody twice. The button opens the object / lead / deal / contract."""
+    """To the agents (user ids), the one who pressed it (actor: a confirmation, David 11-24 «уведомление не пришло что
+    снято») and, ops, the operators (operators_targets: the connected operator account), nobody twice. The button
+    opens the object / lead / deal / contract."""
     label, url = OPEN[kind]
-    skip = {str(t) for t in [(store.user(actor) or {}).get("tg_id")] if t}
-    for aid in dict.fromkeys(a for a in agents if a and a != actor):
+    skip: set[str] = set()
+    for aid in dict.fromkeys(a for a in (*agents, actor) if a):
         u = store.user(aid) or {}
         if u.get("tg_id") and u.get("is_active", True) and str(u["tg_id"]) not in skip:
             skip.add(str(u["tg_id"]))

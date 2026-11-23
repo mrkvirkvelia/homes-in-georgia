@@ -36,7 +36,7 @@ def _lead(db, agent, status="time_chosen"):
 
 # ---------- the dispatcher itself: who gets the message
 
-def test_staff_event_reaches_agents_and_operator_but_not_the_one_who_pressed(db, monkeypatch):
+def test_staff_event_reaches_agents_operator_and_the_one_who_pressed(db, monkeypatch):
     got = []
     people = {1: {"tg_id": 101}, 2: {"tg_id": 102}, 3: {"tg_id": 103, "is_active": False}, 9: {"tg_id": 900}}
     monkeypatch.setattr(notify.tg, "base", lambda: "x")
@@ -46,11 +46,11 @@ def test_staff_event_reaches_agents_and_operator_but_not_the_one_who_pressed(db,
     REAL_STAFF_EVENT("x", "property", 5, [1, 2, 2, 3, None])
     assert got == ["101", "102", "900"]  # each once, an inactive agent skipped, then the operator account
     got.clear()
-    REAL_STAFF_EVENT("x", "property", 5, [1, 2], 2)  # agent 2 pressed it
-    assert got == ["101", "900"]
+    REAL_STAFF_EVENT("x", "property", 5, [1, 2], 2)  # agent 2 pressed it: a confirmation to him too (David 11-24)
+    assert got == ["101", "102", "900"]
     got.clear()
-    REAL_STAFF_EVENT("x", "property", 5, [1], 9)  # the operator (= the connected account) pressed it
-    assert got == ["101"]
+    REAL_STAFF_EVENT("x", "property", 5, [1], 9)  # the operator (= the connected account) pressed it: once
+    assert got == ["101", "900"]
     got.clear()
     REAL_STAFF_EVENT("x", "lead", 5, [1], None, False)
     assert got == ["101"]

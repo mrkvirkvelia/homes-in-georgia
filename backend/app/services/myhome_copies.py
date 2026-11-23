@@ -267,7 +267,8 @@ def _mh_detail(mid: str) -> dict:
     return _mh_row(st)
 
 
-MH_LINK = re.compile(r"myhome\.ge/(?:[a-z]{2}/)?pr/(\d+)")
+# /ka/pr/26740808/… and the new slug form /ka/udzravi-qoneba/qiravdeba-…-vakeshi-26740808/ (David 11-23)
+MH_LINK = re.compile(r"myhome\.ge/(?:[a-z]{2}/)?(?:pr/(\d+)|[^?#]*?-(\d{6,})/?(?:[?#]|$))")
 SS_LINK = re.compile(r"ss\.ge/.*?(\d{6,})(?:[/?#]|$)")
 
 
@@ -275,7 +276,7 @@ def by_link(url: str) -> dict:
     """A myhome / ss.ge ad link -> its row (_mh_row / _ss_row shape); ValueError for another link."""
     url = url.strip()
     if m := MH_LINK.search(url):
-        return _mh_detail(m[1])
+        return _mh_detail(m[1] or m[2])
     if SS_LINK.search(url):
         return _ss_detail(url.split("?")[0])
     raise ValueError("Нужна ссылка на объявление myhome.ge или ss.ge")

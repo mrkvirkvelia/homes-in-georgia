@@ -87,3 +87,15 @@ def test_compare_by_link(db, client, monkeypatch):
     monkeypatch.undo()
     r = client.post(f"/api/properties/{pid}/compare-link", json={"url": "https://example.com/1"}, headers=auth(vika))
     assert r.status_code == 400 and "myhome" in r.json()["detail"]
+
+
+def test_link_forms(monkeypatch):
+    """myhome's new slug links (David 11-23: «Нужна ссылка…» on /ka/udzravi-qoneba/…-26740808/) and the old /pr/ ones."""
+    import pytest
+    monkeypatch.setattr(M, "_mh_detail", lambda i: i)
+    for u in ("https://www.myhome.ge/ka/udzravi-qoneba/qiravdeba-2-otaxiani-axali-ashenebuli-bina-vakeshi-26740808/",
+              "https://www.myhome.ge/udzravi-qoneba/qiravdeba-2-otaxiani-bina-vakeshi-26740808",
+              "https://www.myhome.ge/en/pr/26740808/flat-for-rent", "myhome.ge/pr/26740808?x=1"):
+        assert M.by_link(u) == "26740808", u
+    with pytest.raises(ValueError):
+        M.by_link("https://www.myhome.ge/ka/s/")

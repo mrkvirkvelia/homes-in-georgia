@@ -16,6 +16,8 @@ export const D: Record<string, [ka: string, en: string]> = {
   'Не удалось загрузить данные': ['მონაცემები ვერ ჩაიტვირთა', 'Failed to load data'],
   'Закрыть': ['დახურვა', 'Close'],
   'Назад': ['უკან', 'Back'],
+  'К объекту': ['ობიექტზე', 'To the object'],
+  'Вернуть объект в работу': ['ობიექტის სამუშაოში დაბრუნება', 'Put the object back to work'],
   'Вперёд': ['წინ', 'Next'],
   // domain.tsx
   'Скопировано: {p}': ['დაკოპირდა: {p}', 'Copied: {p}'],

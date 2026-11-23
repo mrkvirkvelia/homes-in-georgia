@@ -608,6 +608,7 @@ export function ContractWizard({ compact }: { compact?: boolean }) {
       <div className="no-print">
         {!compact && (
           <PageHead label={t('Генератор договоров')} title={t('Договоры')} actions={<div className="row row-wrap gap-sm">
+            {linkProp > 0 && <Link className="btn btn-secondary" to={`/objects/${linkProp}`}><Home size={16} />{t('К объекту')}</Link>}
             <SignDocsLink />
             <Button variant="secondary" onClick={reset}><RotateCcw size={16} />{t('Новый договор')}</Button></div>} />
         )}

@@ -129,6 +129,21 @@ def test_rooms_optional_and_switchable(db):
     assert properties.out(db, p, ag, full=True)["room_picker"] is False
 
 
+
+def test_photo_rooms_editable_and_bathroom_renamed(db):
+    """David 11-23: new room tags, «Ванная» → «Санузел» (old tags kept), the list edited in Управление → Настройки."""
+    ag, p = _object(db, "ss905")
+    properties.upload_media(db, p.id, [("a.jpg", b"\xff\xd8x")], "Ванная", ag)
+    p = db.get(Property, p.id)
+    p.checklist = {"Ванная": True}
+    db.commit()
+    o = properties.out(db, p, ag, full=True)
+    assert {"Санузел", "Прихожая", "Фасад", "Гардероб", "Терраса", "Кабинет"} <= set(o["photo_rooms"])
+    assert "Ванная" not in o["photo_rooms"]
+    assert o["media"][0]["room"] == "Санузел" and o["checklist"] == {"Санузел": True}
+    settings.set(db, "photo_rooms", "Кухня\n  \nМансарда\n")
+    assert properties.out(db, p, ag, full=True)["photo_rooms"] == ["Кухня", "Мансарда"]
+
 def test_media_order_saved_and_rooms_photo_only(db, client):
     ag, p = _object(db, "ss904")
     properties.upload_media(db, p.id, [("a.jpg", b"\xff\xd8x"), ("b.jpg", b"\xff\xd8x")], "Кухня", ag)

@@ -25,7 +25,7 @@ import { keepAwake, pool, shrinkPhoto } from '../../lib/upload';
 import { addMonths, isoDate, parseIsoDate } from '../../lib/dates';
 import { Autosaver, type AutosaveState } from '../../lib/autosave';
 import { AddressField, type Point } from '../../components/AddressField';
-import { t, LOCALE } from '../../lib/i18n';
+import { t, lx, LOCALE } from '../../lib/i18n';
 
 const REQUEST_SENT = t('Изменение ушло оператору на проверку');
 
@@ -43,7 +43,11 @@ export function fewPhotos(media: { kind: string }[]): string | null {
   const n = media.filter((m) => m.kind === 'photo').length;
   return n < MIN_PHOTOS ? t('Нужно минимум {min} фото, сейчас {n}', { min: MIN_PHOTOS, n }) : null;
 }
-export const ROOMS = ['Гостиная', 'Кухня', 'Спальня 1', 'Спальня 2', 'Спальня 3', 'Ванная', 'Балкон', 'Вид из окна', 'Подъезд'];
+export const ROOMS = ['Гостиная', 'Кухня', 'Спальня 1', 'Спальня 2', 'Спальня 3', 'Санузел', 'Балкон', 'Терраса', 'Вид из окна', 'Прихожая', 'Гардероб', 'Кабинет', 'Подъезд', 'Фасад'];
+/** Room tags under a photo: Управление → Настройки (photo_rooms), the built-in list until the backend sends one. */
+export const roomsOf = (p?: Property) => (p?.photo_rooms?.length ? p.photo_rooms : ROOMS);
+// «Кабинет» is also the nav's «My account» in the shared dictionary: the room gets its own translation
+const roomT = (r: string) => (r === 'Кабинет' ? lx(r, 'კაბინეტი', 'Study') : t(r));
 const STEPS = ['Взят', 'Звонок', 'Собственник', 'Съёмка', 'Пост и фото', 'Проверка', 'Публикация'].map((s) => t(s));
 
 function stepOf(p: Property): number {
@@ -492,7 +496,8 @@ function PostGeneratorStep({ p, canEdit }: { p: Property; canEdit: boolean }) {
     onSuccess: (r) => { set(r); toast(t('Отправлено на модерацию')); }, onError: (e) => toast(errText(e), true),
   });
   const post = useQuery({ queryKey: ['property-post', p.id], queryFn: () => api.properties.post(p.id) });
-  const done = ROOMS.filter((r) => checklist[r] || media.some((m) => m.room === r)).length;
+  const rooms = roomsOf(p);
+  const done = rooms.filter((r) => checklist[r] || media.some((m) => m.room === r)).length;
   const roomsOn = p.room_picker !== false;
   const missing = p.missing || [];
   const dirty = Object.keys(genDiff(ctl.confirmed, f)).length > 0 || saveState.saving;
@@ -625,11 +630,11 @@ function PostGeneratorStep({ p, canEdit }: { p: Property; canEdit: boolean }) {
         )}
         <MediaGrid p={p} grouped onOrder={canEdit ? (ids) => order.mutate(ids.map(Number)) : undefined} onDelete={canEdit ? (id) => del.mutate(Number(id)) : undefined} onRoom={canEdit && roomsOn ? (id, r) => room.mutate([id, r]) : undefined} />
         {roomsOn && <>
-          <div className="row row-between"><span className="label">{t('Что снято · необязательно')}</span><span className="muted num" style={{ fontWeight: 700 }}>{done}/{ROOMS.length}</span></div>
+          <div className="row row-between"><span className="label">{t('Что снято · необязательно')}</span><span className="muted num" style={{ fontWeight: 700 }}>{done}/{rooms.length}</span></div>
           <div className="row row-wrap gap-sm">
-            {ROOMS.map((r) => {
+            {rooms.map((r) => {
               const on = !!checklist[r] || media.some((m) => m.room === r);
-              return <button key={r} type="button" className={`chip ${on ? 'active' : ''}`} disabled={!canEdit} onClick={() => check.mutate({ ...checklist, [r]: !checklist[r] })}>{on ? <CheckCircle2 size={14} /> : null}{t(r)}</button>;
+              return <button key={r} type="button" className={`chip ${on ? 'active' : ''}`} disabled={!canEdit} onClick={() => check.mutate({ ...checklist, [r]: !checklist[r] })}>{on ? <CheckCircle2 size={14} /> : null}{roomT(r)}</button>;
             })}
           </div>
         </>}
@@ -752,13 +757,13 @@ export function MediaGrid({ p, items, grouped, onDelete, onRoom, onOrder, off, o
       </> : <img src={thumbUrl(m.src)} alt={m.room || ''} loading="lazy" />}
       {onRoom && m.kind !== 'video' ? (
         <span className="room-pick" onClick={(e) => e.stopPropagation()}>
-          <span className={`badge badge-blue ${m.room ? '' : 'no-room'}`}>{m.room ? t(m.room) : t('Комната?')}<ChevronDown size={12} /></span>
+          <span className={`badge badge-blue ${m.room ? '' : 'no-room'}`}>{m.room ? roomT(m.room) : t('Комната?')}<ChevronDown size={12} /></span>
           <select value={m.room || ''} aria-label={t('Комната')} onChange={(e) => onRoom(Number(m.id), e.target.value || null)}>
             <option value="">{t('Не указана')}</option>
-            {ROOMS.map((r) => <option key={r} value={r}>{t(r)}</option>)}
+            {(m.room && !roomsOf(p).includes(m.room) ? [...roomsOf(p), m.room] : roomsOf(p)).map((r) => <option key={r} value={r}>{roomT(r)}</option>)}
           </select>
         </span>
-      ) : m.room && m.kind !== 'video' && <span className="room badge badge-blue">{t(m.room)}</span>}
+      ) : m.room && m.kind !== 'video' && <span className="room badge badge-blue">{roomT(m.room)}</span>}
       {onToggle && (
         <label className="pick-box" onClick={(e) => e.stopPropagation()} title={off?.has(m.id) ? t('Не в посте') : t('В посте')}>
           <input type="checkbox" checked={!off?.has(m.id)} onChange={() => onToggle(m.id)} aria-label={t('В посте')} />
@@ -1318,7 +1323,7 @@ function OwnerDoc({ p, canEdit, kind, label, accept }: { p: Property; canEdit: b
 function ReviewStep({ p }: { p: Property }) {
   const { toast, set } = useProp(p.id);
   const [comment, setComment] = useState('');
-  const missing = ROOMS.slice(0, 6).filter((r) => !(p.checklist || {})[r] && !(p.media || []).some((m) => m.room === r));
+  const missing = roomsOf(p).slice(0, 6).filter((r) => !(p.checklist || {})[r] && !(p.media || []).some((m) => m.room === r));
   const back = useMutation({
     mutationFn: () => api.properties.review(p.id, false, comment),
     onSuccess: (r) => { set(r); toast(t('Возвращено агенту')); },
@@ -1331,7 +1336,7 @@ function ReviewStep({ p }: { p: Property }) {
       <div className="col gap-sm">
         <div className="row gap-sm"><AiFlagBadges flags={p.ai_flags} />{!p.ai_flags?.owner && !p.ai_flags?.agent_suspect && !p.ai_flags?.duplicate && <span className="muted">{t('Меток ИИ нет')}</span>}</div>
         <DupCheck value={p.dup_check} />
-        {p.room_picker !== false && (missing.length ? <div className="alert alert-info">{t('Комнаты не отмечены (необязательно):')} {missing.map((r) => t(r)).join(', ')}</div> : <div className="alert alert-ok">{t('Все основные комнаты отмечены')}</div>)}
+        {p.room_picker !== false && (missing.length ? <div className="alert alert-info">{t('Комнаты не отмечены (необязательно):')} {missing.map(roomT).join(', ')}</div> : <div className="alert alert-ok">{t('Все основные комнаты отмечены')}</div>)}
         {p.owner?.is_agent && <div className="alert alert-warn">{t('Телефон собственника отмечен как агентский')}</div>}
       </div>
       <div className="divider" />

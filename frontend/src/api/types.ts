@@ -175,6 +175,7 @@ export interface Property {
   duplicate_scan?: { n?: number; pending?: boolean; at?: string; trigger?: string;
     strong?: { key: string; where: string; property_id: number | null; listing_id: string | null; url: string | null; address: string | null; reasons: string[] }[] } | null;
   missing?: string[]; // what still blocks «Отправить оператору» (backend properties.missing_fields)
+  photo_rooms?: string[]; // Управление → Настройки: the room tags offered under a photo
   room_picker?: boolean; // Управление → Настройки: the per-photo room tag (optional) is shown
 
   id: number;

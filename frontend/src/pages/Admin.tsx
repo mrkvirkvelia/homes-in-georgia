@@ -10,7 +10,7 @@ import { ADMIN_ROLES, SUPER_ROLES, atLeast } from '../api/types';
 import { useAuth } from '../auth/AuthContext';
 import { KeysPage } from './AdminKeys';
 import { errText, useToast } from '../components/toast';
-import { Avatar, Badge, Button, Card, Checkbox, Drawer, Empty, ErrorBox, Field, Input, Loading, Modal, PageHead, Seg, Select, Switch, Tabs } from '../components/ui';
+import { Avatar, Badge, Button, Card, Checkbox, Drawer, Empty, ErrorBox, Field, Input, Loading, Modal, PageHead, Seg, Select, Switch, Tabs, Textarea } from '../components/ui';
 import { ROLE_LABEL, ago, fmtDateTime, phoneBlur, phoneFocus, phoneInput } from '../lib/format';
 import { AvatarEdit, EMAIL_RE, birthdayLabel } from './Cabinet';
 import { parseMetrics } from '../lib/useUserNames';
@@ -511,6 +511,8 @@ function SettingsAdmin() {
         <div className="col">
           <Switch checked={str('room_picker') !== '0'} onChange={(v) => setK('room_picker', v ? '1' : '0')} label={t('Выбор комнаты под фото (необязательный)')} />
           <div className="muted" style={{ fontSize: 12 }}>{t('Выключите, чтобы агенты не видели выбор комнаты и «Что снято». Отправку на модерацию комнаты не блокируют в любом случае.')}</div>
+          <Field label={t('Категории фото, по одной в строке')}><Textarea rows={8} value={str('photo_rooms')} onChange={(e) => setK('photo_rooms', e.target.value)} /></Field>
+          <div className="muted" style={{ fontSize: 12 }}>{t('Порядок списка — порядок в выборе под фото и в «Что снято». Переименование не меняет уже размеченные фото: у них остаётся старое название.')}</div>
           <Field label={t('Возврат взятого объекта, не взятого в работу, мин')}><Input type="number" min={0} value={str('take_idle_min')} onChange={(e) => setK('take_idle_min', e.target.value)} /></Field>
           <div className="muted" style={{ fontSize: 12 }}>{t('Объект, взятый из «Новых объявлений», возвращается туда, если агент ничего не сделал по нему за это время (за 15 минут бот предупредит). 0 — выключено.')}</div>
           <Field label={t('«Собственник сдал»: напомнить агенту за N дней до конца аренды')}><Input value={str('owner_lease_remind_days')} placeholder="30,7" onChange={(e) => setK('owner_lease_remind_days', e.target.value)} /></Field>

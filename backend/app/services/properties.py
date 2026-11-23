@@ -1244,6 +1244,7 @@ def _tz():
 
 
 # ---------------------------------------------------------------- media, checklist, review (C4, B7)
+ROOM_ALIAS = {"Ванная": "Санузел"}  # renamed room tags (David 11-23): old tags read as the new name, no data rewrite
 
 def media_root() -> Path:
     return Path(env.MEDIA_DIR)
@@ -2687,6 +2688,8 @@ def out(db: Session, p: Property, user: User, full: bool = False, cache: dict | 
                                     "total_floors", "description", "is_exclusive", "site_hidden", "checklist", "ai_flags",
                                     "duplicate_of", "dup_check", "review_comment", "reviewed_by", "post_url",
                                     "post_message_id", "owner_id", "post_fields", "archive_reason", "archive_comment")}
+    if d["checklist"]:
+        d["checklist"] = {ROOM_ALIAS.get(k, k): v for k, v in d["checklist"].items()}
     for c in ("taken_at", "next_call_at", "shoot_at", "reviewed_at", "published_at", "verified_at", "archived_at",
               "fast_track_at", "created_at", "updated_at"):
         v = getattr(p, c)
@@ -2715,11 +2718,12 @@ def out(db: Session, p: Property, user: User, full: bool = False, cache: dict | 
     visible = can_see_owner(p, user)  # ad links lead to the owner's phone
     d["exclusive_conflict"] = [{**a, "url": a["url"] if visible else None} for a in cache.get(k, [])] if p.is_exclusive else []
     if full:
-        d["media"] = [{"id": m.id, "kind": m.kind, "room": m.room, "position": m.position, "url": f"/api/media/{m.path}",
+        d["media"] = [{"id": m.id, "kind": m.kind, "room": ROOM_ALIAS.get(m.room, m.room), "position": m.position, "url": f"/api/media/{m.path}",
                        "preview": f"/api/media/{m.path}?p=1"}
                       for m in media(db, p.id)]
         d["missing"] = missing_fields(p)  # what still blocks «Отправить оператору»
         d["room_picker"] = settings_svc.get(db, "room_picker") != "0"  # Управление → Настройки; rooms never required
+        d["photo_rooms"] = [r.strip() for r in (settings_svc.get(db, "photo_rooms") or "").splitlines() if r.strip()]
         c = contract(db, p.id) if p.is_exclusive else None
         d["exclusive_contract"] = {"id": c.id, "url": f"/api/media/{c.path}", "created_at": c.created_at} if c else None
         w = no_esign(db, p.id) if p.is_exclusive and not c else None

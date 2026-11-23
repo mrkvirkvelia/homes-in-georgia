@@ -501,4 +501,6 @@ export const D: Record<string, [ka: string, en: string]> = {
   'Пусто — из профиля участника': ['ცარიელი — მონაწილის პროფილიდან', 'Empty — from the member’s profile'],
   'Необязательно: @username — тогда подписать сможет только этот аккаунт': ['არასავალდებულო: @username — მაშინ ხელს მხოლოდ ეს ანგარიში მოაწერს', 'Optional: @username — then only this account can sign'],
   'Создать черновик': ['მონახაზის შექმნა', 'Create draft'],
+  'Категории фото, по одной в строке': ['ფოტოს კატეგორიები, თითო ხაზზე', 'Photo categories, one per line'],
+  'Порядок списка — порядок в выборе под фото и в «Что снято». Переименование не меняет уже размеченные фото: у них остаётся старое название.': ['სიის რიგი — რიგი ფოტოს არჩევანში და «რა გადაიღეს»-ში. გადარქმევა უკვე მონიშნულ ფოტოებს არ ცვლის: მათ ძველი სახელი რჩება.', 'The list order is the order in the photo picker and «What was shot». Renaming does not change already tagged photos: they keep the old name.'],
 };

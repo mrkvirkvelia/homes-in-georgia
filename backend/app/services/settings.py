@@ -15,6 +15,9 @@ DEFAULTS = {
     "take_idle_min": "1440",  # an object taken from «Новые объявления» and not in work goes back after N min (a day, David 11-22); 0 = off
     "owner_lease_remind_days": "30,7",  # «Собственник сдал»: Telegram to the agent N days before the lease ends
     "room_picker": "1",  # media upload: the per-photo room tag (always optional); 0 hides it
+    # the room tags offered under a photo, one per line (Управление → Настройки, David 11-23); «Ванная» is now «Санузел»
+    "photo_rooms": "\n".join(("Гостиная", "Кухня", "Спальня 1", "Спальня 2", "Спальня 3", "Санузел", "Балкон", "Терраса",
+                              "Вид из окна", "Прихожая", "Гардероб", "Кабинет", "Подъезд", "Фасад")),
     "dashboard_metrics": '["deals","platform","active_objects","leaderboard","funnel","response_times"]',
 }
 

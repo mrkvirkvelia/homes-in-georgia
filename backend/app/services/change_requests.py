@@ -3,13 +3,14 @@ archiving or an owner transfer is not applied but queued here; the operator sees
 approves (the change goes through the usual service functions, logged as the operator) or rejects with a comment.
 payload: {field: {"old": …, "new": …}} plus plain ids the kind needs (owner_id for transfer_owner)."""
 import logging
+from html import escape
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models import ChangeRequest, Owner, Property, PropertyMedia, User, at_least, is_field
 from app.services import properties as P
-from app.services.common import get_or_404, log_event, now
+from app.services.common import get_or_404, log_event, notify_later, now
 from app.services.errors import DomainError, forbidden
 
 log = logging.getLogger(__name__)
@@ -60,6 +61,8 @@ def request_transfer(db: Session, pid: int, to_agent_id: int, actor: User, reaso
         "owner_agent": {"old": old.name if old else P.PLATFORM, "new": to.name}}, actor, reason)
     db.commit()
     P._notify("change_request_new", cr)
+    P._notify("prop_event", p, f"✋ <b>{escape(actor.name or '')} просит передать вам собственника {escape(o.name or '—')}</b>",
+              actor.id, [to.id], False, "Решает оператор в «Запросах».")
     return cr
 
 

@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session, object_session
 from app.config import settings as env
 from app.models import Client, Deal, Evaluation, Lead, Owner, Property, User, at_least, is_field
 from app.services import evaluations, jobs, leads, users
-from app.services.common import TZ, clean_cadastral, get_or_404, log_event, now
+from app.services.common import TZ, clean_cadastral, get_or_404, log_event, notify_later, now
 from app.services.errors import DomainError, forbidden
 from app.telegram import notify
 
@@ -316,6 +316,8 @@ def create(db: Session, data: dict, actor: User | None, commit: bool = True, not
             evaluations.notify_if_alarming(t0_ev)
         if actor is not None and not at_least(actor, "operator"):  # staff confirm their own deals in the CRM
             notify.deal_created(deal)
+        elif actor is not None and deal.agent_id and deal.agent_id != actor.id:  # 11-23 G: entered for the agent
+            notify.deal_event(deal, f"🤝 <b>{html.escape(actor.name or 'Оператор')} внёс сделку за вас</b>", actor.id, None, False)
     return deal
 
 
@@ -398,6 +400,7 @@ def confirm(db: Session, deal_id: int, actor: User) -> Deal:
         if new_level > (agent.level or 50):
             agent.level = new_level
             log_event(db, "user", agent.id, "level_up", actor, level=new_level)
+            notify_later(db, "level_changed", agent.id, new_level)
     deal.status, deal.confirmed_by, deal.confirmed_at = "confirmed", actor.id, now()
     if deal.lead_id:
         from app.services import leads
@@ -414,6 +417,7 @@ def confirm(db: Session, deal_id: int, actor: User) -> Deal:
     db.commit()
     try:
         notify.deal_confirmed(deal)
+        notify.deal_event(deal, "✅ <b>Сделка подтверждена</b>", actor.id, [deal.recruit_id], True)  # the agent: deal_confirmed
     except Exception:  # noqa: BLE001
         log.exception("notify.deal_confirmed failed")
     return deal
@@ -459,6 +463,7 @@ def cancel(db: Session, deal_id: int, actor: User, reason: str | None = None) ->
             if auto_new < auto_old and agent.level == auto_old:  # undo an automatic level-up from this deal
                 agent.level = auto_new
                 log_event(db, "user", agent.id, "level_down", actor, level=auto_new)
+                notify_later(db, "level_changed", agent.id, auto_new)
     if deal.lead_id:
         from app.services import leads
         lead = db.get(Lead, deal.lead_id, with_for_update=True, populate_existing=True)
@@ -471,6 +476,8 @@ def cancel(db: Session, deal_id: int, actor: User, reason: str | None = None) ->
         jobs.cancel(db, k, deal.id)
     jobs.cancel(db, "contract_expiry", ref_prefix=f"{deal.id}:")
     log_event(db, "deal", deal.id, "cancelled", actor, reason=reason)
+    # 11-23 G: the other side — the agent (and the recruit) when staff cancel, the operator when the agent does
+    notify_later(db, "deal_event", deal, "🚫 <b>Сделка отменена</b>", actor.id, [deal.agent_id, deal.recruit_id], True, reason)
     db.commit()
     return deal
 

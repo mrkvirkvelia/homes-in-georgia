@@ -797,6 +797,14 @@ def deal_confirmed(deal):
         tg.send(ag["tg_id"], t, kb([[app_btn("📝 T0: оценить сделку", links.deal_app(g(deal, "id")))]]))
 
 
+@safe
+def level_changed(user_id, level):
+    """11-23 G: an agent's level changed (a confirmed / cancelled exclusive deal, or an admin's edit)."""
+    u = store.user(user_id) or {}
+    if u.get("tg_id") and u.get("is_active", True):
+        tg.send(u["tg_id"], f"📊 <b>Ваш уровень теперь {level}%</b>\nЭксклюзивных сделок: {u.get('exclusive_deals') or 0}")
+
+
 T14_INTRO = {"ru": "{name}, вы живёте в новой квартире 14 дней 🏡\nВсё ли хорошо? Оцените, пожалуйста, три пункта (это 10 секунд):",
              "en": "{name}, you've been living in your new flat for 14 days 🏡\nIs everything fine? Please rate three points (10 seconds):",
              "ka": "{name}, ახალ ბინაში უკვე 14 დღეა ცხოვრობთ 🏡\nყველაფერი რიგზეა? გთხოვთ, შეაფასოთ სამი პუნქტი (10 წამი):"}
@@ -904,6 +912,18 @@ def owner_transferred(agent_id, owner_name, by_name, props, reason=None):
         st = "в архиве — откройте и нажмите «Снова в работу»" if p["status"] == "archived" else "в работе"
         lines.append(f"• #{p['id']} {e(p['address'] or '')} — {st}")
     tg.send(ag["tg_id"], "\n".join(lines),
+            kb([[app_btn(f"🏠 Объект #{p['id']}", links.property_app(p["id"]))] for p in props[:5]]) if props else None)
+
+
+@safe
+def owner_transferred_away(agent_id, owner_name, to_name, by_name, props):
+    """The previous agent of a transferred owner (11-23 inventory G): his objects went along."""
+    ag = store.user(agent_id) or {}
+    if not ag.get("tg_id"):
+        return
+    ids = ", ".join(f"#{p['id']}" for p in props[:10])
+    tg.send(ag["tg_id"], f"👤 {e(by_name or 'Оператор')} передал собственника <b>{e(owner_name or '—')}</b> агенту {e(to_name)}"
+            + (f"\nОбъекты: {ids}" if ids else ""),
             kb([[app_btn(f"🏠 Объект #{p['id']}", links.property_app(p["id"]))] for p in props[:5]]) if props else None)
 
 
@@ -1508,3 +1528,65 @@ def evaluation_alert(evaluation):
 
 
 CARDS = {"slots": _slots_card, "remind": _remind_card, "survey": _survey_card, "reason": _reason_card, "t14": _t14_card}
+
+
+# ---------- key actions → the agent and the operator (David 11-23: «на каждое ключевое действие и агенту, и оператору»)
+
+OPEN = {"property": ("🏠 Открыть объект", links.property_app), "lead": ("📋 Открыть заявку", links.lead_app),
+        "deal": ("🤝 Открыть сделку", links.deal_app), "contract": ("📄 Открыть договор", lambda i: links.miniapp(f"contracts?id={i}"))}
+
+
+@safe
+def staff_event(text, kind, ref, agents=(), actor=None, ops=True):
+    """To the agents (user ids) and, ops, the operators (operators_targets: the connected operator account) — never to
+    the one who pressed it (actor: user id), nobody twice. The button opens the object / lead / deal / contract."""
+    label, url = OPEN[kind]
+    skip = {str(t) for t in [(store.user(actor) or {}).get("tg_id")] if t}
+    for aid in dict.fromkeys(a for a in agents if a and a != actor):
+        u = store.user(aid) or {}
+        if u.get("tg_id") and u.get("is_active", True) and str(u["tg_id"]) not in skip:
+            skip.add(str(u["tg_id"]))
+            tg.send(u["tg_id"], text, kb([[app_btn(label, url(ref))]]))
+    if ops:
+        for chat, topic in operators_targets():
+            if str(chat) not in skip:
+                tg.send(chat, text, kb([[app_btn(label, url(ref), is_private(chat))]]), thread_id=topic)
+
+
+def _note(note):
+    return f"\n\n{e(note)}" if note else ""
+
+
+@safe
+def prop_event(prop, head, actor=None, agents=None, ops=True, note=None):
+    """head (HTML) · объект #N + address · price; agents: default the object's agent."""
+    pid = g(prop, "id")
+    staff_event(f"{head} · объект #{pid}\n{e(prop_title(prop))}{_note(note)}", "property", pid,
+                [g(prop, "agent_id")] if agents is None else agents, actor, ops)
+
+
+@safe
+def lead_event(lead, head, actor=None, agents=None, ops=True, note=None):
+    """head · заявка #N + the client and the flat; agents: default the lead's agent."""
+    cl, i, _ = ctx(lead)
+    lid = g(lead, "id")
+    staff_event(f"{head} · заявка #{lid}\n👤 {e(client_name(cl))}" + (f" · 🏠 {e(address(i))}" if i else "") + _note(note),
+                "lead", lid, [g(lead, "agent_id")] if agents is None else agents, actor, ops)
+
+
+@safe
+def deal_event(deal, head, actor=None, agents=None, ops=True, note=None):
+    """head · сделка #N + address · price; agents: default the deal's agent."""
+    did = g(deal, "id")
+    staff_event(f"{head} · сделка #{did}\n🏠 {e(g(deal, 'address') or '—')} · {texts.money(g(deal, 'price'))}{_note(note)}",
+                "deal", did, [g(deal, "agent_id")] if agents is None else agents, actor, ops)
+
+
+@safe
+def contract_event(contract, head, actor=None, ops=True, note=None):
+    """head · договор #N; to the lead's agent (else the contract's author) and the operators."""
+    cid, ld = g(contract, "id"), store.lead(g(contract, "lead_id")) or {}
+    agent = ld.get("agent_id") or g(contract, "created_by")
+    who = " · ".join(e(x) for x in (g(contract, "address"), g(contract, "client_name")) if x)
+    staff_event(f"{head} · договор #{cid}" + (f"\n🏠 {who}" if who else "") + (f" · заявка #{ld['id']}" if ld else "") + _note(note),
+                "contract", cid, [agent], actor, ops)

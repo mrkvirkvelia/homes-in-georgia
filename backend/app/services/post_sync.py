@@ -11,7 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models import Property, PropertyPublication
-from app.services.common import now
+from app.services.common import notify_later, now
 
 log = logging.getLogger(__name__)
 POST = re.compile(r"t\.me/([A-Za-z]\w{3,})/(\d+)")
@@ -80,6 +80,8 @@ def run(db: Session, pause: float = 0.5, out=log.info) -> int:
             p.archive_reason, p.archive_comment, p.archived_at = "rented_by_owner", "пост удалён в канале", now()
             P._status(db, p, "archived", None, "archived", label="сверка с каналом", reason="rented_by_owner",
                       comment="пост удалён в канале", post_url=p.post_url)
+        notify_later(db, "prop_event", p, "🗑 <b>Пост удалён в канале</b>", None, None, True,
+                     f"Объект в архиве: {'Неактуально' if p.source_type == 'channel' else 'Сдал сам'}.")
         for pub in db.scalars(select(PropertyPublication).where(  # gone already: nothing for unpost to delete
                 PropertyPublication.property_id == p.id, PropertyPublication.channel == "tg",
                 PropertyPublication.status == "published")):

@@ -27,7 +27,7 @@ from app.models import (ARCHIVE_REASONS, PUBLICATION_CHANNELS, ChannelPost, Clie
 from app.services import jobs
 from app.services import users as users_svc
 from app.services import settings as settings_svc
-from app.services.common import aware, clean_cadastral, get_or_404, jload, log_event, now, now_text
+from app.services.common import aware, clean_cadastral, get_or_404, jload, log_event, notify_later, now, now_text
 from app.services.dedup import (address_match, e164, extract_phones, norm_address, norm_phone, owner_phones, phone_match,
                                  phone_rows, set_owner_phones)
 from app.services.errors import DomainError, forbidden
@@ -947,6 +947,9 @@ def check_archive(db: Session, p: Property, reason: str | None, comment: str | N
     return {"reason": reason, "comment": comment, "duplicate_of": dup}
 
 
+ARCHIVE_HEAD = {"paused": "⏸ <b>Приостановлен</b>", "unpublished": "🚫 <b>Снят с публикации</b>"}
+
+
 def _archive_now(db: Session, p: Property, actor: User | None, reason: str, comment: str | None = None,
                  duplicate_of: int | None = None, action: str | None = None) -> None:
     """Into the archive with a reason (ARCHIVE_REASONS); reminders are cancelled. No commit, no validation."""
@@ -958,6 +961,9 @@ def _archive_now(db: Session, p: Property, actor: User | None, reason: str, comm
         jobs.cancel(db, kind, p.id)
     _status(db, p, "archived", actor, action, reason=reason, comment=p.archive_comment,
             **({"duplicate_of": duplicate_of} if duplicate_of else {}))
+    if reason not in ("owner_refused", "idle_return"):  # David 11-23: архив / пауза / снятие → агенту и оператору
+        head = ARCHIVE_HEAD.get(reason) or f"🗄 <b>В архив: {ARCHIVE_REASONS[reason]}</b>"
+        notify_later(db, "prop_event", p, head, actor.id if actor else None, None, True, p.archive_comment)
     if reason != "duplicate":  # any archive takes the post down (Stanislav 11-23); a duplicate: dup_purge
         _unpost_later(db, p)
     if reason == "duplicate" and duplicate_of:
@@ -1203,10 +1209,12 @@ def transfer_owner(db: Session, owner_id: int, to_agent_id: int, by_user: User, 
             p.agent_id, p.updated_at = to.id, now()
         log_event(db, "property", p.id, "owner_transferred", by_user, owner_id=o.id, moved=moved, **data)
         props.append({"id": p.id, "address": p.address, "status": p.status, "archive_reason": p.archive_reason})
+    # David 11-22: the new agent learns it from the bot, with the objects (an archived one: «Снова в работу» on its card)
+    notify_later(db, "owner_transferred", to.id, o.name, by_user.name, props, reason)
+    if old is not None and old.id != by_user.id:
+        notify_later(db, "owner_transferred_away", old.id, o.name, to.name, by_user.name, props)
     if commit:
         db.commit()
-    # David 11-22: the new agent learns it from the bot, with the objects (an archived one: «Снова в работу» on its card)
-    _notify("owner_transferred", to.id, o.name, by_user.name, props, reason)
     return o
 
 
@@ -1578,6 +1586,7 @@ def sign_contract(db: Session, token: str, data: dict, pdf: bytes, ip: str | Non
               user_agent=(user_agent or "")[:300], pdf_sha256=hashlib.sha256(pdf).hexdigest())
     p.sign_draft = {}
     schedule_dup_scan(db, p, "contract")
+    notify_later(db, "prop_event", p, "✍️ <b>Собственник подписал эксклюзивный договор</b>", None, None, True, f["full_name"])
     db.commit()
     if draft.get("id_doc_file"):  # copied into the object's owner docs above; the extract key is shared (content hash)
         try:
@@ -1797,6 +1806,7 @@ def submit_for_review(db: Session, pid: int, agent: User, other_flat: bool = Fal
     _status(db, p, "review", agent)
     db.commit()
     _notify("property_review_request", p)
+    _notify("prop_event", p, "🕵️ <b>Отправлен на проверку</b>", agent.id, None, False)  # staff sent it for the agent
     return p
 
 
@@ -1812,6 +1822,7 @@ def review(db: Session, pid: int, operator: User, approve: bool, comment: str | 
     _status(db, p, "returned", operator, comment=comment)
     db.commit()
     _notify("property_returned", p)
+    _notify("prop_event", p, "↩️ <b>Возвращён на доработку</b>", operator.id, [], True, comment)
     return p
 
 
@@ -2318,6 +2329,7 @@ def publish(db: Session, pid: int, actor: User, text: str | None = None, media_i
         if not set(media_ids) <= own:
             raise DomainError("not_found", "media not found")
     first = p.status != "published"
+    approved = p.status == "review"
     ref, dry_run = None, False
     if tg:
         auto = post_text(db, p)
@@ -2363,6 +2375,10 @@ def publish(db: Session, pid: int, actor: User, text: str | None = None, media_i
         db.commit()
     if tg:
         _notify("property_published", p)
+    if first and actor is not None:  # David 11-23: одобрено / опубликовано → и оператору (the agent: property_published)
+        head = ("✅ <b>Одобрен и опубликован</b>" if approved else "📢 <b>Опубликован</b>") + \
+            (" (канал + сайт)" if tg and site else " (канал)" if tg else " (сайт)")
+        _notify("prop_event", p, head, actor.id, [] if tg else None, True, comment)
     return p
 
 
@@ -2429,6 +2445,7 @@ def resume(db: Session, pid: int, actor: User, republish: bool = False) -> Prope
         _republish(db, p, actor, "republished")
     elif p.status == "rented" or (p.status == "archived" and p.archive_reason in BACK_TO_WORK):
         _back_to_work(db, p, actor, owners_agent)
+        _notify("prop_event", p, "🔁 <b>Снова в работу</b>", actor.id)
         return p
     elif p.status != "archived" or p.archive_reason not in RESUMABLE:
         raise DomainError("bad_status", "Объект не на паузе")
@@ -2438,6 +2455,7 @@ def resume(db: Session, pid: int, actor: User, republish: bool = False) -> Prope
         p.archive_reason, p.archive_comment, p.archived_at = None, None, None
         _status(db, p, "media_uploaded", actor, "resumed")
     db.commit()
+    _notify("prop_event", p, "▶️ <b>Снова опубликован</b>" if p.status == "published" else "🔁 <b>Снова в работу</b>", actor.id)
     from app.services import catalog, site_feed
     site_feed.clear_cache()
     if catalog.sync(db, p):
@@ -2515,6 +2533,7 @@ def ad_removed(db: Session, pid: int, listing_id: str, actor: User) -> Property:
     link.removed_checked_at, link.removed_checked_by = now(), actor.id
     log_event(db, "property", p.id, "ad_removed_checked", actor, listing_id=listing_id, source=link.source, url=link.url)
     db.commit()
+    _notify("prop_event", p, f"✅ <b>Проверено: объявление на {link.source or 'сайте'} снято</b>", actor.id, None, False, link.url)
     return p
 
 

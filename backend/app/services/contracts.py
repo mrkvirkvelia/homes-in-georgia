@@ -24,7 +24,7 @@ from app import storage
 from app.config import REPO_ROOT, settings as env
 from app.models import CONTRACT_CLOSE_REASONS, Client, Contract, ContractSigner, Deal, Event, Lead, Property, User, at_least
 from app.services import jobs
-from app.services.common import get_or_404, log_event, now, now_text
+from app.services.common import get_or_404, log_event, notify_later, now, now_text
 from app.services.errors import DomainError
 
 log = logging.getLogger(__name__)
@@ -555,6 +555,7 @@ def sign(db: Session, cid: int, user: User, pdf: bytes | None = None) -> Contrac
         c.drive_file_id = None  # the scan replaces what Drive got
     if c.status == "draft":
         c.status, c.signed_at, c.signed_by = "signed", now(), user.id
+        notify_later(db, "contract_event", c, "✍️ <b>Договор подписан</b> (вручную)", user.id)
     c.updated_at = now()
     jobs.schedule(db, "contract_drive", c.id, now())
     log_event(db, "contract", c.id, "signed", user, scan=pdf is not None)
@@ -576,6 +577,8 @@ def close(db: Session, cid: int, user: User, reason: str, comment: str | None = 
     c.closed_at, c.closed_by, c.updated_at = now(), user.id, now()
     c.share_token = c.share_expires_at = None
     log_event(db, "contract", c.id, "closed_no_deal", user, reason=reason, comment=comment)
+    notify_later(db, "contract_event", c, f"❌ <b>Договор закрыт без сделки: {CONTRACT_CLOSE_REASONS[reason]}</b>", user.id,
+                 True, comment)
     db.commit()
     return c
 

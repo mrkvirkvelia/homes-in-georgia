@@ -447,19 +447,36 @@ def photo_vectors_tick() -> None:
                                           cwd=str(REPO_ROOT / "backend"))
 
 
-def tick(limit: int = 50) -> dict:
+# The sites' copies search (myhome / ss.ge / korter pages and photos) runs minutes: in its own thread, so a post's
+# repost, a takedown or a notification never waits behind it (David 11-24: a price change sat 10 min in the queue)
+SLOW = ("dup_scan", "myhome_copies", "dup_recheck", "channel_dups")  # all of them: similar.find over the whole base, one thread
+
+
+def tick(limit: int = 50, kinds: tuple = (), skip: tuple = ()) -> dict:
     """One pass: claim due jobs one at a time (each in its own transaction, row-locked, SKIP LOCKED)."""
     stats: dict[str, int] = {}
-    with SessionLocal() as db:
-        birthdays.ensure_job(db)
+    if not kinds:
+        with SessionLocal() as db:
+            birthdays.ensure_job(db)
     for _ in range(limit):
         with SessionLocal() as db:
-            due = jobs.due(db, limit=1)
+            due = jobs.due(db, limit=1, kinds=kinds, skip=() if kinds else skip)
             if not due:
                 break
             res = run_job(db, due[0])
             stats[res] = stats.get(res, 0) + 1
     return stats
+
+
+def slow_lane(interval: int = 10):
+    """worker.SLOW jobs, one at a time, beside the main loop."""
+    while True:
+        try:
+            if st := tick(limit=20, kinds=SLOW):
+                log.info("slow jobs: %s", st)
+        except Exception:  # noqa: BLE001
+            log.exception("slow tick failed")
+        time.sleep(interval)
 
 
 def channel_import_pass():
@@ -484,6 +501,7 @@ def main():
     log.info("worker started, interval %ss, tz %s", args.interval, env.TZ)
     from app.telegram import login_bot
     login_bot.start_thread()  # staff invites: /start inv_<token> in the CRM sign-in bot
+    threading.Thread(target=slow_lane, daemon=True).start()
     last_ical = time.time() - env.DAILY_RENT_ICAL_MINUTES * 60 + 20  # first fetch 20 s after the start, as ApartFlow
     last_avatars = time.time() - 23 * 3600  # first pass an hour after the start, then daily
     last_posts = time.time() - 3000  # «сверка с каналом» (services/post_sync.py): 10 min after the start, then hourly
@@ -493,7 +511,7 @@ def main():
         from app import keys
         keys.refresh()  # Управление → Ключи
         try:
-            st = tick()
+            st = tick(skip=SLOW)  # the slow ones: slow_lane
             if st:
                 log.info("jobs: %s", st)
         except Exception:  # noqa: BLE001

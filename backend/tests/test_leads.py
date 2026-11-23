@@ -317,3 +317,24 @@ def test_deal_created_text_goes_to_operators(monkeypatch):
     from types import SimpleNamespace
     DEAL_CREATED(SimpleNamespace(id=5, agent_id=1, address="Ateni 16", price=800, commission_total=400, client_name="Test"))
     assert out and out[0][0] == 5 and "Новая сделка на подтверждение" in out[0][1] and "Ioann &lt;x&gt;" in out[0][1], out
+
+
+def test_worker_main_lane_skips_the_slow_jobs(db):
+    """David 11-24: a price change's repost waited 10 min behind a sites' copies search — the main lane skips
+    worker.SLOW, the slow lane takes only them."""
+    from datetime import timedelta
+
+    from app import worker
+    from app.models import Job
+    from app.services import jobs
+    from app.services.common import now
+    jobs.schedule(db, "dup_scan", "1", now() - timedelta(minutes=5), {"trigger": "manual"})
+    jobs.schedule(db, "tg_repost", "1", now())
+    db.commit()
+    assert [j.kind for j in jobs.due(db, skip=worker.SLOW)] == ["tg_repost"]
+    db.rollback()
+    assert [j.kind for j in jobs.due(db, kinds=worker.SLOW)] == ["dup_scan"]
+    db.rollback()
+    assert {j.kind for j in jobs.due(db)} == {"dup_scan", "tg_repost"}
+    db.rollback()
+    assert db.query(Job).count() == 2

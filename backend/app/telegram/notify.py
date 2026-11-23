@@ -1438,6 +1438,22 @@ def publish_post(prop):
 
 
 @safe
+def originals_post(pid, chat, text):
+    """«HIG Original Photos» (Irakli 11-23): the text, then every photo of the object without the watermark as documents,
+    albums of 10. -> how many files went out, or None."""
+    with tempfile.TemporaryDirectory() as tmp:
+        rows = store.q("SELECT path FROM property_media WHERE property_id = %s AND kind = 'photo' ORDER BY position, id", (pid,))
+        files = [p for r in rows if (p := storage.fetch(r["path"], tmp))]
+        if not files or not tg.send(chat, text):
+            return None
+        n = 0
+        for i in range(0, len(files), 10):
+            if send_group(chat, None, [("document", p) for p in files[i:i + 10]]):
+                n += len(files[i:i + 10])
+        return n or None
+
+
+@safe
 def rented_post(pid, text, chat=None):
     """«Сдано» in the channel (David 11-23): the object's first photo (watermarked) with the short text, as the agency's
     own #FlatRented posts; a text post without a photo. chat: where the object's post was (default the agency channel).

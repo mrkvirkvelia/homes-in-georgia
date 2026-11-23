@@ -501,6 +501,8 @@ export const D: Record<string, [ka: string, en: string]> = {
   'Пусто — из профиля участника': ['ცარიელი — მონაწილის პროფილიდან', 'Empty — from the member’s profile'],
   'Необязательно: @username — тогда подписать сможет только этот аккаунт': ['არასავალდებულო: @username — მაშინ ხელს მხოლოდ ეს ანგარიში მოაწერს', 'Optional: @username — then only this account can sign'],
   'Создать черновик': ['მონახაზის შექმნა', 'Create draft'],
+  'Чат для оригиналов фото': ['ორიგინალი ფოტოების ჩატი', 'Chat for original photos'],
+  'Фото без водяного знака документами + описание — при первой публикации и при смене фото. Проще всего: добавьте бота в группу и отправьте там /originals_here — id подставится сам.': ['ფოტოები წყლის ნიშნის გარეშე, დოკუმენტებად + აღწერა — პირველი გამოქვეყნებისას და ფოტოების შეცვლისას. უმარტივესია: დაამატეთ ბოტი ჯგუფში და გაგზავნეთ /originals_here — id თავად ჩაიწერება.', 'Photos without the watermark as documents + a description — on the first publication and when the photos change. Easiest: add the bot to the group and send /originals_here there — the id fills itself in.'],
   'Каналы публикаций': ['გამოქვეყნების არხები', 'Publishing channels'],
   'Аренда квартир и домов': ['ბინების და სახლების ქირავნობა', 'Rent of flats and houses'],
   'Машины': ['მანქანები', 'Cars'],

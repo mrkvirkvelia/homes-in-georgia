@@ -255,6 +255,14 @@ def tg_unpost(db: Session, job: Job):
     return res
 
 
+@handler("tg_originals")
+def tg_originals(db: Session, job: Job):
+    """After a publication: the photos without the watermark into the originals chat (properties.send_originals)."""
+    from app.services import properties
+    p = db.get(Property, _ref_id(job))
+    return properties.send_originals(db, p) if p is not None else "noop"
+
+
 @handler("tg_repost")
 def tg_repost(db: Session, job: Job):
     """A published object's post shows changed fields («Правка», «% Скидка») or it is back from a pause: posted again

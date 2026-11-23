@@ -88,3 +88,39 @@ def test_publish_records_the_channel_and_the_warning(db, client, monkeypatch):
     pub = db.query(properties.PropertyPublication).filter_by(property_id=pid).one()
     assert pub.messages == {"chat": MAIN, "ids": [7], "warning": "Бот не админ в @homesingeorgia"}
     assert properties.card(db, db.get(Property, pid), nino)["publications"][0]["warning"] == "Бот не админ в @homesingeorgia"
+
+
+# Irakli 11-23: «HIG Original Photos» — the photos without the watermark after a publication, once per photo set
+
+
+def test_originals_post_sends_text_then_albums_of_ten(bot, monkeypatch):
+    monkeypatch.setattr(store, "q", lambda sql, args: [{"path": f"k{n}"} for n in range(12)])
+    monkeypatch.setattr(notify, "storage", SimpleNamespace(fetch=lambda key, tmp: f"/tmp/{key}.jpg"))
+    assert notify.originals_post(5, "-4001", "🏠 x") == 12
+    assert bot.sent == [("sendMessage", "-4001"), ("sendMediaGroup", "-4001"), ("sendMediaGroup", "-4001")]
+
+
+def test_originals_once_per_photo_set(db, client, monkeypatch):
+    from app import worker
+    from app.models import PropertyMedia
+    from app.services import settings
+    from tests.test_publish_card import _submitted
+    sent = []
+    monkeypatch.setattr(notify, "publish_post", lambda prop: (7, "https://t.me/rent_tbilisi_ge/7", MAIN, [7]))
+    monkeypatch.setattr(notify, "originals_post", lambda pid, chat, text: sent.append((pid, chat, text)) or 2)
+    _, nino, pid, _ = _submitted(db, client)
+    properties.publish(db, pid, nino)
+    worker.tick()
+    assert sent == []  # no chat set yet
+    settings.set(db, "originals_chat_id", "-4001")
+    properties.publish(db, pid, nino)
+    worker.tick()
+    assert len(sent) == 1 and sent[0][1] == "-4001" and f"Объект #{pid}" in sent[0][2] and "t.me/rent_tbilisi_ge/7" in sent[0][2]
+    properties.publish(db, pid, nino)  # a repost, the same photos: nothing
+    worker.tick()
+    assert len(sent) == 1
+    db.add(PropertyMedia(property_id=pid, kind="photo", path="new.jpg", position=99))
+    db.commit()
+    properties.publish(db, pid, nino)  # a photo added: again
+    worker.tick()
+    assert len(sent) == 2

@@ -2313,6 +2313,41 @@ def rented_post(db: Session, p: Property) -> str:
     return "ok"
 
 
+def originals_text(p: Property) -> str:
+    """The originals chat's caption: address, price, the parameters, links to the post and the CRM card."""
+    e = html_.escape
+    price = p.price is not None and f"💰 {int(p.price):,} {p.currency or 'USD'}".replace(",", " ")
+    params = " · ".join(x for x in (p.rooms and f"{p.rooms} комн.", p.bedrooms and f"{p.bedrooms} спальн.",
+                                    p.area and f"{float(p.area):g} м²", p.floor and f"этаж {p.floor}" + (f"/{p.total_floors}" if p.total_floors else ""),
+                                    (p.post_fields or {}).get("deal"), (p.post_fields or {}).get("prop_type")) if x)
+    crm = notify.links.property_app(p.id)
+    return "\n".join(x for x in (
+        f"🏠 <b>Объект #{p.id}</b>", (p.address or p.district) and f"📍 {e(p.address or p.district)}", price, params and f"📐 {e(params)}",
+        p.post_url and f'🔗 <a href="{e(p.post_url)}">Пост в канале</a>', crm and f'🗂 <a href="{e(crm)}">Карточка в CRM</a>') if x)
+
+
+def send_originals(db: Session, p: Property) -> str:
+    """Job tg_originals: all photos without the watermark into settings originals_chat_id (Irakli 11-23) — at the first
+    publication and when the photo set changed since the last send; a repost with the same photos sends nothing. No commit."""
+    chat = (settings_svc.get(db, "originals_chat_id") or "").strip()
+    if not chat:
+        return "no chat"
+    keys = sorted(db.scalars(select(PropertyMedia.path).where(PropertyMedia.property_id == p.id, PropertyMedia.kind == "photo")))
+    if not keys:
+        return "no photos"
+    sig = hashlib.sha1("\n".join(keys).encode()).hexdigest()
+    last = db.scalar(select(Event.data).where(Event.entity == "property", Event.entity_id == str(p.id),
+                                              Event.action == "tg_originals_sent").order_by(Event.id.desc()).limit(1))
+    if last and last.get("sig") == sig and last.get("chat") == chat:
+        return "same photos"
+    n = _notify("originals_post", p.id, chat, originals_text(p))
+    if not n:
+        return "not sent"
+    log_event(db, "property", p.id, "tg_originals_sent", None, sig=sig, chat=chat, files=n)
+    db.flush()
+    return "ok"
+
+
 def hashtags(text: str) -> list[str]:
     return list(dict.fromkeys(re.findall(r"#\w+", text or "")))
 
@@ -2377,6 +2412,8 @@ def publish(db: Session, pid: int, actor: User, text: str | None = None, media_i
             jobs.cancel(db, "tg_repost", p.id)
         if ref:  # the same flat already in the channel? the operator decides (services/channel_dups.py, David 11-20)
             jobs.schedule(db, "channel_dups", p.id, now())
+        if ref:  # the originals chat, once per photo set (send_originals)
+            jobs.schedule(db, "tg_originals", p.id, now())
     _status(db, p, "published", actor, post_url=p.post_url if ref else None, channel=channel if tg else None,
             site=not p.site_hidden, **({"dry_run": True} if dry_run else {}))
     schedule_dup_scan(db, p, "published")  # David 11-23: on publishing any object looks for its copies at once

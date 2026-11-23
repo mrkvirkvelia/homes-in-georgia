@@ -2410,13 +2410,14 @@ def publish(db: Session, pid: int, actor: User, text: str | None = None, media_i
             unpost(db, p, actor, keep=pub.id, action="tg_reposted")
         if actor is not None:  # a repost by hand: the pending automatic one is not needed
             jobs.cancel(db, "tg_repost", p.id)
-        if ref:  # the same flat already in the channel? the operator decides (services/channel_dups.py, David 11-20)
-            jobs.schedule(db, "channel_dups", p.id, now())
+        if ref and first:  # the same flat already in the channel? the operator decides (services/channel_dups.py, David 11-20);
+            jobs.schedule(db, "channel_dups", p.id, now())  # a repost of a published one (a price, a fix) was checked then
         if ref:  # the originals chat, once per photo set (send_originals)
             jobs.schedule(db, "tg_originals", p.id, now(), {"text": p.post_text})
     _status(db, p, "published", actor, post_url=p.post_url if ref else None, channel=channel if tg else None,
             site=not p.site_hidden, **({"dry_run": True} if dry_run else {}))
-    schedule_dup_scan(db, p, "published")  # David 11-23: on publishing any object looks for its copies at once
+    if first:  # David 11-23: on publishing any object looks for its copies at once; a repost (11-24: a price change
+        schedule_dup_scan(db, p, "published")  # re-ran the 9-min sites' search) does not
     db.commit()
     from app.services import catalog, site_feed
     site_feed.clear_cache()

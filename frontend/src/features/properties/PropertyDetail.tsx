@@ -1345,14 +1345,26 @@ function ReviewStep({ p }: { p: Property }) {
   );
 }
 
-/** A published object: staff can post it again (price changed, new photos) with the same generator. */
+/** A published object (David 11-23): «Обновить пост» posts it again as it is (the old post is deleted), «Редактировать
+ * пост» opens the generator with the text first; without a post — «Опубликовать в Telegram» (the generator). */
 function Republish({ p }: { p: Property }) {
+  const { toast, set } = useProp(p.id);
   const [open, setOpen] = useState(false);
-  return open ? <div className="col"><div className="divider" /><PostComposer p={p} /></div>
-    : <Button variant="secondary" onClick={() => setOpen(true)}><Wand2 size={16} />{p.post_url ? t('Обновить пост') : t('Опубликовать в Telegram')}</Button>;
+  const again = useMutation({
+    mutationFn: () => api.properties.publish(p.id, { channel: 'tg', tg: true, site: !p.site_hidden }),
+    onSuccess: (r) => { set(r); toast(t('Пост перевыложен: старый удалён')); },
+    onError: (e) => toast(errText(e), true),
+  });
+  if (open) return <div className="col"><div className="divider" /><PostComposer p={p} /></div>;
+  return p.post_url
+    ? <div className="row row-wrap gap-sm">
+      <Button variant="secondary" loading={again.isPending} onClick={() => again.mutate()}><RotateCcw size={16} />{t('Обновить пост')}</Button>
+      <Button variant="secondary" disabled={again.isPending} onClick={() => setOpen(true)}><Wand2 size={16} />{t('Редактировать пост')}</Button>
+    </div>
+    : <Button variant="secondary" onClick={() => setOpen(true)}><Wand2 size={16} />{t('Опубликовать в Telegram')}</Button>;
 }
 
-/** «Скидка»: the new price and ❗️#Discount in the post; staff then posts it again («Обновить пост»). */
+/** «Скидка»: the new price and ❗️#Discount in the post; the post is reposted by itself (backend apply_update → tg_repost). */
 function DiscountModal({ p, open, onClose }: { p: Property; open: boolean; onClose: () => void }) {
   const { toast, set } = useProp(p.id);
   const [price, setPrice] = useState('');
@@ -1364,7 +1376,7 @@ function DiscountModal({ p, open, onClose }: { p: Property; open: boolean; onClo
       const post_fields = { ...p.post_fields, discount: true, ...(sale ? { sale_price: nextPrice } : {}) };
       return api.properties.update(p.id, { price: nextPrice, post_fields });
     },
-    onSuccess: (r) => { set(r); toast(r.change_request ? t('Новая цена ушла оператору на проверку') : t('Цена снижена · в посте будет #Discount')); onClose(); },
+    onSuccess: (r) => { set(r); toast(r.change_request ? t('Новая цена ушла оператору на проверку') : r.post_url ? t('Цена снижена · пост с #Discount перевыкладывается') : t('Цена снижена · в посте будет #Discount')); onClose(); },
     onError: (e) => toast(errText(e), true),
   });
   const ok = Number(price) > 0 && Number(price) < Number(currentPrice || Infinity);
@@ -1372,7 +1384,7 @@ function DiscountModal({ p, open, onClose }: { p: Property; open: boolean; onClo
     <Modal open={open} onClose={onClose} title={t('Скидка')}>
       <div className="col gap-lg">
         <Field label={t('Новая цена, $')} hint={t('Сейчас {price}. В посте появится ❗️#Discount', { price: money(currentPrice, p.currency || 'USD') })}><Input inputMode="numeric" value={price} onChange={(e) => setPrice(e.target.value.replace(/\D/g, ''))} /></Field>
-        {(p.locked_fields || []).length > 0 && <div className="alert alert-info" style={{ fontSize: 13 }}>{t('Объект проверен оператором: новая цена уйдёт оператору, он обновит пост в канале.')}</div>}
+        {(p.locked_fields || []).length > 0 && <div className="alert alert-info" style={{ fontSize: 13 }}>{t('Объект проверен оператором: новая цена уйдёт оператору, после подтверждения пост перевыложится сам.')}</div>}
         <Button block disabled={!ok} loading={m.isPending} onClick={() => m.mutate()}>{t('Снизить цену')}</Button>
       </div>
     </Modal>
@@ -1396,30 +1408,38 @@ function PublishedActions({ p, onArchive }: { p: Property; onArchive: (reason: s
   );
 }
 
-/** «Опубликовать на сайте» / «Снять с сайта»: hge.ge shows a published object with a photo unless staff hid it
- * (backend properties.set_site); the Telegram post is the other button. */
-function SiteButton({ p }: { p: Property }) {
+/** «Опубликовать на сайте» (staff, a Telegram-only object) and «Снять с публикации» (David 11-23, staff and the
+ * object's agent): off the site and the channel at once (backend properties.unpublish), back by «Опубликовать снова». */
+function SiteButton({ p, isStaff }: { p: Property; isStaff: boolean }) {
   const confirm = useConfirm();
   const { toast, set } = useProp(p.id);
   const m = useMutation({
-    mutationFn: (on: boolean) => api.properties.site(p.id, on),
-    onSuccess: (r) => { set(r); toast(r.site_hidden ? t('Снято с сайта') : t('Опубликовано на сайте')); },
+    mutationFn: () => api.properties.site(p.id, true),
+    onSuccess: (r) => { set(r); toast(t('Опубликовано на сайте')); },
     onError: (e) => toast(errText(e), true),
   });
-  return p.site_hidden
-    ? <Button variant="ok" loading={m.isPending} onClick={() => m.mutate(true)}><Globe size={16} />{t('Опубликовать на сайте')}</Button>
-    : <>
-      <a className="btn btn-secondary" href={`https://hge.ge/listing/o${p.id}`} target="_blank" rel="noreferrer"><Globe size={16} />{t('На сайте')}</a>
-      <Button variant="ghost" loading={m.isPending} onClick={async () => { if (await confirm(t('Снять объект с сайта hge.ge? В базе и в Telegram он останется.'))) m.mutate(false); }}>{t('Снять с сайта')}</Button>
-    </>;
+  const off = useMutation({
+    mutationFn: () => api.properties.unpublish(p.id),
+    onSuccess: (r) => { set(r); toast(t('Снято с публикации: сайт и канал')); },
+    onError: (e) => toast(errText(e), true),
+  });
+  return <>
+    {p.site_hidden
+      ? isStaff && <Button variant="ok" loading={m.isPending} onClick={() => m.mutate()}><Globe size={16} />{t('Опубликовать на сайте')}</Button>
+      : <a className="btn btn-secondary" href={`https://hge.ge/listing/o${p.id}`} target="_blank" rel="noreferrer"><Globe size={16} />{t('На сайте')}</a>}
+    <Button variant="ghost" loading={off.isPending} onClick={async () => { if (await confirm(t('Снять объект с публикации? Он уйдёт с сайта hge.ge и из канала, вернуть — «Опубликовать снова».'))) off.mutate(); }}>{t('Снять с публикации')}</Button>
+  </>;
 }
 
-/** «Снять с паузы», or «Снова в работу» for «Собственник сдал» (back to «Взят», call the owner) */
-export function Resume({ p }: { p: Property }) {
+/** «Снять с паузы» / «Опубликовать снова» (unpublished): published again with a new post; «Снова в работу» for
+ * «Собственник сдал» (back to «Взят», call the owner); republish: a rented object published again right away (staff). */
+export function Resume({ p, republish }: { p: Property; republish?: boolean }) {
   const { toast, set } = useProp(p.id);
-  const work = p.archive_reason !== 'paused';
-  const m = useMutation({ mutationFn: () => api.properties.resume(p.id), onSuccess: (r) => { set(r); toast(work ? t('Объект снова в работе') : t('Объект снова в базе')); }, onError: (e) => toast(errText(e), true) });
-  return <Button size="sm" loading={m.isPending} onClick={() => m.mutate()}><RotateCcw size={14} />{work ? t('Снова в работу') : t('Снять с паузы')}</Button>;
+  const work = !republish && !['paused', 'unpublished'].includes(p.archive_reason || '');
+  const m = useMutation({ mutationFn: () => api.properties.resume(p.id, republish), onSuccess: (r) => { set(r); toast(work ? t('Объект снова в работе') : t('Объект снова опубликован')); }, onError: (e) => toast(errText(e), true) });
+  const label = republish || p.archive_reason === 'unpublished' ? t('Опубликовать снова') : p.archive_reason === 'paused' ? t('Снять с паузы')
+    : p.status === 'rented' ? t('Вернуть в работу') : t('Снова в работу');
+  return <Button size="sm" loading={m.isPending} onClick={() => m.mutate()}><RotateCcw size={14} />{label}</Button>;
 }
 
 
@@ -1733,10 +1753,15 @@ export function PropertyDetail({ id, compact }: { id: number; compact?: boolean 
       )}
       <div className="row row-wrap">
         {p.post_url && <a className="btn" href={p.post_url} target="_blank" rel="noreferrer"><ExternalLink size={16} />{t('Пост в канале')}</a>}
-        {isStaff && p.status === 'published' && <SiteButton p={p} />}
+        {canWork && p.status === 'published' && <SiteButton p={p} isStaff={isStaff} />}
       </div>
       {canWork && p.status === 'published' && <PublishedActions p={p} onArchive={setArchiving} />}
       {isStaff && p.status === 'published' && <Republish p={p} />}
+      {/* David 11-23: a rented flat is free again — back on the market from the card, not through the archive */}
+      {p.status === 'rented' && canWork && <div className="row row-wrap gap-sm">
+        {isStaff && <Resume p={p} republish />}
+        <Resume p={p} />
+      </div>}
     </div>
   );
   // the media / review steps show the files with their own controls
@@ -1797,8 +1822,9 @@ export function PropertyDetail({ id, compact }: { id: number; compact?: boolean 
                 {p.archive_reason === 'duplicate' && p.duplicate_of ? <> {t('объекта')} <Link to={objLink(p.duplicate_of)}>#{p.duplicate_of}</Link></> : null}
                 {p.archive_comment ? ` · ${p.archive_comment}` : ''}
               </span>
-              {(canWork && ['paused', 'rented_by_owner', 'not_actual', 'idle_return'].includes(p.archive_reason || '')
+              {(canWork && ['paused', 'unpublished', 'rented_by_owner', 'not_actual', 'idle_return'].includes(p.archive_reason || '')
                 || (p.owner?.agent?.id === user?.id && ['rented_by_owner', 'not_actual', 'idle_return'].includes(p.archive_reason || ''))) && <Resume p={p} />}
+              {isStaff && ['rented_by_owner', 'rented_by_us'].includes(p.archive_reason || '') && !!p.published_at && <Resume p={p} republish />}
             </div>
           )}
           {p.status === 'archived' && p.archive_reason === 'rented_by_owner' && <OwnerLeaseNote p={p} canWork={canWork} />}

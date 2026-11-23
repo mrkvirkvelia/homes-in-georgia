@@ -355,9 +355,20 @@ def properties_thinking(pid: int, body: ThinkingIn, db: Session = Depends(get_db
     return P.out(db, P.owner_thinking(db, pid, user, body.until, body.comment), user, full=True)
 
 
+class ResumeIn(BaseModel):
+    republish: bool = False  # a rented object: «Опубликовать снова» (staff) instead of «Вернуть в работу»
+
+
 @router.post("/properties/{pid}/resume")
-def properties_resume(pid: int, db: Session = Depends(get_db, scope="function"), user: User = Depends(current_user)):
-    return P.out(db, P.resume(db, pid, user), user, full=True)
+def properties_resume(pid: int, body: ResumeIn | None = None, db: Session = Depends(get_db, scope="function"),
+                      user: User = Depends(current_user)):
+    return P.out(db, P.resume(db, pid, user, (body or ResumeIn()).republish), user, full=True)
+
+
+@router.post("/properties/{pid}/unpublish")
+def properties_unpublish(pid: int, db: Session = Depends(get_db, scope="function"), user: User = Depends(current_user)):
+    """«Снять с публикации»: off the site and the channel (properties.unpublish)."""
+    return P.out(db, P.unpublish(db, pid, user), user, full=True)
 
 
 @router.post("/properties/{pid}/rented-self")

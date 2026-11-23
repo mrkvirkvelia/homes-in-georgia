@@ -1376,6 +1376,19 @@ def publish_post(prop):
 
 
 @safe
+def rented_post(pid, text):
+    """«Сдано» in the channel (David 11-23): the object's first photo (watermarked) with the short text, as the agency's
+    own #FlatRented posts; a text post without a photo. -> (message_id, url) or None."""
+    chat = agency_chat()
+    _, topic = chat_and_topic("PUBLISH_CHAT_ID", "PUBLISH_TOPIC_ALBUM")
+    with tempfile.TemporaryDirectory() as tmp:
+        photo = next(((k, p) for k, p, _ in media_paths(pid, tmp) if k == "photo"), None)
+        res = send_group(chat, topic, _bot_media([photo], tmp), text) if photo else [tg.send(chat, text, thread_id=topic)]
+    m = res[0] if res else None
+    return (m["message_id"], post_link(m, chat)) if m else None
+
+
+@safe
 def delete_post(chat, ids, album=False):
     """Deletes our post's messages -> True when they are gone. The bot first (deleteMessages, ≤100 ids; ids already
     gone are skipped): an admin with «delete messages» removes posts of any age in a channel / supergroup — the 48 h

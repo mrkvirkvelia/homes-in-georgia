@@ -36,7 +36,7 @@ export const REFUSAL_LABEL: Record<string, string> = tmap({ price: 'Цена', l
 /** why an object is in the archive (backend models.ARCHIVE_REASONS) */
 export const ARCHIVE_REASON: Record<string, string> = tmap({
   owner_refused: 'Собственник отказался', rented_by_us: 'Сдали мы', rented_by_owner: 'Сдал сам', not_actual: 'Неактуально', duplicate: 'Дубль', other: 'Другое', paused: 'На паузе',
-  idle_return: 'Возвращён: не взят в работу',
+  idle_return: 'Возвращён: не взят в работу', unpublished: 'Снят с публикации',
 });
 /** «Запрос оператору» (stage 6): kinds and field names (backend services/change_requests.py, properties.LOCKED_AFTER_VERIFY) */
 export const CR_KIND: Record<string, string> = tmap({ edit: 'Изменение полей', archive: 'В архив', transfer_owner: 'Передать собственника', delete: 'Удаление → архив', no_esign: 'Эксклюзив без электронной подписи' });

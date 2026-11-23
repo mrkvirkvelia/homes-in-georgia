@@ -155,7 +155,8 @@ export const api = {
     adRemoved: (id: number, listingId: string) => then(http.post<Property>(`/properties/${id}/listings/${listingId}/removed`), normProperty),
     refused: (id: number, comment?: string) => http.post<Property>(`/properties/${id}/refused`, { comment }),
     thinking: (id: number, until: string, comment?: string) => http.post<Property>(`/properties/${id}/thinking`, { until, comment }),
-    resume: (id: number) => http.post<Property>(`/properties/${id}/resume`),
+    resume: (id: number, republish?: boolean) => http.post<Property>(`/properties/${id}/resume`, republish ? { republish } : undefined),
+    unpublish: (id: number) => then(http.post<Property>(`/properties/${id}/unpublish`), normProperty),
     /** «Собственник сдал»: the owner's lease dates are required (Stanislav 11-16) */
     rentedSelf: (id: number, b: OwnerLease & { comment?: string }) => http.post<Property>(`/properties/${id}/rented-self`, b),
     history: (id: number) => then(http.get<L<EventItem>>(`/properties/${id}/history`), (d) => normPage(d, normEvent)),

@@ -34,14 +34,17 @@ def _pubs(db, client, msgs):
     return out
 
 
-def test_a_deleted_post_takes_the_object_off_the_site(db, client, monkeypatch):
+def test_a_deleted_post_unpublishes_the_object(db, client, monkeypatch):
+    """David 11-23: a post deleted in the channel by hand = «Снять с публикации» (off the site, back by «Опубликовать снова»)."""
     live, dead, odd = _pubs(db, client, (101, 102, 103))
     _fake(monkeypatch, {101: LIVE, 102: GONE})  # 103: a 502
     assert post_sync.run(db, pause=0) == 1
     db.expire_all()
-    assert [db.get(Property, x).site_hidden for x in (live, dead, odd)] == [False, True, False]
-    ev = db.query(Event).filter_by(entity="property", entity_id=str(dead), action="site_off").one()
-    assert ev.actor_label == "сверка с каналом" and ev.data["reason"] == "пост удалён в канале"
+    assert [db.get(Property, x).status for x in (live, dead, odd)] == ["published", "archived", "published"]
+    p = db.get(Property, dead)
+    assert (p.archive_reason, p.archive_comment) == ("unpublished", "пост удалён в канале")
+    ev = db.query(Event).filter_by(entity="property", entity_id=str(dead), action="unpublished").one()
+    assert ev.actor_label == "сверка с каналом"
 
 
 def test_mass_gone_hides_nothing(db, client, monkeypatch):
@@ -49,4 +52,4 @@ def test_mass_gone_hides_nothing(db, client, monkeypatch):
     _fake(monkeypatch, {200 + n: GONE for n in range(12)})
     assert post_sync.run(db, pause=0) == 0
     db.expire_all()
-    assert not any(db.get(Property, x).site_hidden for x in pids)
+    assert all(db.get(Property, x).status == "published" for x in pids)

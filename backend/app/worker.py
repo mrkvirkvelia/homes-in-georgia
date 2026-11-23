@@ -229,13 +229,37 @@ def sign_doc_drive(db: Session, job: Job):
 
 @handler("tg_unpost")
 def tg_unpost(db: Session, job: Job):
-    """Rented («Сдано» / «Сдал сам»): our Telegram posts of the object are deleted (properties.unpost)."""
+    """Rented («Сдано» / «Сдал сам»), paused, «Снять с публикации»: our Telegram posts of the object are deleted
+    (properties.unpost); a rented one then gets the channel's «#FlatRented» announcement (properties.rented_post)."""
     from app.services import properties
     p = db.get(Property, _ref_id(job))
-    if p is None or not (p.status == "rented" or p.archive_reason in properties.RENTED_REASONS):
+    rented = p is not None and (p.status == "rented" or (p.status == "archived" and p.archive_reason in properties.RENTED_REASONS))
+    if p is None or not (rented or (p.status == "archived" and p.archive_reason in properties.UNPOST_REASONS)):
         return "noop"  # back on the market before the worker came to it
     r = properties.unpost(db, p, None)
-    return "ok" if not r["failed"] else f"not deleted: {', '.join(r['failed'])}"[:500]
+    res = "ok" if not r["failed"] else f"not deleted: {', '.join(r['failed'])}"[:500]
+    if rented and (sent := properties.rented_post(db, p)) not in ("ok", "never posted"):
+        res = f"{res}; rented post: {sent}"
+    return res
+
+
+@handler("tg_repost")
+def tg_repost(db: Session, job: Job):
+    """A published object's post shows changed fields («Правка», «% Скидка») or it is back from a pause: posted again
+    (properties.publish: the new post first, then the old ones deleted)."""
+    from app.services import properties
+    from app.services.errors import DomainError
+    p = db.get(Property, _ref_id(job))
+    if p is None or p.status != "published":
+        return "noop"
+    try:
+        properties.publish(db, p.id, None, tg=True, site=not p.site_hidden)
+    except DomainError as e:  # too few photos, an exclusive still advertised elsewhere: the same next time
+        if e.code == "publish_failed":
+            raise  # Telegram refused: try again later
+        db.rollback()
+        return f"not reposted: {e}"[:500]
+    return "ok"
 
 
 @handler("dup_purge")

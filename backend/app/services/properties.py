@@ -669,9 +669,12 @@ def update(db: Session, pid: int, data: dict, actor: User, reason: str | None = 
 
 
 def apply_update(db: Session, p: Property, data: dict, actor: User) -> None:
-    """No commit (an approved change request applies through here too)."""
-    was_exclusive, was_rent_to = p.is_exclusive, p.rent_to
+    """No commit (an approved change request applies through here too). A published object whose post shows a changed
+    field is reposted (David 11-23: «Правка» / «% Скидка» → the channel follows)."""
+    was_exclusive, was_rent_to, was_post = p.is_exclusive, p.rent_to, _post_key(p)
     _apply(p, data)
+    if p.status == "published" and _post_key(p) != was_post and has_post(db, p):
+        schedule_repost(db, p)
     if p.rent_to != was_rent_to:
         schedule_lease_reminders(db, p)
     _set_owner_contact(db, p, data.get("owner_name"), data.get("owner_phone"), actor, bool(data.get("owner_separate")),
@@ -684,6 +687,27 @@ def apply_update(db: Session, p: Property, data: dict, actor: User) -> None:
     fields = sorted(k for k in data if k in EDITABLE or k in ("owner_name", "owner_phone", "owner_phones"))
     if fields:
         log_event(db, "property", p.id, "updated", actor, fields=fields)
+
+
+POST_KEYS = ("address", "district", "lat", "lng", "price", "currency", "bedrooms", "rooms", "area", "floor", "total_floors",
+             "description", "is_exclusive", "post_fields")  # what the channel post shows (post_text / post_rich)
+
+
+def _post_key(p: Property) -> tuple:
+    return tuple(str(getattr(p, k)) if k != "post_fields" else repr(sorted((p.post_fields or {}).items())) for k in POST_KEYS)
+
+
+def has_post(db: Session, p: Property) -> bool:
+    """The object has a live post in the channel (ours or a legacy post_url)."""
+    return bool(p.post_url) or bool(db.scalar(select(PropertyPublication.id).where(
+        PropertyPublication.property_id == p.id, PropertyPublication.channel == "tg",
+        PropertyPublication.status == "published").limit(1)))
+
+
+def schedule_repost(db: Session, p: Property) -> None:
+    """The worker posts the object again (job tg_repost -> publish: the new post out, then the old ones deleted, so the
+    channel never holds two). One pending job per object: a second edit just replaces it. No commit."""
+    jobs.schedule(db, "tg_repost", p.id, now())
 
 
 def _mask_phone(phone: str | None) -> str:
@@ -934,7 +958,7 @@ def _archive_now(db: Session, p: Property, actor: User | None, reason: str, comm
         jobs.cancel(db, kind, p.id)
     _status(db, p, "archived", actor, action, reason=reason, comment=p.archive_comment,
             **({"duplicate_of": duplicate_of} if duplicate_of else {}))
-    if reason in RENTED_REASONS:
+    if reason in UNPOST_REASONS:
         _unpost_later(db, p)
     if reason == "duplicate" and duplicate_of:
         _merge_duplicate(db, p, duplicate_of, actor)
@@ -2084,7 +2108,7 @@ def post_rich(db: Session, p: Property, media: list[str]) -> str:
     """The post as a Telegram rich message (Bot API sendRichMessage) in the @tbilisi_rent style (Irakli's video
     2026-11-09): photo slideshow, «$price · beds · district» title, «building · m² · floor · ID» line, 📍 address (the
     map link) and Ⓜ metro, the description, collapsed «Parameters and amenities» (a table + one ✅ line) and «Tags», then
-    two buttons in a row: «On the map» (our /map page with the pin) and «I like it» (a bot button: a lead). No map block,
+    the buttons «On the map» (our /map page with the pin) and «Contact» (the bot: a lead). No map block,
     no footer (the contacts sit in Tags); an old-base description is cut to its own words (prose()). media: the slideshow items as rich-message links (tg://photo?id=m0, tg://video?id=m1)."""
     f, h = p.post_fields or {}, lambda x: html_.escape(str(x), quote=True)
     sale = f.get("deal") == "Sale"
@@ -2134,8 +2158,7 @@ def post_rich(db: Session, p: Property, media: list[str]) -> str:
                '<a href="https://youtube.com/@rentintbilisi">YouTube</a></p></details>')
     btn = lambda text, href, style="": f'<tg-button type="url"{style} url="{h(href)}">{h(text)}</tg-button>'  # noqa: E731
     # «On the map»: our map Mini App page with the object's pin (as «📍 На карте» on the bot's cards; a channel can't
-    # open a web_app button, so it's a link), Google Maps without a point. «I like it»: a plain bot button (callback
-    # plike:<id>); the bot answers with t.me/<bot>?start=p<id> -> the same lead as before (bot.on_button)
+    # open a web_app button, so it's a link), Google Maps without a point
     listing = db.get(Listing, p.listing_id) if p.listing_id else None
     pin, at = None, None
     if p.lat is not None and p.lng is not None:  # the agent checked it on the map (AddressField)
@@ -2147,9 +2170,10 @@ def post_rich(db: Session, p: Property, media: list[str]) -> str:
     if at:
         pin = f"{env.PUBLIC_URL.rstrip('/')}/map?" + urlencode({"pin": f"{at[0]:.6f},{at[1]:.6f}", "prec": prec,
                                                                 "title": head, "lang": "en"})
-    like = f'<tg-button type="callback_data" style="primary" data="plike:{p.id}">❤️ I like it</tg-button>'
+    # David 11-23: only «On the map» and «Contact» (no «I like it»; the bot keeps answering plike: of the old posts)
     where = hge_map_url(p.id) if not p.site_hidden else pin or url  # the site's map on this object, else our pin map
-    out.append("<tg-button-row>" + (btn("📍 On the map", where) if where else "") + like + "</tg-button-row>")
+    if where:
+        out.append("<tg-button-row>" + btn("📍 On the map", where) + "</tg-button-row>")
     # «Contact» (back by Stanislav 11-11, own full-width row): /start p<id> -> journey.on_post_start, a lead as before
     out.append("<tg-button-row>" + btn("💬 Contact", f"https://t.me/{env.BOT_USERNAME.lstrip('@')}?start=p{p.id}")
                + "</tg-button-row>")
@@ -2180,6 +2204,8 @@ def record_publication(db: Session, p: Property, channel: str, url: str | None, 
 
 
 RENTED_REASONS = ("rented_by_us", "rented_by_owner")  # «Сдано» (and «Сдал сам»): the posts leave Telegram
+# David 11-23: «Приостановить» and «Снять с публикации» take the post down too; «Снять с паузы» / «Опубликовать снова» repost
+UNPOST_REASONS = (*RENTED_REASONS, "paused", "unpublished")
 TG_LINK = re.compile(r"t\.me/(c/)?(\w+)/(?:\d+/)?(\d+)")  # t.me/<channel>/<id>, t.me/c/<chat>[/<topic>]/<id>
 
 
@@ -2231,10 +2257,39 @@ def unpost(db: Session, p: Property, actor: User | None, keep: int | None = None
 
 
 def _unpost_later(db: Session, p: Property) -> None:
-    """Rented: the worker deletes the posts (job tg_unpost) — the status change never waits on Telegram."""
+    """Rented / paused / unpublished: the worker deletes the posts (job tg_unpost) — the status change never waits on
+    Telegram. A repost still pending is dropped."""
+    jobs.cancel(db, "tg_repost", p.id)
     jobs.schedule(db, "tg_unpost", p.id, now())
     from app.services import site_feed
     site_feed.clear_cache()
+
+
+def rented_text(p: Property) -> str:
+    """The channel's own «found a tenant» announcement (as the agency posts it by hand: ❗️#FlatRented, the district)."""
+    tag = district_tag(p.district)
+    name = districts.BY_TAG[tag[1:]][2] if tag[1:] in districts.BY_TAG else _human(tag[1:])
+    if (p.post_fields or {}).get("prop_type") not in (None, "Apartment", "House", "Duplex", "Townhouse"):
+        return f"❗️#Rented\nCommercial space in 📍{name} has found a business 🤝👏🎉\n{tag}"
+    return f"❗️#FlatRented\nNice apartment in 📍{name} found a tenant 🤝👏🎉\n{tag}"
+
+
+def rented_post(db: Session, p: Property) -> str:
+    """Rented (David 11-23): one photo + rented_text() in the channel, once per rent of a flat that was in the channel.
+    It stays there (unpost deletes only the object's tg publications). No commit."""
+    if not db.scalar(select(PropertyPublication.id).where(PropertyPublication.property_id == p.id,
+                                                          PropertyPublication.channel == "tg").limit(1)):
+        return "never posted"
+    last = db.scalar(select(func.max(Event.at)).where(Event.entity == "property", Event.entity_id == str(p.id),
+                                                      Event.action == "tg_rented_posted"))
+    if last and (not p.published_at or aware(last) >= aware(p.published_at)):
+        return "already"
+    ref = _notify("rented_post", p.id, rented_text(p))
+    if not ref:
+        return "not sent"
+    log_event(db, "property", p.id, "tg_rented_posted", None, post_url=ref[1])
+    db.flush()
+    return "ok"
 
 
 def hashtags(text: str) -> list[str]:
@@ -2250,7 +2305,7 @@ def publish(db: Session, pid: int, actor: User, text: str | None = None, media_i
     review approves it. Without BOT_TOKEN in dev the post is a dry run (recorded without a link); a Telegram failure
     leaves it unpublished."""
     p = _prop(db, pid, lock=True)
-    if not at_least(actor, "operator"):
+    if actor is not None and not at_least(actor, "operator"):  # None: the worker's repost (job tg_repost)
         raise forbidden("only operators publish")
     if not (tg or site):
         raise DomainError("no_target", "Отметьте, куда публиковать: сайт или Telegram")
@@ -2286,7 +2341,7 @@ def publish(db: Session, pid: int, actor: User, text: str | None = None, media_i
         p.site_hidden = True
     p.published_at = now()
     p.verified_at = p.verified_at or p.published_at
-    if p.status == "review":
+    if p.status == "review" and actor is not None:
         p.review_comment, p.reviewed_by, p.reviewed_at = comment, actor.id, now()
         log_event(db, "property", p.id, "approved", actor, comment=comment)
     if tg:
@@ -2295,6 +2350,8 @@ def publish(db: Session, pid: int, actor: User, text: str | None = None, media_i
             pub.messages = {"chat": str(ref[2]), "ids": ref[3]}
         if ref:  # a repost: the old post leaves the channel (Stanislav 11-16)
             unpost(db, p, actor, keep=pub.id, action="tg_reposted")
+        if actor is not None:  # a repost by hand: the pending automatic one is not needed
+            jobs.cancel(db, "tg_repost", p.id)
         if ref:  # the same flat already in the channel? the operator decides (services/channel_dups.py, David 11-20)
             jobs.schedule(db, "channel_dups", p.id, now())
     _status(db, p, "published", actor, post_url=p.post_url if ref else None, channel=channel if tg else None,
@@ -2325,36 +2382,82 @@ def set_site(db: Session, pid: int, actor: User, on: bool) -> Property:
     return p
 
 
+def unpublish(db: Session, pid: int, actor: User) -> Property:
+    """«Снять с публикации» (David 11-23, instead of «Снять с сайта»): off everywhere — the site, the bot's catalog and
+    the channel (job tg_unpost) — the object waits in the archive (reason «unpublished») for «Опубликовать снова»
+    (resume). Staff and the object's agent, no operator request."""
+    p = _prop(db, pid, lock=True)
+    _require_owner(p, actor)
+    _require_status(p, "published")
+    _archive_now(db, p, actor, "unpublished", action="unpublished")
+    db.commit()
+    from app.services import catalog
+    if catalog.sync(db, p):
+        db.commit()
+    return p
+
+
 BACK_TO_WORK = ("rented_by_owner", "not_actual", "idle_return")  # «Снова в работу» from the archive
+RESUMABLE = ("paused", "unpublished")  # «Снять с паузы» / «Опубликовать снова»: back to published
 
 
-def resume(db: Session, pid: int, actor: User) -> Property:
-    """«Снять с паузы»: a paused object goes back to the base as it was before (published, if it ever was).
-    «Снова в работу» («Собственник сдал», the lease ends): back to «Взят» with its agent (an agent: him) to call the owner."""
+def _republish(db: Session, p: Property, actor: User | None, action: str) -> None:
+    """Back on the market as published (the site as it was) and posted again if it had a channel post. No commit."""
+    p.archive_reason, p.archive_comment, p.archived_at = None, None, None
+    jobs.cancel(db, "tg_unpost", p.id)
+    _status(db, p, "published", actor, action)
+    if db.scalar(select(PropertyPublication.id).where(PropertyPublication.property_id == p.id,
+                                                      PropertyPublication.channel == "tg").limit(1)) or p.post_url:
+        schedule_repost(db, p)
+
+
+def resume(db: Session, pid: int, actor: User, republish: bool = False) -> Property:
+    """«Снять с паузы» / «Опубликовать снова» (paused, unpublished): back to published, the post goes out again.
+    «Снова в работу» («Собственник сдал», the lease ends, a rented object): back to «Взят» with its agent (an agent:
+    him) to call the owner. republish (staff, David 11-23): a rented one is published again right away instead."""
     p = _prop(db, pid, lock=True)
     o = db.get(Owner, p.owner_id) if p.owner_id else None
     owners_agent = o is not None and o.agent_id == actor.id
     if not owners_agent:
         _require_owner(p, actor)
+    rented = p.status == "rented" or (p.status == "archived" and p.archive_reason in RENTED_REASONS)
+    if republish and rented:
+        if not at_least(actor, "operator"):
+            raise forbidden("only operators publish")
+        if not p.published_at:
+            raise DomainError("bad_status", "Объект ещё не публиковался — сначала верните его в работу")
+        _republish(db, p, actor, "republished")
+    elif p.status == "rented" or (p.status == "archived" and p.archive_reason in BACK_TO_WORK):
+        _back_to_work(db, p, actor, owners_agent)
+        return p
+    elif p.status != "archived" or p.archive_reason not in RESUMABLE:
+        raise DomainError("bad_status", "Объект не на паузе")
+    elif p.published_at:
+        _republish(db, p, actor, "resumed")
+    else:
+        p.archive_reason, p.archive_comment, p.archived_at = None, None, None
+        _status(db, p, "media_uploaded", actor, "resumed")
+    db.commit()
+    from app.services import catalog, site_feed
+    site_feed.clear_cache()
+    if catalog.sync(db, p):
+        db.commit()
+    return p
+
+
+def _back_to_work(db: Session, p: Property, actor: User, owners_agent: bool) -> None:
+    """«Снова в работу» / «Вернуть в работу» (a rented flat is free again): «Взят», the agent calls the owner."""
     # David 11-22 #8462: an old-base / dropped object whose ad came back («Дубль» on a new ad) goes back to work with the
     # owner's agent — the owner moved to him (transfer_owner leaves archived objects with the old agent)
-    if p.status == "archived" and p.archive_reason in BACK_TO_WORK:
-        if owners_agent:
-            p.agent_id = actor.id
-        p.archive_reason, p.archive_comment, p.archived_at = None, None, None
-        if not at_least(actor, "operator") or not p.agent_id:
-            p.agent_id = actor.id
-        p.taken_at, p.rent_from, p.rent_to = now(), None, None
-        schedule_lease_reminders(db, p)  # cancels what's left
-        _status(db, p, "taken", actor, "back_to_work")
-        db.commit()
-        return p
-    if p.status != "archived" or p.archive_reason != "paused":
-        raise DomainError("bad_status", "Объект не на паузе")
+    if owners_agent:
+        p.agent_id = actor.id
     p.archive_reason, p.archive_comment, p.archived_at = None, None, None
-    _status(db, p, "published" if p.published_at else "media_uploaded", actor, "resumed")
+    if not at_least(actor, "operator") or not p.agent_id:
+        p.agent_id = actor.id
+    p.taken_at, p.rent_from, p.rent_to = now(), None, None
+    schedule_lease_reminders(db, p)  # cancels what's left
+    _status(db, p, "taken", actor, "back_to_work")
     db.commit()
-    return p
 
 
 def mark_rented(db: Session, pid: int, actor: User | None) -> None:

@@ -48,7 +48,7 @@ def alive(channel: str, msgs: list[int]) -> set[int] | None:
 def run(db: Session, pause: float = 0.5, out=log.info) -> int:
     """The objects whose channel post is gone: an object imported from the channel goes to the archive
     («Неактуально», Stanislav 11-22: what they delete in the channel is gone in the CRM too), any other leaves the
-    site, the bot and the channel as «Снят с публикации» (David 11-23; its card shows why) -> how many."""
+    site and the bot as rented («Сдал сам», Stanislav 11-23; its card shows why) -> how many."""
     from app.services import properties as P
     rows = db.scalars(select(Property).where(Property.status == "published", Property.post_url.is_not(None),
                                              ~Property.site_hidden | (Property.source_type == "channel"))).all()
@@ -76,9 +76,9 @@ def run(db: Session, pause: float = 0.5, out=log.info) -> int:
             p.archive_reason, p.archive_comment, p.archived_at = "not_actual", "пост удалён в канале", now()
             P._status(db, p, "archived", None, "archived", label="сверка с каналом", reason="not_actual",
                       comment="пост удалён в канале", post_url=p.post_url)
-        else:  # David 11-23: deleted in the channel = «Снять с публикации» (off the site too, «Опубликовать снова» returns it)
-            p.archive_reason, p.archive_comment, p.archived_at = "unpublished", "пост удалён в канале", now()
-            P._status(db, p, "archived", None, "unpublished", label="сверка с каналом", reason="unpublished",
+        else:  # Stanislav 11-23: deleted in the channel = rented («Сдал сам»): off the site and the bot, no #FlatRented
+            p.archive_reason, p.archive_comment, p.archived_at = "rented_by_owner", "пост удалён в канале", now()
+            P._status(db, p, "archived", None, "archived", label="сверка с каналом", reason="rented_by_owner",
                       comment="пост удалён в канале", post_url=p.post_url)
         for pub in db.scalars(select(PropertyPublication).where(  # gone already: nothing for unpost to delete
                 PropertyPublication.property_id == p.id, PropertyPublication.channel == "tg",

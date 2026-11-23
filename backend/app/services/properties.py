@@ -958,7 +958,7 @@ def _archive_now(db: Session, p: Property, actor: User | None, reason: str, comm
         jobs.cancel(db, kind, p.id)
     _status(db, p, "archived", actor, action, reason=reason, comment=p.archive_comment,
             **({"duplicate_of": duplicate_of} if duplicate_of else {}))
-    if reason in UNPOST_REASONS:
+    if reason != "duplicate":  # any archive takes the post down (Stanislav 11-23); a duplicate: dup_purge
         _unpost_later(db, p)
     if reason == "duplicate" and duplicate_of:
         _merge_duplicate(db, p, duplicate_of, actor)
@@ -2204,8 +2204,6 @@ def record_publication(db: Session, p: Property, channel: str, url: str | None, 
 
 
 RENTED_REASONS = ("rented_by_us", "rented_by_owner")  # «Сдано» (and «Сдал сам»): the posts leave Telegram
-# David 11-23: «Приостановить» and «Снять с публикации» take the post down too; «Снять с паузы» / «Опубликовать снова» repost
-UNPOST_REASONS = (*RENTED_REASONS, "paused", "unpublished")
 TG_LINK = re.compile(r"t\.me/(c/)?(\w+)/(?:\d+/)?(\d+)")  # t.me/<channel>/<id>, t.me/c/<chat>[/<topic>]/<id>
 
 

@@ -229,12 +229,12 @@ def sign_doc_drive(db: Session, job: Job):
 
 @handler("tg_unpost")
 def tg_unpost(db: Session, job: Job):
-    """Rented («Сдано» / «Сдал сам»), paused, «Снять с публикации»: our Telegram posts of the object are deleted
+    """Rented («Сдано» / «Сдал сам») or archived for any reason (pause, «Снять с публикации», …): our Telegram posts are deleted
     (properties.unpost); a rented one then gets the channel's «#FlatRented» announcement (properties.rented_post)."""
     from app.services import properties
     p = db.get(Property, _ref_id(job))
     rented = p is not None and (p.status == "rented" or (p.status == "archived" and p.archive_reason in properties.RENTED_REASONS))
-    if p is None or not (rented or (p.status == "archived" and p.archive_reason in properties.UNPOST_REASONS)):
+    if p is None or not (rented or p.status == "archived"):
         return "noop"  # back on the market before the worker came to it
     r = properties.unpost(db, p, None)
     res = "ok" if not r["failed"] else f"not deleted: {', '.join(r['failed'])}"[:500]

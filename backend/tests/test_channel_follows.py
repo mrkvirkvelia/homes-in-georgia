@@ -100,3 +100,11 @@ def test_rented_back_to_work_by_the_agent(db, client, monkeypatch):
 def test_rented_text_for_commercial():
     p = Property(district="Vake", post_fields={"prop_type": "Office"})
     assert properties.rented_text(p).startswith("❗️#Rented\nCommercial space in 📍")
+
+
+def test_any_archive_reason_takes_the_post_down(db, client, monkeypatch):
+    """Stanislav 11-23: no CRM path leaves the post in the channel — «Неактуально», «Другое» too."""
+    calls, _, nino, pid = _published(db, client, monkeypatch)
+    client.post(f"/api/properties/{pid}/archive", json={"reason": "not_actual"}, headers=auth(nino))
+    worker.tick()
+    assert _live(db, pid) == [] and not [c for c in calls if c[0] == "rented"]

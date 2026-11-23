@@ -287,6 +287,7 @@ export const D: Record<string, [ka: string, en: string]> = {
   "Опубликовать снова": ["ხელახლა გამოქვეყნება", "Publish again"],
   "Объект снова опубликован": ["ობიექტი ხელახლა გამოქვეყნდა", "Property published again"],
   "Вернуть в работу": ["სამუშაოში დაბრუნება", "Back to work"],
+  "Собирается из параметров объекта: поменять — «Править» в «Параметрах», пост перевыложится сам.": ["იქმნება ობიექტის პარამეტრებიდან: შესაცვლელად — «რედაქტირება» «პარამეტრებში», პოსტი თავად განახლდება.", "Built from the property's parameters: change them with «Edit» in «Parameters», the post is reposted by itself."],
   "Снять с сайта": ["საიტიდან მოხსნა", "Remove from site"],
   "Объект снова в базе": ["ობიექტი კვლავ ბაზაშია", "Property is back in the base"],
   "Снять с паузы": ["შეჩერების მოხსნა", "Resume"],

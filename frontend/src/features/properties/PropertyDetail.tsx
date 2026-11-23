@@ -1084,7 +1084,6 @@ const CAPTION_MAX = 1024; // Telegram caption limit for a post with media
 function PostComposer({ p }: { p: Property }) {
   const { toast, set } = useProp(p.id);
   const draft = useQuery({ queryKey: ['property-post', p.id], queryFn: () => api.properties.post(p.id) });
-  const [edited, setEdited] = useState<string | null>(null); // null = the generated text
   // a published object: the target it is not on yet is checked; the first publication: both
   const [toSite, setToSite] = useState(true);
   const [toTg, setToTg] = useState(true);
@@ -1098,11 +1097,11 @@ function PostComposer({ p }: { p: Property }) {
   const picked = albumOf(ids.filter((id) => !off.has(id)), isVid);
   const shown = new Set(ids.filter((id) => !picked.includes(id)));  // unchecked in the grid: switched off or past the 9th photo
   const few = fewPhotos(files);
-  const text = edited ?? draft.data?.text ?? '';
+  const text = draft.data?.text ?? '';  // Stanislav 11-23: no free text — the post is built from the object's fields only
   const tags = [...new Set(text.match(/#[\p{L}\p{N}_]+/gu) || [])];
   const blocked = !!p.exclusive_conflict?.length;
   const publish = useMutation({
-    mutationFn: () => api.properties.publish(p.id, { text, media_ids: picked, channel: 'tg', tg: toTg, site: toSite }),
+    mutationFn: () => api.properties.publish(p.id, { media_ids: picked, channel: 'tg', tg: toTg, site: toSite }),
     onMutate: () => { lastStep.current = {}; setFailed(null); },
     onSuccess: (r) => { set(r); toast(toTg ? t('Опубликовано: агенту ушла ссылка на пост') : t('Опубликовано на сайте')); },
     onError: (e) => { setFailed(t('Не получилось: {step} — {error}', { step: stepText(lastStep.current), error: errText(e) })); toast(errText(e), true); },
@@ -1127,13 +1126,12 @@ function PostComposer({ p }: { p: Property }) {
   if (draft.error) return <ErrorBox error={draft.error} />;
   return (
     <div className="col">
-      <Field label={t('Текст поста')} hint={t('Собран из полей объекта и полей поста (метро, удобства, животные, сроки — «Править» в «Параметрах»). 📍[адрес](ссылка) станет ссылкой на карту.')}>
-        <Textarea value={text} onChange={(e) => setEdited(e.target.value)} rows={16} style={{ fontFamily: 'inherit', lineHeight: 1.45 }} />
+      <Field label={t('Текст поста')} hint={t('Собирается из параметров объекта: поменять — «Править» в «Параметрах», пост перевыложится сам.')}>
+        <div className="outcome-card" style={{ whiteSpace: 'pre-wrap', fontSize: 13, lineHeight: 1.45, maxHeight: 360, overflow: 'auto' }}>{text}</div>
       </Field>
       <div className="row row-between row-wrap gap-sm">
         <div className="row row-wrap gap-sm">
           {tags.map((t) => <Badge key={t} tone="grey">{t}</Badge>)}
-          {edited !== null && <Button size="sm" variant="ghost" onClick={() => setEdited(null)}><RotateCcw size={14} />{t('Исходный текст')}</Button>}
         </div>
         <span className={picked.length && text.length > CAPTION_MAX ? '' : 'faint'} style={{ fontSize: 12, fontWeight: 700, color: picked.length && text.length > CAPTION_MAX ? 'var(--red)' : undefined }}>
           {text.length}{picked.length ? ` / ${CAPTION_MAX}` : ''}
@@ -1346,8 +1344,9 @@ function ReviewStep({ p }: { p: Property }) {
 }
 
 /** A published object (David 11-23): «Обновить пост» posts it again as it is (the old post is deleted), «Редактировать
- * пост» opens the generator with the text first; without a post — «Опубликовать в Telegram» (the generator). */
-function Republish({ p }: { p: Property }) {
+ * пост» opens the object's «Править» form (Stanislav 11-23: no free text; saving a post field reposts by itself);
+ * without a post — «Опубликовать в Telegram» (the generator: photos and targets). */
+function Republish({ p, onEdit }: { p: Property; onEdit: () => void }) {
   const { toast, set } = useProp(p.id);
   const [open, setOpen] = useState(false);
   const again = useMutation({
@@ -1359,7 +1358,7 @@ function Republish({ p }: { p: Property }) {
   return p.post_url
     ? <div className="row row-wrap gap-sm">
       <Button variant="secondary" loading={again.isPending} onClick={() => again.mutate()}><RotateCcw size={16} />{t('Обновить пост')}</Button>
-      <Button variant="secondary" disabled={again.isPending} onClick={() => setOpen(true)}><Wand2 size={16} />{t('Редактировать пост')}</Button>
+      <Button variant="secondary" disabled={again.isPending} onClick={onEdit}><Pencil size={16} />{t('Редактировать пост')}</Button>
     </div>
     : <Button variant="secondary" onClick={() => setOpen(true)}><Wand2 size={16} />{t('Опубликовать в Telegram')}</Button>;
 }
@@ -1756,7 +1755,7 @@ export function PropertyDetail({ id, compact }: { id: number; compact?: boolean 
         {canWork && p.status === 'published' && <SiteButton p={p} isStaff={isStaff} />}
       </div>
       {canWork && p.status === 'published' && <PublishedActions p={p} onArchive={setArchiving} />}
-      {isStaff && p.status === 'published' && <Republish p={p} />}
+      {isStaff && p.status === 'published' && <Republish p={p} onEdit={() => setEdit(true)} />}
       {/* David 11-23: a rented flat is free again — back on the market from the card, not through the archive */}
       {p.status === 'rented' && canWork && <div className="row row-wrap gap-sm">
         {isStaff && <Resume p={p} republish />}

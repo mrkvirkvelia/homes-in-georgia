@@ -384,16 +384,28 @@ WRITE_FIRST = {"ru": ("Чтобы оператор прислал вам вре�
                       "💬 მიწერეთ ოპერატორს")}
 
 
+INTRO_AGAIN_MIN = 10  # «💬 Contact» tapped again within this: no second greeting
+
+
 @safe
-def operator_intro(lead):
+def operator_intro(lead, always=False):
     """Right after the first ❤️ of a client the operator's account never talked to: the userbot writes first (it
     checks that this needs no Stars / Premium and that the client is reachable). If it can't, the bot gives the client
-    the prefilled DM link instead -> 'userbot' | 'link' | None."""
+    the prefilled DM link instead -> 'userbot' | 'link' | None. always («💬 Contact» under a channel post, Stanislav
+    11-23): every client gets it, known or not, naming this object; once per lead in INTRO_AGAIN_MIN minutes."""
     cl, i, lang = ctx(lead)
     lid = g(lead, "id")
-    ids = [r["id"] for r in store.q("SELECT id FROM leads WHERE client_id = %s ORDER BY id", (g(lead, "client_id"),))]
-    if ids and ids[0] < lid:  # two ❤️ at once both looked «first» (knows_operator): only the earliest lead writes
-        return None
+    if always:
+        if not store.q("INSERT INTO events (entity, entity_id, action, actor_label, data, at) SELECT 'lead', %s, 'operator_intro', "
+                       "'bot', '{}'::jsonb, now() WHERE NOT EXISTS (SELECT 1 FROM events WHERE entity = 'lead' AND entity_id = %s "
+                       f"AND action = 'operator_intro' AND at > now() - interval '{INTRO_AGAIN_MIN} minutes') RETURNING id",
+                       (str(lid), str(lid)), one=True):
+            return None
+        ids = [lid]
+    else:
+        ids = [r["id"] for r in store.q("SELECT id FROM leads WHERE client_id = %s ORDER BY id", (g(lead, "client_id"),))]
+        if ids and ids[0] < lid:  # two ❤️ at once both looked «first» (knows_operator): only the earliest lead writes
+            return None
     # the client picked it in the bot: name it as the bot's card does, no links (Stanislav 11-16; the street is agent-only)
     what = headline(i, lang) + (f" ({MORE[lang].format(n=len(ids) - 1)})" if len(ids) > 1 else "")
     from app.telegram import userbot

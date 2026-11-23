@@ -166,6 +166,13 @@ def dr_summary(month_from: str | None = Month, month_to: str | None = Month, db:
     return R.summary(db, month_from, month_to)
 
 
+@router.get("/today")
+def dr_today(db: Session = Db, user: User = Me):
+    """«Сегодня»: who lives now, arrivals / departures, stays without money, cleanings, occupancy, alerts (daily_rent_auto)."""
+    from app.services import daily_rent_auto
+    return daily_rent_auto.today(db)
+
+
 @router.get("/journal")
 def dr_journal(limit: int = Query(100, ge=1, le=500), offset: int = Query(0, ge=0), db: Session = Db, user: User = Me):
     return R.journal(db, limit, offset)

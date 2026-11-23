@@ -53,10 +53,22 @@ export interface CalendarData { items: Interval[]; conflicts: Conflict[]; unacco
 export interface JournalRow { id: number; entity: string; entity_id: string; action: string; actor: string | null; data: Record<string, unknown>; at: string }
 export type AptFull = DrApartment & { bookings: DrBooking[]; econ: Econ; period_report: string };
 export interface Period { month_from?: string; month_to?: string }
+/** «Сегодня» (api/daily_rent.py /today, services/daily_rent_auto.today) */
+export interface TodayStay {
+  id: number; apartment_id: number; apartment: string; guest: string; platform: Platform; check_in: string; check_out: string;
+  nights: number; no_money: boolean; auto: boolean; code: string | null; cancelled_on_platform: boolean;
+}
+export interface TodayData {
+  date: string; living: TodayStay[]; arrivals: TodayStay[]; departures: TodayStay[]; upcoming: TodayStay[]; no_money: TodayStay[];
+  cleanings: { id: number; apartment_id: number; apartment: string; cleaner: string; notes: string; done: boolean }[];
+  payouts_ready: Mix; load: { apartment_id: number; apartment: string; busy: number; occupancy: number }[];
+  alerts: { kind: 'gap' | 'hidden_booked' | 'cancelled_with_money'; apartment_id: number; text: string }[];
+}
 
 const P = '/daily-rent';
 export const dr = {
   data: () => http.get<{ apartments: DrApartment[]; staff: DrStaff[]; rate: number }>(`${P}/data`),
+  today: () => http.get<TodayData>(`${P}/today`),
   summary: (p: Period) => http.get<Summary>(`${P}/summary`, { ...p }),
   journal: (offset = 0) => http.get<{ items: JournalRow[]; total: number }>(`${P}/journal`, { limit: 100, offset }),
   apartment: (id: number, p: Period & { label?: string }) => http.get<AptFull>(`${P}/apartments/${id}`, { ...p }),

@@ -102,6 +102,12 @@ def test_rented_text_for_commercial():
     assert properties.rented_text(p).startswith("❗️#Rented\nCommercial space in 📍")
 
 
+def test_rented_text_for_a_sale():
+    """e2e 11-23: a sold flat is not «#FlatRented … found a tenant»."""
+    p = Property(district="Vake", post_fields={"deal": "Sale", "prop_type": "Apartment"})
+    assert properties.rented_text(p).startswith("❗️#Sold\nNice apartment in 📍") and "tenant" not in properties.rented_text(p)
+
+
 def test_any_archive_reason_takes_the_post_down(db, client, monkeypatch):
     """Stanislav 11-23: no CRM path leaves the post in the channel — «Неактуально», «Другое» too."""
     calls, _, nino, pid = _published(db, client, monkeypatch)

@@ -2272,7 +2272,10 @@ def rented_text(p: Property) -> str:
     """The channel's own «found a tenant» announcement (as the agency posts it by hand: ❗️#FlatRented, the district)."""
     tag = district_tag(p.district)
     name = districts.BY_TAG[tag[1:]][2] if tag[1:] in districts.BY_TAG else _human(tag[1:])
-    if (p.post_fields or {}).get("prop_type") not in RESIDENTIAL:
+    what = "Nice apartment" if (p.post_fields or {}).get("prop_type") in RESIDENTIAL else "Commercial space"
+    if is_sale(p):  # e2e 11-23: a sold flat went out as «#FlatRented … found a tenant» into the sale channel
+        return f"❗️#Sold\n{what} in 📍{name} found a new owner 🤝👏🎉\n{tag}"
+    if what == "Commercial space":
         return f"❗️#Rented\nCommercial space in 📍{name} has found a business 🤝👏🎉\n{tag}"
     return f"❗️#FlatRented\nNice apartment in 📍{name} found a tenant 🤝👏🎉\n{tag}"
 

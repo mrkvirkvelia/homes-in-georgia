@@ -150,7 +150,7 @@ export const D: Record<string, [ka: string, en: string]> = {
   "Найти копии на myhome": ["ასლების ძებნა myhome-ზე", "Find copies on myhome"],
   "Найти копии на myhome и ss.ge": ["ასლების ძებნა myhome-ზე და ss.ge-ზე", "Find copies on myhome and ss.ge"],
   "Ищем копии на myhome и ss.ge — через пару минут список обновится": ["ვეძებთ ასლებს myhome-ზე და ss.ge-ზე — რამდენიმე წუთში სია განახლდება", "Searching myhome and ss.ge for copies — the list updates in a couple of minutes"],
-  "Сравнить с объявлением по ссылке (myhome.ge или ss.ge)": ["შედარება განცხადებასთან ბმულით (myhome.ge ან ss.ge)", "Compare with an ad by its link (myhome.ge or ss.ge)"],
+  "Сравнить с объявлением по ссылке (myhome, ss.ge, livo, korter)": ["შედარება განცხადებასთან ბმულით (myhome, ss.ge, livo, korter)", "Compare with an ad by its link (myhome, ss.ge, livo, korter)"],
   "Сравнить": ["შედარება", "Compare"],
   "Это другая квартира того же собственника? Тогда отправим, а оператор увидит вашу отметку.": ["ეს იგივე მესაკუთრის სხვა ბინაა? მაშინ გავაგზავნით, ოპერატორი დაინახავს თქვენს მონიშვნას.", "Is this another flat of the same owner? Then we send it, and the operator sees your note."],
   "этаж": ["სართული", "floor"],

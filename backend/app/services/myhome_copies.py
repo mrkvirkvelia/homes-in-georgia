@@ -267,19 +267,118 @@ def _mh_detail(mid: str) -> dict:
     return _mh_row(st)
 
 
+# ------------------------------------------------------------------ korter.ge (David 11-23: «MyHome, SS, Livo, Korter»)
+# Livo is a front of myhome's own base (same statements, same ids: bot/fetch_livo.py), so the myhome search finds its
+# agents' ads already. Korter is its own base (18k rentals, agents included): its search page filters by district
+# (the path), area and floor; the app state (window.INITIAL_STATE) carries the ads, the ad page all its photos.
+KR = "https://korter.ge"
+KR_PAGES = 5        # 20 ads a page
+KR_DETAILS = 15     # ad pages opened per card (the closest area first): their photos are what gets compared
+GEL_PER_USD = 2.7   # = bot/ingest.py
+KR_UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0 Safari/537.36"
+
+
+def _kr_state(html: str) -> dict:
+    i = html.find("window.INITIAL_STATE")
+    if i < 0:
+        raise ValueError("korter: no INITIAL_STATE on the page")
+    return json.JSONDecoder().raw_decode(html, html.index("{", i))[0]
+
+
+def _kr_get(path: str) -> str | None:
+    import httpx
+    r = httpx.get(KR + path, headers={"User-Agent": KR_UA}, timeout=30, follow_redirects=True)
+    return None if r.status_code == 404 else r.raise_for_status().text
+
+
+def kr_search(slug: str | None, query: str, pause: float = 0.5) -> list[dict]:
+    """Korter rentals of a district path (None: the city), up to KR_PAGES pages; an unknown district -> the city."""
+    out, n = [], 0
+    while n < KR_PAGES:
+        n += 1
+        html = _kr_get(f"/en/apartments-for-rent-tbilisi{'-' + slug if slug else ''}?{query}&page={n}")
+        if html is None:
+            if not slug:
+                break
+            slug, n = None, 0  # Korter has no page for this district: the city
+            continue
+        items = [i for i in _kr_state(html)["apartmentListingStore"]["apartments"] if i.get("section") == "rent"]
+        out += items
+        if len(items) < 20:
+            break
+        time.sleep(pause)
+    return out
+
+
+def _kr_row(obj_id, d: dict, link: str) -> dict:
+    """An ad page's layout (+ the search item for the district) -> a row like _mh_row."""
+    lay = d["layout"]
+    price = lay.get("price")
+    if price and lay.get("currency") == "GEL":
+        price = round(price / GEL_PER_USD)
+    fl = ((lay.get("floorsByHouse") or [{}])[0].get("floorNumbers") or [None])[0]
+    rooms = lay.get("roomCount")
+    return {"id": f"kr{obj_id}", "source": "korter.ge", "url": KR + link,
+            "photos": [im["mediaSrc"]["default"]["x1"] for im in lay.get("images") or [] if im.get("mediaSrc")],
+            "address": lay.get("address"), "area": lay.get("area"), "floor": int(fl) if str(fl or "").isdigit() else None,
+            "bedrooms": lay.get("bedroomCount") if lay.get("bedroomCount") is not None else (max(rooms - 1, 0) if rooms else None),
+            "district": districts.label(d.get("district")) or d.get("district"), "price_usd": price,
+            "text": lay.get("description") or ""}
+
+
+def _kr_detail(link: str, district: str | None = None) -> dict:
+    s = _kr_state(_kr_get(link) or "")["layoutLandingStore"]
+    return _kr_row(s["objectId"], {"layout": s["layout"], "district": district}, link)
+
+
+def kr_candidates(p, pause: float = 0.5) -> list[dict]:
+    """Korter ads that could be the object: its district (Korter's path, the city when it has none), area ±12 %,
+    floor ±1; kept: in the district or on the street, the same bedrooms; the closest areas' ad pages opened."""
+    if not p.area:
+        return []
+    a = float(p.area)
+    q = f"min_area={int(a * (1 - AREA_TOL))}&max_area={int(a * (1 + AREA_TOL)) + 1}"
+    if p.floor is not None:
+        q += f"&min_floor_number={max(int(p.floor) - 1, 1)}&max_floor_number={int(p.floor) + 1}"
+    tag, street = districts.tag(p.district), _street(p.address)
+    slug = re.sub(r"[^a-z]+", "-", districts.BY_TAG[tag][2].lower()).strip("-") if tag else None
+
+    def fits(i):
+        ours = (tag and districts.tag(i.get("subLocalityNominative")) == tag) or \
+            (street and _same_street(street, _street(re.sub(r"\s*\(.*\)", "", i.get("address") or ""))))
+        rooms = i.get("roomCount")
+        return ours and (p.bedrooms is None or not rooms or max(rooms - 1, 0) == int(p.bedrooms))
+    found = {i["objectId"]: i for i in kr_search(slug, q, pause) if fits(i)}
+    out = []
+    for i in sorted(found.values(), key=lambda i: abs(float(i.get("area") or 0) - a))[:KR_DETAILS]:
+        try:
+            out.append(_kr_detail(i["link"], i.get("subLocalityNominative")))
+        except Exception as e:  # noqa: BLE001 — one ad page failed: the others stand
+            log.warning("korter ad %s: %r", i.get("objectId"), e)
+        time.sleep(pause)
+    return out
+
+
 # /ka/pr/26740808/… and the new slug form /ka/udzravi-qoneba/qiravdeba-…-vakeshi-26740808/ (David 11-23)
 MH_LINK = re.compile(r"myhome\.ge/(?:[a-z]{2}/)?(?:pr/(\d+)|[^?#]*?-(\d{6,})/?(?:[?#]|$))")
 SS_LINK = re.compile(r"ss\.ge/.*?(\d{6,})(?:[/?#]|$)")
+# livo.ge/en/udzravi-qoneba/…/…-26740808 (myhome's own ad: the same id) and korter.ge/en/apartments-for-rent-tbilisi/…/1074541
+LIVO_LINK = re.compile(r"livo\.ge/(?:[a-z]{2}/)?(?:pr/(\d+)|[^?#]*?-(\d{6,})/?(?:[?#]|$))")
+KR_LINK = re.compile(r"korter\.ge(/[^?#]*?/\d{5,})/?(?:[?#]|$)")
 
 
 def by_link(url: str) -> dict:
-    """A myhome / ss.ge ad link -> its row (_mh_row / _ss_row shape); ValueError for another link."""
+    """A myhome / ss.ge / livo / korter ad link -> its row (_mh_row / _ss_row shape); ValueError for another link."""
     url = url.strip()
     if m := MH_LINK.search(url):
         return _mh_detail(m[1] or m[2])
     if SS_LINK.search(url):
         return _ss_detail(url.split("?")[0])
-    raise ValueError("Нужна ссылка на объявление myhome.ge или ss.ge")
+    if m := LIVO_LINK.search(url):
+        return _mh_detail(m[1] or m[2])
+    if m := KR_LINK.search(url):
+        return _kr_detail(m[1])
+    raise ValueError("Нужна ссылка на объявление myhome.ge, ss.ge, livo.ge или korter.ge")
 
 
 def compare_link(db: Session, pid: int, url: str, actor=None) -> dict:
@@ -364,8 +463,14 @@ def run(db: Session, pid: int, pause: float = 1.0) -> int:
     except Exception as e:  # noqa: BLE001 — ss.ge / Apify down: the myhome copies stand
         log.warning("ss.ge copies of #%s failed: %r", pid, e)
         ss, n_ss = [], 0
-    log_event(db, "property", pid, "myhome_copies", None, label="поиск копий на myhome и ss.ge", candidates=len(items),
-              saved=n, ss_candidates=len(ss), ss_saved=n_ss, cards=len(cs))
+    try:
+        kr = list({i["id"]: i for c in cs for i in kr_candidates(c, pause / 2)}.values())
+        n_kr = save(db, kr)
+    except Exception as e:  # noqa: BLE001 — korter down / its page changed: the others stand
+        log.warning("korter copies of #%s failed: %r", pid, e)
+        kr, n_kr = [], 0
+    log_event(db, "property", pid, "myhome_copies", None, label="поиск копий на myhome, ss.ge и korter", candidates=len(items),
+              saved=n, ss_candidates=len(ss), ss_saved=n_ss, kr_candidates=len(kr), kr_saved=n_kr, cards=len(cs))
     db.commit()
-    log.info("copies of #%s: myhome %s/%s, ss.ge %s/%s", pid, len(items), n, len(ss), n_ss)
-    return n + n_ss
+    log.info("copies of #%s: myhome %s/%s, ss.ge %s/%s, korter %s/%s", pid, len(items), n, len(ss), n_ss, len(kr), n_kr)
+    return n + n_ss + n_kr

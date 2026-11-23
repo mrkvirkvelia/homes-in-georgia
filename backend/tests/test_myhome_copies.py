@@ -9,6 +9,8 @@ from app.services import similar
 from tests.conftest import make_listing, make_user
 from tests.test_similar import H, _object
 
+_KR_SEARCH = M.kr_search  # the real one: conftest stubs it in every test
+
 
 def ad(i, **kw):
     return {"id": i, "address": "რამიშვილი ნ. ქ. ", "area": 56, "floor": 8, "bedroom": "1", "room": "2", "urban_name": "Vake",
@@ -120,8 +122,12 @@ def test_link_forms(monkeypatch):
     monkeypatch.setattr(M, "_mh_detail", lambda i: i)
     for u in ("https://www.myhome.ge/ka/udzravi-qoneba/qiravdeba-2-otaxiani-axali-ashenebuli-bina-vakeshi-26740808/",
               "https://www.myhome.ge/udzravi-qoneba/qiravdeba-2-otaxiani-bina-vakeshi-26740808",
-              "https://www.myhome.ge/en/pr/26740808/flat-for-rent", "myhome.ge/pr/26740808?x=1"):
+              "https://www.myhome.ge/en/pr/26740808/flat-for-rent", "myhome.ge/pr/26740808?x=1",
+              "https://livo.ge/en/udzravi-qoneba/for-rent-apartment/2-room-flat-in-vake-26740808"):  # livo: myhome's ad
         assert M.by_link(u) == "26740808", u
+    monkeypatch.setattr(M, "_kr_detail", lambda link, district=None: link)
+    assert M.by_link("https://korter.ge/en/apartments-for-rent-tbilisi/park-home-saburtalo/1074541?x=1") == \
+        "/en/apartments-for-rent-tbilisi/park-home-saburtalo/1074541"
     with pytest.raises(ValueError):
         M.by_link("https://www.myhome.ge/ka/s/")
 
@@ -146,3 +152,27 @@ def test_copies_are_searched_by_the_linked_ad_too(db, client, monkeypatch):
     # the object first, the owner's ad by its own card, the ad matching the card not twice
     assert seen[:2] == [("Ateni 16", 55.0, 5), ("Ramishvili 3", 57.0, 8)] and ss_seen[:2] == ["Ateni 16", "Ramishvili 3"]
     assert [x[0] for x in seen].count("Ateni 16") == 1 and len(seen) <= 1 + M.LINK_CARDS
+
+
+def test_korter_candidates_keep_district_street_bedrooms_closest_first(monkeypatch):
+    """David 11-23: «MyHome, SS, Livo, Korter» — Korter's own base searched by district path, area and floor."""
+    from types import SimpleNamespace as N
+    calls, opened = [], []
+
+    def item(i, **kw):
+        return {"objectId": i, "link": f"/en/x/{i}", "section": "rent", "area": 57, "roomCount": 2,
+                "subLocalityNominative": "Vake", "address": "Nino Ramishvili St, 3", **kw}
+    monkeypatch.setattr(M, "kr_search", lambda slug, q, pause=0.5: calls.append((slug, q)) or [
+        item(1, area=63), item(2), item(3, subLocalityNominative="Saburtalo", address="Kazbegi Ave, 3"),
+        item(4, roomCount=3), item(5, subLocalityNominative="Saburtalo")])  # 5: Ramishvili filed under Saburtalo
+    monkeypatch.setattr(M, "_kr_detail", lambda link, district=None: opened.append(link) or {"id": link})
+    p = N(area=57.0, floor=8, bedrooms=1, district="Ваке", address="Ramishvili 3")
+    assert [r["id"] for r in M.kr_candidates(p, pause=0)] == ["/en/x/2", "/en/x/5", "/en/x/1"]  # 3: other place; 4: 2 bedrooms
+    assert calls == [("vake", "min_area=50&max_area=64&min_floor_number=7&max_floor_number=9")]
+
+
+def test_korter_search_falls_back_to_the_city(monkeypatch):
+    pages = {"/en/apartments-for-rent-tbilisi?min_area=1&page=1": '<script>window.INITIAL_STATE = {"apartmentListingStore": '
+             '{"apartments": [{"objectId": 9, "section": "rent"}, {"objectId": 8, "section": "sale"}]}}</script>'}
+    monkeypatch.setattr(M, "_kr_get", lambda path: pages.get(path))
+    assert [i["objectId"] for i in _KR_SEARCH("lisi", "min_area=1", pause=0)] == [9]

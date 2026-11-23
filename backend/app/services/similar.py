@@ -43,7 +43,11 @@ TWIN_KM = 1.5        # pins this far apart are still «рядом» (weight only
 # point 11-21), not a building: «рядом на карте, 0 м» there said nothing (#15494 / #15491 at 80 %, other streets)
 CROWD = 10
 _crowded: dict = {"t": 0.0, "pts": frozenset()}
-LIVE = ("published", "pending_review", "copy")  # copy: a myhome copy found for an object (services/myhome_copies.py)
+LIVE = ("published", "pending_review", "copy", "rejected")  # copy: a myhome copy found for an object (services/myhome_copies.py)
+# rejected (11-23): competitors' tg posts (2,184 on prod, all «rejected» by the bot) and agents' FB ads are most often
+# the agents' copies of our objects — candidates of an object's «Похожие» only (find), never of an ad's; never
+# shown to clients (the bot's search reads «published»). ponytail: dHash only, no photo vectors (embeddings.LIVE_AD)
+AD_ONLY_LIVE = ("published", "pending_review", "copy")  # an ad's own «Похожие»
 CADASTRAL = re.compile(r"(?<![\d.])\d{2}\.\d{2}\.\d{2}\.\d{3}\.\d{3}(?:\.\d{2}\.\d{3})?(?![\d])")
 # «похожие фото (другой ракурс)»: meanbest of the two photo sets (each photo's best cosine to the other set, averaged
 # over both), SigLIP vectors in photo_vectors (app/embeddings.py). Measured 11-20 on 4,053 myhome Tbilisi rentals, 112
@@ -815,7 +819,8 @@ def find(db: Session, subject: str, user: User | None = None, limit: int = 30, i
     ads, ad_idx, ad_keys = _ads(db, competitors) if include_ads else ([], {}, {})
     linked = {key("l", x) for x in db.scalars(select(PropertyListing.listing_id))} if ads else set()
     # a linked ad is its object's: never listed on its own (the cache may predate the link)
-    cands = [o for o in objs if o["key"] not in skip] + [a for a in ads if a["key"] not in skip and a["key"] not in linked]
+    cands = [o for o in objs if o["key"] not in skip] + [a for a in ads if a["key"] not in skip and a["key"] not in linked
+                                                       and (kind == "p" or a["out"]["status"] in AD_ONLY_LIVE)]
     # Only a candidate with an identifying signal (score(): `identifying`) can be shown, so only those are scored:
     # the ones sharing an index key, a photo (dHash pigeonhole, photo vectors) or a decision. The rest stay < 65 %.
     want: set[str] = set()

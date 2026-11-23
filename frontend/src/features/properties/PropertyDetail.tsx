@@ -815,7 +815,7 @@ function MyhomeCopies({ p }: { p: Property }) {
   return <Button variant="secondary" size="sm" loading={run.isPending} onClick={() => run.mutate()}>{t('Найти копии на myhome и ss.ge')}</Button>;
 }
 
-/** «Сравнить по ссылке» (David 11-22): an ad of a competitor / an owner on myhome or ss.ge scored against the object. */
+/** «Сравнить по ссылке» (David 11-22): an ad of a competitor / an owner on myhome / ss.ge / livo / korter scored against the object. */
 function CompareLink({ p }: { p: Property }) {
   const qc = useQueryClient();
   const toast = useToast();
@@ -837,7 +837,7 @@ function CompareLink({ p }: { p: Property }) {
     r.bedrooms != null ? `${t('спален')}: ${r.bedrooms}` : null, r.price_usd ? `$${r.price_usd}` : null].filter(Boolean).join(' · ') : '';
   return (
     <div style={{ marginTop: 12, borderTop: '1px solid var(--border, #e5e7eb)', paddingTop: 12 }}>
-      <div className="muted" style={{ fontSize: 13, marginBottom: 6 }}>{t('Сравнить с объявлением по ссылке (myhome.ge или ss.ge)')}</div>
+      <div className="muted" style={{ fontSize: 13, marginBottom: 6 }}>{t('Сравнить с объявлением по ссылке (myhome, ss.ge, livo, korter)')}</div>
       <div style={{ display: 'flex', gap: 8 }}>
         <div style={{ flex: 1 }}><Input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://www.myhome.ge/pr/…" /></div>
         <Button variant="secondary" size="sm" loading={run.isPending} disabled={!url.trim()} onClick={() => run.mutate()}>{t('Сравнить')}</Button>

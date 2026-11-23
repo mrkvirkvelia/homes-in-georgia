@@ -145,3 +145,15 @@ def test_object_photos_are_hashed_and_found(db, client, monkeypatch):
     make_listing(db, "ss8002", photo_hashes=json.dumps([h[0], 99]), address="other 2", district="Сабуртало")
     ana = make_user(db, "agent", "Аня")
     assert [x["property_id"] for x in similar.find(db, "l:ss8001", ana) if x["kind"] == "object"] == [p.id]  # one photo: «похож»
+
+
+def test_rejected_ads_are_candidates_of_an_object_not_of_an_ad(db, client):
+    """11-23: competitors' tg posts / agents' FB ads are «rejected» by the bot, and most often they are the agents'
+    copies of our object: an object's «Похожие» (its duplicate search) lists them, an ad's own does not."""
+    vika = make_user(db, "agent", "Вика")
+    pid = _object(db, client, vika)
+    make_listing(db, "tg:rival:77", source="tg:rival", status="rejected", status_reason="источник-конкурент",
+                 urls=json.dumps(["https://t.me/rival/77"]), address="Kazbegi 30", photo_hashes=json.dumps(H[:3]))
+    make_listing(db, "ss8001", urls=json.dumps(["https://ss.ge/8001"]), address="Kazbegi 31", photo_hashes=json.dumps(H[:3]))
+    assert "l:tg:rival:77" in {c["key"] for c in similar.find(db, f"p:{pid}", vika)}
+    assert "l:tg:rival:77" not in {c["key"] for c in similar.find(db, "l:ss8001", vika)}

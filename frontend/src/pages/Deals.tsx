@@ -2,11 +2,11 @@ import { useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { DealsAnalytics } from '../features/deals/Analytics';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { CheckCircle2, FileText, Plus, XCircle } from 'lucide-react';
+import { ArrowLeft, CheckCircle2, FileText, Plus, XCircle } from 'lucide-react';
 import { api } from '../api';
 import { itemsOf } from '../api/client';
 import type { Deal } from '../api/types';
-import { FIELD_FILTER, atLeast } from '../api/types';
+import { FIELD_FILTER } from '../api/types';
 import { useAuth } from '../auth/AuthContext';
 import { useActionDialog } from '../components/ActionDialog';
 import { errText, useToast } from '../components/toast';
@@ -81,7 +81,7 @@ export function DealView({ id, onClose, initialEval }: { id: number; onClose: ()
   });
   if (error) return <ErrorBox error={error} />;
   if (isLoading || !d) return <Loading />;
-  const canCancel = isStaff ? d.status !== 'cancelled' : atLeast(user, 'agent') && user?.id === d.agent_id && d.status === 'pending';
+  const canCancel = isStaff ? d.status !== 'cancelled' : user?.id === d.agent_id && d.status === 'pending';
   const cancelDeal = async () => {
     const reason = await ask(t('Отменить сделку?'), { label: t('Причина отмены'), required: !isStaff });
     if (reason !== null) cancel.mutate(reason.trim());
@@ -226,7 +226,8 @@ export function DealsPage({ newDeal }: { newDeal?: boolean }) {
   if (newDeal) {
     return (
       <>
-        <PageHead label={leadId ? `Заявка #${leadId} · Сделка` : "Сделки · C9b"} title="Оформить сделку" />
+        <PageHead label={leadId ? `Заявка #${leadId} · Сделка` : "Сделки · C9b"} title="Оформить сделку"
+          actions={<Button variant="secondary" onClick={() => (window.history.length > 1 ? navigate(-1) : navigate(propertyId ? `/objects/${propertyId}` : leadId ? `/leads/${leadId}` : '/deals'))}><ArrowLeft size={16} />{t('Назад')}</Button>} />
         {propertyId && !leadId && (pick.isLoading || pickLead) ? <Loading />
           : <DealForm key={leadId ?? propertyId} leadId={leadId} propertyId={leadId ? undefined : propertyId} onDone={(d) => navigate(leadId ? `/leads/${leadId}` : `/deals?open=${d.id}`)} />}
       </>

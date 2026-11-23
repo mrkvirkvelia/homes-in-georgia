@@ -114,15 +114,12 @@ def point_facts(lat: float, lng: float) -> dict:
     """What a point fills in the card (Stanislav 11-11): the CRM district (OSM's suburb / city district there), the
     street and house there (David 11-18: a tap on the map names the address) and the nearest metro at any distance up to
     METRO_RADIUS_M (a sanity cap: outside Tbilisi none), with its distance."""
-    from app.services.properties import METRO, METRO_RADIUS_M, district_metro, nearest_metro_m
+    from app.services.properties import METRO_RADIUS_M, nearest_metro_m
     try:
         near_osm = _reverse(round(lat, 5), round(lng, 5)) or {}  # ~1 m: a dragged marker reuses the cache
     except (httpx.HTTPError, ValueError, KeyError):
         near_osm = {}
     m, tag = nearest_metro_m(lat, lng)
-    if alias := district_metro(near_osm.get("district")):
-        a, b = METRO[alias]
-        m, tag = 111_000 * ((lat - a) ** 2 + ((lng - b) * 0.75) ** 2) ** 0.5, alias
     near = m <= METRO_RADIUS_M
     return {"district": near_osm.get("district"), "address": near_osm.get("street"),
             "metro": tag if near else None, "metro_m": round(m) if near else None}

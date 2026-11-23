@@ -203,8 +203,6 @@ def _month(d: date | None) -> str:
 
 def create(db: Session, data: dict, actor: User | None, commit: bool = True, notify_lead: bool = True) -> Deal:
     """C9b deal form → deals.status=pending. Optional T0 (`t0_h2o_client`.. or `t0: {...}`) stored as evaluation."""
-    if actor is not None and not at_least(actor, "agent"):
-        raise forbidden("recruits do not create deals")
     data = dict(data or {})
     from app.services import properties
     if oid := data.pop("owner_id", None):  # picked from the owners list (autocomplete): the base's contact, not a retype
@@ -440,8 +438,6 @@ def schedule_reminders(db: Session, deal: Deal, past_t14: bool = True) -> None:
 
 def cancel(db: Session, deal_id: int, actor: User, reason: str | None = None) -> Deal:
     """Operator+: any deal. An agent (Irakli 11-12): his own deal while it is not confirmed yet, with a reason."""
-    if not at_least(actor, "agent"):
-        raise forbidden("recruits do not manage deals")
     deal = get_or_404(db, Deal, int(deal_id), "deal", lock=True)
     if not at_least(actor, "operator"):
         if deal.agent_id != actor.id:

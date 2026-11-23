@@ -40,7 +40,7 @@ export const NAV: NavItem[] = [
 /** «+ Добавить» sheet from the old CRM (quickAction: object, deal, contract, report, showing, check). */
 const QUICK: { to: string; title: string; sub: string; icon: LucideIcon; agent?: boolean }[] = [
   { to: '/objects?new=1', title: t('Объект'), sub: t('Завести вручную'), icon: Plus },
-  { to: '/deals/new', title: t('Сделку'), sub: t('Расчёт и День 0'), icon: Handshake, agent: true },  // Irakli 2026-11-11: back in «Добавить»
+  { to: '/deals/new', title: t('Сделку'), sub: t('Расчёт и День 0'), icon: Handshake },  // Irakli 2026-11-11: back in «Добавить»; recruits too (Stanislav 11-23)
   { to: '/contracts?new=1', title: t('Договор'), sub: t('Создать договор'), icon: FileText },
   { to: '/reports?kind=general', title: t('Отчёт'), sub: t('Общий отчёт'), icon: ClipboardList },
   { to: '/reports?kind=showing', title: t('Показ'), sub: t('Отчёт о показе'), icon: Eye },

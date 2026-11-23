@@ -226,6 +226,8 @@ export const api = {
   /** Mini App: the generated contract file sent to the user's Telegram chat by the bot (webviews block downloads) */
   contracts: {
     send: (filename: string, html: string) => http.post<{ ok: boolean }>('/contracts/send', { filename, html }),
+    /** an edited clause into the other column's language(s) (GEO / RU / EN): {lang: text} */
+    translate: (text: string, to: string[]) => http.post<Record<string, string>>('/contracts/translate', { text, to }),
     /** status: active (draft + signed, default) | draft | signed | deal | closed_no_deal | all */
     list: (q?: { status?: string; lead_id?: number; deal_id?: number; property_id?: number; agent_id?: number; q?: string }) => http.get<L<Contract>>('/contracts', { ...q, limit: LIMIT }),
     /** the wizard's debounced autosave: the deal's draft (no PDF), or `id`'s data */

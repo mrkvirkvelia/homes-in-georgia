@@ -823,7 +823,7 @@ on('POST', '/ndas/:id/text/preview', (_m, b) => ({ html: `<h1>Preview</h1>${(b.b
 // one generated rent contract with a saved registry extract: the card, e-sign and /esign/mock-owner-9001-… (Irakli 11-13)
 const contracts: Record<string, unknown>[] = [{ id: 9001, kind: 'rent', lang: 'EN', lead_id: null, deal_id: null, cadastral: '01.10.14.016.017.01.001',
   address: 'თბილისი, ტაბიძის ქ. 43', has_pdf: true, status_label: 'Сгенерирован', filename: 'contract.pdf', created_at: new Date().toISOString(),
-  generated_at: new Date().toISOString(), data: { extract_file: 'private/registry-extracts/mock.pdf' } }];
+  generated_at: new Date().toISOString(), data: { extract_file: 'private/registry-extracts/mock.pdf'} }];
 // a contract signed from the object card, no lead (Irakli 11-18: «Оформить сделку» on it)
 const cardProp = F.properties.find((p) => p.agent_id === 3 && p.status === 'published') || F.properties[0];
 contracts.push({ id: 9002, kind: 'rent', lang: 'RU', status: 'signed', status_label: 'Договор подписан', lead_id: null, deal_id: null, property_id: cardProp.id,
@@ -835,6 +835,7 @@ const cxOut = (c: Record<string, unknown>) => ({ status: 'draft', status_label: 
 on('GET', '/contracts', (_m, _b, q) => page(contracts.filter((c) => (!q.get('lead_id') || c.lead_id === Number(q.get('lead_id')))
   && (!q.get('deal_id') || c.deal_id === Number(q.get('deal_id'))) && (!q.get('property_id') || c.property_id === Number(q.get('property_id')))
   && (!q.get('status') || q.get('status') === 'all' || String(q.get('status')).replace('active', 'draft,signed').split(',').includes(String(c.status || 'draft')))).map(cxOut)));
+on('POST', '/contracts/translate', (_m, b) => Object.fromEntries((b.to as string[]).map((l) => [l, `[${l}] ${b.text}`])));  // no model in the mock
 on('POST', '/contracts/draft', (_m, b) => {
   let c = contracts.find((x) => x.id === b.id);
   if (!c) { c = { id: nextId(), lead_id: b.lead_id || null, deal_id: b.deal_id || null, property_id: b.property_id || null, created_at: new Date().toISOString() }; contracts.push(c); }

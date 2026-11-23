@@ -331,7 +331,7 @@ def _edits(e) -> dict | None:
             continue
         if v is None or ok(v):
             out[k] = v
-        elif isinstance(v, list) and k.endswith("+"):
+        elif isinstance(v, list) and (k.endswith("+") or k.endswith(":auto")):  # :auto = the autotranslated paths
             out[k] = [x for x in v[:50] if ok(x)]
     return out
 
@@ -758,3 +758,37 @@ def drive_upload(db: Session, cid: int) -> str:
     c.drive_file_id = drive_put(sa, filename(c), pdf_bytes(c, signed=True))
     log_event(db, "contract", c.id, "drive_uploaded", None, file_id=c.drive_file_id)
     return "ok"
+
+
+# ---- autotranslation of an edited clause (David 11-23): the agent writes Russian, the Georgian column follows
+
+TR_LANGS = {"GEO": "Georgian", "RU": "Russian", "EN": "English"}
+
+
+def _llm():
+    """bot/llm.py: the project's one model client (OPENAI_* / LLM_MODEL env, CRM keys, Расходы)."""
+    import sys
+    if str(REPO_ROOT / "bot") not in sys.path:
+        sys.path.append(str(REPO_ROOT / "bot"))
+    import llm
+    return llm
+
+
+def translate(text: str, to: list[str]) -> dict[str, str]:
+    """A contract paragraph into each of `to` (GEO / RU / EN): {lang: text}. Failure = DomainError (the edit itself is kept)."""
+    langs = [x for x in dict.fromkeys(to) if x in TR_LANGS]
+    if not text.strip() or not langs:
+        return {}
+    schema = {"type": "object", "additionalProperties": False, "required": langs,
+              "properties": {x: {"type": "string"} for x in langs}}
+    prompt = ("You translate one paragraph of a Georgian residential lease contract (legal style, as in the rest of the "
+              f"contract). Translate it into: {', '.join(f'{x} = {TR_LANGS[x]}' for x in langs)}. If the paragraph is "
+              "already in a target language, return it unchanged for that one. Keep clause numbers, amounts, dates, names, "
+              "ID numbers, addresses as written, the **bold** markers around the same words and [[field]] placeholders as is. "
+              "No comments, only the translations.\n\nParagraph:\n" + text)
+    try:
+        out = _llm().ask(prompt, schema, retries=1, timeout=90, purpose="contract_translate")
+    except Exception as e:  # noqa: BLE001
+        log.warning("contract translate failed: %s", e)
+        raise DomainError("translate_failed", "Автоперевод не удался", 502) from e
+    return {x: str(out.get(x) or "").strip() for x in langs if str(out.get(x) or "").strip()}

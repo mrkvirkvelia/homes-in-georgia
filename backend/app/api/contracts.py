@@ -104,6 +104,17 @@ def contracts_list(status: str | None = None, lead_id: int | None = None, deal_i
     return paginate(db, C.query(db, user, status, lead_id, q, deal_id, agent_id, property_id), lambda c: C.out(db, c), limit, offset)
 
 
+class TranslateIn(BaseModel):
+    text: str = Field(max_length=10_000)
+    to: list[str] = Field(max_length=3)
+
+
+@router.post("/contracts/translate")
+def contracts_translate(body: TranslateIn):
+    """An edited / added clause of a bilingual contract into the other column's language (frontend changeClause)."""
+    return C.translate(body.text, body.to)
+
+
 @router.get("/properties/{pid}/contract")
 def property_contract(pid: int, db: Session = Depends(get_db, scope="function"), user: User = Depends(current_user)):
     """The wizard's prefill from the object card («Оформить договор аренды», Irakli 11-15), as GET /leads/{id}/contract:

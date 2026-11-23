@@ -950,8 +950,8 @@ function WhereElse({ p }: { p: Property }) {
       {blocking.length > 0 && <div className="alert alert-warn">{t('Задача агенту: попросить собственника снять объявление. Публикация как эксклюзив закрыта, пока оператор не проверит, что объявление снято.')}</div>}
       {ads.map((a) => (
         <div className="list-row" key={a.listing_id} style={{ flexWrap: 'wrap' }}>
-          <div className="grow">
-            <div className="row gap-sm" style={{ fontWeight: 700 }}>
+          <div className="grow" style={{ flex: '1 1 100%' }}>
+            <div className="row gap-sm" style={{ fontWeight: 700, whiteSpace: 'nowrap' }}>
               {a.where}
               {a.level === 'linked' ? <Badge tone="grey">{t('привязано')}</Badge> : <Badge tone={a.level === 'confirmed' ? 'red' : 'warn'}>{a.pct != null ? `${Math.round(a.pct)}%` : a.level === 'confirmed' ? t('дубль') : t('возможно')}</Badge>}
               {a.who && <Badge tone="grey">{t(a.who)}</Badge>}

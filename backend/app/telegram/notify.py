@@ -1097,6 +1097,35 @@ def agency_chat():
     return ch
 
 
+# David 11-23: flats / houses for rent → the agency channel; sale, commercial, cars → HOMES IN GEORGIA (a channel without
+# topics). Управление → Настройки: settings publish_chat_<kind> (services/settings.DEFAULTS), empty → the defaults here.
+HOMES_CHANNEL = "@homesingeorgia"
+
+
+def _can_post(chat):
+    """The bot may post and delete posts in the chat (getChatMember of itself; not a member → Telegram refuses)."""
+    bot = conf("BOT_TOKEN").split(":")[0]
+    m = tg.call("getChatMember", chat_id=chat, user_id=bot) if bot.isdigit() else None
+    return bool(m) and (m.get("status") == "creator" or (m.get("status") == "administrator" and bool(m.get("can_post_messages"))
+                                                        and bool(m.get("can_delete_messages"))))
+
+
+def post_chat(kind):
+    """-> (chat, warning) for a post of this kind (rent | sale | commercial | cars). The bot without the rights there:
+    the agency channel and the warning (the object card shows it) — publishing never breaks over the channel."""
+    main = agency_chat()
+    chat = (store.setting(f"publish_chat_{kind}") or "").strip() or (main if kind == "rent" else HOMES_CHANNEL)
+    if chat == main or _can_post(chat):
+        return chat, None
+    log.warning("publish: the bot can't post to %s (%s), the post goes to %s", chat, kind, main)
+    return main, f"Бот не админ в {chat} — пост ушёл в основной канал {main}"
+
+
+def _topic(chat, key):
+    """PUBLISH_TOPIC_* are topics of PUBLISH_CHAT_ID only."""
+    return chat_and_topic("PUBLISH_CHAT_ID", key)[1] if chat == agency_chat() else None
+
+
 def _album(items, n_photos=9):
     """The album's share of [(kind, ...)] in order: the first n_photos photos + the videos, ≤10 (Telegram's limit);
     the rest of the photos are only on the site (properties.ALBUM_PHOTOS)."""
@@ -1351,11 +1380,12 @@ def publish_post(prop):
     PUBLISH_TOPIC_ALBUM; the files without watermark as documents into PUBLISH_TOPIC_ORIGINALS; the owner's contact
     with the post link into PUBLISH_TOPIC_OWNER (topics only when set). Caption: prop.post_text (services.properties.
     publish) or the description; the footer lines become links. -> (message_id, url, chat, [every message id of the
-    post: originals, album, owner card]) or None; the ids let properties.unpost delete the whole post later."""
-    chat = agency_chat()
-    _, album_topic = chat_and_topic("PUBLISH_CHAT_ID", "PUBLISH_TOPIC_ALBUM")
-    _, originals_topic = chat_and_topic("PUBLISH_CHAT_ID", "PUBLISH_TOPIC_ORIGINALS")
-    _, owner_topic = chat_and_topic("PUBLISH_CHAT_ID", "PUBLISH_TOPIC_OWNER")
+    post: originals, album, owner card], warning) or None; the ids let properties.unpost delete the whole post later.
+    The chat: post_chat(prop.post_channel) — rent by default; warning: it went to the agency channel instead."""
+    chat, warning = post_chat(g(prop, "post_channel") or "rent")
+    album_topic = _topic(chat, "PUBLISH_TOPIC_ALBUM")
+    originals_topic = _topic(chat, "PUBLISH_TOPIC_ORIGINALS")
+    owner_topic = _topic(chat, "PUBLISH_TOPIC_OWNER")
     keys = g(prop, "post_media_keys")  # [(photo|video, storage key)]: sale objects and cars keep keys in the row
     # a property (no keys) is on the site as o<id>; cars have no «APARTMENTS ON MAP»
     caption = post_html(g(prop, "post_text") or g(prop, "description") or prop_title(prop),
@@ -1404,15 +1434,16 @@ def publish_post(prop):
                                             o["name"] and f"👤 {e(o['name'])}", rows and "📞 " + e(phones_text(rows, "\n📞 ")),
                                             url and f'🔗 <a href="{e(url)}">Ссылка на объявление</a>') if x),
                             thread_id=owner_topic))
-    return m["message_id"], url, chat, [x["message_id"] for x in sent if x]
+    return m["message_id"], url, chat, [x["message_id"] for x in sent if x], warning
 
 
 @safe
-def rented_post(pid, text):
+def rented_post(pid, text, chat=None):
     """«Сдано» in the channel (David 11-23): the object's first photo (watermarked) with the short text, as the agency's
-    own #FlatRented posts; a text post without a photo. -> (message_id, url) or None."""
-    chat = agency_chat()
-    _, topic = chat_and_topic("PUBLISH_CHAT_ID", "PUBLISH_TOPIC_ALBUM")
+    own #FlatRented posts; a text post without a photo. chat: where the object's post was (default the agency channel).
+    -> (message_id, url) or None."""
+    chat = chat or agency_chat()
+    topic = _topic(chat, "PUBLISH_TOPIC_ALBUM")
     with tempfile.TemporaryDirectory() as tmp:
         photo = next(((k, p) for k, p, _ in media_paths(pid, tmp) if k == "photo"), None)
         res = send_group(chat, topic, _bot_media([photo], tmp), text) if photo else [tg.send(chat, text, thread_id=topic)]

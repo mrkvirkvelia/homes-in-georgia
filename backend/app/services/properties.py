@@ -2275,11 +2275,21 @@ def _unpost_later(db: Session, p: Property) -> None:
     site_feed.clear_cache()
 
 
+RESIDENTIAL = (None, "Apartment", "House", "Duplex", "Townhouse")
+
+
+def channel_kind(p: Property) -> str:
+    """Which channel the post goes to (notify.post_chat, David 11-23): rent of a flat / house, sale, commercial."""
+    if is_sale(p):
+        return "sale"
+    return "rent" if (p.post_fields or {}).get("prop_type") in RESIDENTIAL else "commercial"
+
+
 def rented_text(p: Property) -> str:
     """The channel's own «found a tenant» announcement (as the agency posts it by hand: ❗️#FlatRented, the district)."""
     tag = district_tag(p.district)
     name = districts.BY_TAG[tag[1:]][2] if tag[1:] in districts.BY_TAG else _human(tag[1:])
-    if (p.post_fields or {}).get("prop_type") not in (None, "Apartment", "House", "Duplex", "Townhouse"):
+    if (p.post_fields or {}).get("prop_type") not in RESIDENTIAL:
         return f"❗️#Rented\nCommercial space in 📍{name} has found a business 🤝👏🎉\n{tag}"
     return f"❗️#FlatRented\nNice apartment in 📍{name} found a tenant 🤝👏🎉\n{tag}"
 
@@ -2287,14 +2297,15 @@ def rented_text(p: Property) -> str:
 def rented_post(db: Session, p: Property) -> str:
     """Rented (David 11-23): one photo + rented_text() in the channel, once per rent of a flat that was in the channel.
     It stays there (unpost deletes only the object's tg publications). No commit."""
-    if not db.scalar(select(PropertyPublication.id).where(PropertyPublication.property_id == p.id,
-                                                          PropertyPublication.channel == "tg").limit(1)):
+    pub = db.scalar(select(PropertyPublication).where(PropertyPublication.property_id == p.id, PropertyPublication.channel == "tg")
+                    .order_by(PropertyPublication.id.desc()).limit(1))
+    if pub is None:
         return "never posted"
     last = db.scalar(select(func.max(Event.at)).where(Event.entity == "property", Event.entity_id == str(p.id),
                                                       Event.action == "tg_rented_posted"))
     if last and (not p.published_at or aware(last) >= aware(p.published_at)):
         return "already"
-    ref = _notify("rented_post", p.id, rented_text(p))
+    ref = _notify("rented_post", p.id, rented_text(p), (pub.messages or {}).get("chat"))  # the channel of its post
     if not ref:
         return "not sent"
     log_event(db, "property", p.id, "tg_rented_posted", None, post_url=ref[1])
@@ -2337,6 +2348,7 @@ def publish(db: Session, pid: int, actor: User, text: str | None = None, media_i
         # the rich post is built from the fields: a caption the operator rewrote by hand goes out as the plain album
         p.post_rich = (lambda ids: post_rich(db, p, ids)) if p.post_text == auto and not is_sale(p) else None
         p.post_media_ids = media_ids
+        p.post_channel = channel_kind(p)
         p.progress_key = f"publish:{p.id}"  # the card polls GET /properties/{id}/publish/progress
         _legacy_pub(db, p)  # before post_url turns into the new post's link
         ref = _notify("publish_post", p)
@@ -2358,7 +2370,7 @@ def publish(db: Session, pid: int, actor: User, text: str | None = None, media_i
     if tg:
         pub = record_publication(db, p, channel, p.post_url if ref else None, p.post_message_id if ref else None)
         if ref and len(ref) > 3:
-            pub.messages = {"chat": str(ref[2]), "ids": ref[3]}
+            pub.messages = {"chat": str(ref[2]), "ids": ref[3], **({"warning": ref[4]} if len(ref) > 4 and ref[4] else {})}
         if ref:  # a repost: the old post leaves the channel (Stanislav 11-16)
             unpost(db, p, actor, keep=pub.id, action="tg_reposted")
         if actor is not None:  # a repost by hand: the pending automatic one is not needed
@@ -2822,7 +2834,8 @@ def card(db: Session, p: Property, user: User) -> dict:
                           "price": float(dl.price) if dl.price is not None else None, "agent": names.get(dl.agent_id),
                           "rent_from": iso(dl.rent_from), "rent_to": iso(dl.rent_to), "created_at": iso(dl.created_at)})
     return {"publications": [{"id": x.id, "channel": x.channel, "status": x.status, "url": x.url, "message_id": x.message_id,
-                              "published_at": iso(x.published_at), "removed_at": iso(x.removed_at), "delete_error": x.delete_error} for x in pubs],
+                              "published_at": iso(x.published_at), "removed_at": iso(x.removed_at), "delete_error": x.delete_error,
+                              "warning": (x.messages or {}).get("warning")} for x in pubs],
             "listings": ads, "deals": deals}
 
 

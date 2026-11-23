@@ -54,3 +54,17 @@ def test_mass_gone_hides_nothing(db, client, monkeypatch):
     assert post_sync.run(db, pause=0) == 0
     db.expire_all()
     assert all(db.get(Property, x).status == "published" for x in pids)
+
+
+def test_both_channels_are_checked(db, client, monkeypatch):
+    """David 11-23: sale / commercial / cars are posted to @homesingeorgia — its deleted posts count as well."""
+    rent, homes = _pubs(db, client, (301, 302))
+    db.get(Property, homes).post_url = "https://t.me/homesingeorgia/302"
+    db.commit()
+    asked = []
+    monkeypatch.setattr(post_sync, "alive", lambda channel, msgs: asked.append(channel) or None)
+    _fake(monkeypatch, {301: LIVE, 302: GONE})
+    assert post_sync.run(db, pause=0) == 1
+    assert sorted(asked) == ["homesingeorgia", "rent_tbilisi_ge"]
+    db.expire_all()
+    assert [db.get(Property, x).status for x in (rent, homes)] == ["published", "archived"]

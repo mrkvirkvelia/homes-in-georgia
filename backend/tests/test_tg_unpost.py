@@ -20,7 +20,7 @@ def _posts(monkeypatch, refused=()):
         return chat not in refused
     monkeypatch.setattr(notify, "publish_post", publish_post)
     monkeypatch.setattr(notify, "delete_post", delete_post)
-    monkeypatch.setattr(notify, "rented_post", lambda pid, text: deleted.append(("rented", pid, text)) or (900, "https://t.me/rent_tbilisi_ge/900"))
+    monkeypatch.setattr(notify, "rented_post", lambda pid, text, chat=None: deleted.append(("rented", pid, text)) or (900, "https://t.me/rent_tbilisi_ge/900"))
     return deleted
 
 

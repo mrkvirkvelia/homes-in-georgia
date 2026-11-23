@@ -1,6 +1,7 @@
 // detail: Russian (the key, shown as is for ru) → [Georgian, English]
 // PropertyDetail.tsx: the property card
 export const D: Record<string, [ka: string, en: string]> = {
+  "Добавьте бота админом с правами публикации и удаления.": ["დაამატეთ ბოტი ადმინად გამოქვეყნების და წაშლის უფლებით.", "Add the bot as an admin with post and delete rights."],
   "Не получилось: {step} — {error}": ["ვერ მოხერხდა: {step} — {error}", "Failed: {step} — {error}"],
   "Скачиваем фото и видео из хранилища…": ["ფოტოებს და ვიდეოებს საცავიდან ვტვირთავთ…", "Downloading photos and videos from storage…"],
   "Отправляем оригиналы в Telegram ({chat})…": ["ორიგინალებს Telegram-ში ვაგზავნით ({chat})…", "Sending the originals to Telegram ({chat})…"],

@@ -6,6 +6,9 @@ export type Platform = 'Airbnb' | 'Booking' | 'Другое';
 export type PayStatus = 'received' | 'pending' | 'partial';
 export type AptStatus = 'free' | 'busy' | 'clean' | 'tech';
 export type Mix = Partial<Record<Cur, number>>;
+export type Lang = 'ru' | 'en' | 'ka';
+export type Reports = Record<Lang, string>;
+export const LANGS: { value: Lang; label: string }[] = [{ value: 'ru', label: 'Русский' }, { value: 'en', label: 'English' }, { value: 'ka', label: 'ქართული' }];
 
 export interface DrChannel {
   id: number; apartment_id: number; channel: 'airbnb' | 'booking' | 'other'; import_url: string | null; export_url: string;
@@ -15,7 +18,7 @@ export interface DrApartment {
   id: number; legacy_id: string | null; name: string; address: string | null; owner_name: string | null; owner_contact: string | null;
   owner_account: string | null; platform_pct: number; owner_pct: number; platforms: Platform[]; status: AptStatus; active: boolean;
   rooms: number | null; notes: string | null; util_rates: Record<string, string | number>; photos: string[]; price_night: number | null;
-  currency: string; description: string | null; district: string | null; channels: DrChannel[];
+  currency: string; description: string | null; district: string | null; report_lang: Lang; channels: DrChannel[];
 }
 export interface DrExpense {
   id: number; booking_id: number | null; category: string; amount: number | null; currency: Cur; payer: 'platform' | 'owner';
@@ -31,7 +34,7 @@ export interface DrBooking {
   id: number; apartment_id: number; platform: Platform; guest_name: string | null; check_in: string | null; check_out: string | null;
   gross: number | null; currency: Cur; tax_pct: number; booking_fee: number | null; platform_pct: number; payment_status: PayStatus;
   paid_out: boolean; paid_out_at: string | null; assigned_staff: string | null; comment: string | null; nights: number; calc: Calc;
-  expenses: DrExpense[]; report?: string;
+  expenses: DrExpense[]; report?: string; reports?: Reports; report_lang?: Lang;
 }
 export interface Econ {
   stays: number; nights: number; gross_usd: number; net_usd: number; platform_usd: number; owner_usd: number; to_pay_usd: number;
@@ -51,7 +54,7 @@ export interface Interval {
 export interface Conflict { key: string; apartment_id: number; start: string; end: string; a: Interval; b: Interval }
 export interface CalendarData { items: Interval[]; conflicts: Conflict[]; unaccounted: Interval[] }
 export interface JournalRow { id: number; entity: string; entity_id: string; action: string; actor: string | null; data: Record<string, unknown>; at: string }
-export type AptFull = DrApartment & { bookings: DrBooking[]; econ: Econ; period_report: string };
+export type AptFull = DrApartment & { bookings: DrBooking[]; econ: Econ; period_report: string; period_reports: Reports };
 export interface Period { month_from?: string; month_to?: string }
 /** «Сегодня» (api/daily_rent.py /today, services/daily_rent_auto.today) */
 export interface TodayStay {

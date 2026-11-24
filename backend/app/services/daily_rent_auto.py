@@ -258,14 +258,14 @@ def owner_reports(db: Session, month: str | None = None) -> list[dict]:
         first = R.today().replace(day=1)
         prev = first - timedelta(days=1)
         month = f"{prev.year}-{prev.month:02d}"
-    y, m = map(int, month.split("-"))
     rows = R.bookings(db, None, month, month)
     out = []
     for a in db.scalars(select(DrApartment).where(DrApartment.deleted_at.is_(None)).order_by(DrApartment.id)):
         mine = [b for b in rows if b["apartment_id"] == a.id]
         if mine:
-            out.append({"apartment_id": a.id, "apartment": a.name, "owner_contact": a.owner_contact,
-                        "text": R.period_report(a, mine, f"{m:02d}.{y}")})
+            lang = a.report_lang or "ru"  # in the owner's language (the apartment card → «Язык отчётов»)
+            out.append({"apartment_id": a.id, "apartment": a.name, "owner_contact": a.owner_contact, "lang": lang,
+                        "text": R.period_report(a, mine, R.period_label(month, month, lang), lang)})
     return out
 
 

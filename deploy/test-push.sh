@@ -22,8 +22,12 @@ echo "→ Тестовый сервер: ветка $BRANCH ($COMMIT)$DIRTY"
 # only project files: tracked + new ones not in .gitignore (never .env, real agency data, node_modules, media)
 git ls-files -co --exclude-standard -z > /tmp/hig-test-files
 "${SSH[@]}" "mkdir -p $DIR"
-rsync -a --delete --from0 --files-from=/tmp/hig-test-files -e "ssh -i $KEY" \
-  --filter='protect .env.test' --filter='protect .deployed' ./ "$SERVER:$DIR/"
+rsync -a --from0 --files-from=/tmp/hig-test-files -e "ssh -i $KEY" ./ "$SERVER:$DIR/"
+# rsync --files-from never deletes: drop what an earlier deploy (another branch) left there, but .env.test / .deployed
+rsync -a -e "ssh -i $KEY" /tmp/hig-test-files "$SERVER:/tmp/hig-test-files"
+"${SSH[@]}" "export LC_ALL=C; cd $DIR && find . -type f ! -path ./.env.test ! -path ./.deployed -print0 | sed -z 's#^\./##' | sort -z > /tmp/hig-test-have \
+  && sort -z /tmp/hig-test-files | comm -z -23 /tmp/hig-test-have - | xargs -0 -r rm -f -- \
+  && find . -mindepth 1 -type d -empty -delete; rm -f /tmp/hig-test-files /tmp/hig-test-have"
 rm -f /tmp/hig-test-files
 
 "${SSH[@]}" "BRANCH='$BRANCH' COMMIT='$COMMIT' DIRTY='$DIRTY' RESET=$RESET URL='$URL' bash -s" <<'REMOTE'

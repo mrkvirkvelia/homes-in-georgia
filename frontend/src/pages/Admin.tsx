@@ -80,6 +80,11 @@ function UserForm({ user, all, onDone }: { user?: User; all: User[]; onDone: () 
           </div>
         </div>
       )}
+      {f.role && (!atLeast({ role: f.role }, 'operator') || f.works_as_agent) && (
+        <Field label={t('Поднять пост: раз в день')} hint={t('Сколько раз в день агент может поднять свой пост в канале (по умолчанию 3)')}>
+          <Input type="number" min={0} value={plans.reposts ?? 3} onChange={(e) => set('plans', { ...plans, reposts: Number(e.target.value) })} style={{ maxWidth: 120 }} />
+        </Field>
+      )}
       {f.role && atLeast({ role: f.role }, 'operator') && (
         <Switch checked={!!f.works_as_agent} onChange={(v) => set('works_as_agent', v)} label={t('Работает как агент: заявки, свои объекты, рейтинг агентов')} />
       )}

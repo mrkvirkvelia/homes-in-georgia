@@ -119,14 +119,14 @@ def _apply(db: Session, cr: ChangeRequest, p: Property, operator: User) -> None:
     """The approved change through the regular service functions (no commit)."""
     pl = cr.payload or {}
     if cr.kind == "edit":
-        data = {k: v["new"] for k, v in pl.items() if isinstance(v, dict) and k not in P.POST_LOCKED}
-        if any(k in pl for k in P.POST_LOCKED):
+        sub = {k: k[3:] if k.startswith("pf:") else k for k in pl if k in P.POST_LOCKED or k.startswith("pf:")}
+        data = {k: v["new"] for k, v in pl.items() if isinstance(v, dict) and k not in sub}
+        if sub:  # post_fields key by key (properties.split_post / split_locked)
             pf = dict(p.post_fields or {})
-            for k in P.POST_LOCKED:
-                if k in pl:
-                    pf[k] = pl[k]["new"]
-                    if pf[k] is None:
-                        del pf[k]
+            for k, name in sub.items():
+                pf[name] = pl[k]["new"]
+                if pf[name] is None:
+                    del pf[name]
             data["post_fields"] = pf
         P.apply_update(db, p, data, operator)
     elif cr.kind in ("archive", "delete"):

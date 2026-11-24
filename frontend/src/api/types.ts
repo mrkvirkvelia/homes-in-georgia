@@ -20,7 +20,7 @@ export interface Page<T> { items: T[]; total: number }
 
 export interface UserRef { id: number; name: string; username?: string | null; photo_url?: string | null; agent_tag?: string | null }
 
-export interface Plans { photo: number; showing: number; stickers: number; rental: number }
+export interface Plans { photo: number; showing: number; stickers: number; rental: number; /** «Поднять пост» a day (backend REPOST_LIMIT 3) */ reposts?: number }
 
 export interface User {
   id: number;
@@ -252,6 +252,10 @@ export interface Property {
   /** stage 10: «Собственник согласен показать клиентам» */
   fast_track_at?: string | null;
   locked_fields?: string[];
+  /** published, by hand today: agents' left of 3 (null: staff, no limit); an agent's post edit goes to the operator */
+  reposts_left?: number | null;
+  reposts_limit?: number | null;
+  post_moderated?: boolean;
   /** stage 7: «Новый объект из сделки — проверить» (typed in the deal form, not verified yet) */
   needs_check?: boolean;
   /** full card, staff and the object's agent: pending «Запросы оператору» */

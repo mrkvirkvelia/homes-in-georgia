@@ -39,11 +39,11 @@ def test_after_verification_the_own_agent_edits_at_once_and_the_operator_hears(d
     body = {"owner_phone": "+995 577 00 00 00", "price": 900, "description": "Свежий ремонт",
             "post_fields": {"amenities": ["WiFi"], "deposit": 500}}
     r = client.patch(f"/api/properties/{pid}", json=body, headers=auth(georgiy)).json()
-    assert r["change_request"] is None and r["owner"]["phone"] == "+995577000000" and r["price"] == 900
-    assert r["post_fields"] == {"amenities": ["WiFi"], "deposit": 500}
+    assert r["owner"]["phone"] == "+995577000000"  # not in the post: at once
     heads = [a for a in sent.of("prop_event") if "Агент изменил" in a[1]]
-    assert len(heads) == 1 and all(k in heads[0][5] for k in ("owner_phone", "price", "deposit"))
-    assert not sent.of("change_request_new")
+    assert len(heads) == 1 and "owner_phone" in heads[0][5]
+    # David 11-24: what the live post shows goes to the operator («Редактирование = новый пост»)
+    assert r["change_request"] and {c["field"] for c in r["change_request"]["changes"]} >= {"price", "description", "deposit", "pf:amenities"}
 
 
 def _request(db, georgiy, pid, changes, reason=None):

@@ -43,6 +43,7 @@ export const CR_KIND: Record<string, string> = tmap({ edit: 'Изменение 
 export const CR_FIELD: Record<string, string> = tmap({
   owner_name: 'Собственник', owner_phone: 'Телефон собственника', owner_phones: 'Телефоны собственника', address: 'Адрес', cadastral_code: 'Кадастр', source_url: 'Ссылка на объявление',
   is_exclusive: 'Эксклюзив', price: 'Цена', currency: 'Валюта', deposit: 'Залог', sale_price: 'Цена продажи',
+  description: 'Описание', district: 'Район', bedrooms: 'Спальни', rooms: 'Комнаты', area: 'Площадь', floor: 'Этаж', total_floors: 'Этажей в доме', lat: 'Широта', lng: 'Долгота',
   archive_reason: 'Причина архива', archive_comment: 'Комментарий', duplicate_of: 'Дубль объекта', owner_agent: 'Агент собственника',
 });
 

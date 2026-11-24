@@ -1335,7 +1335,24 @@ function ReviewStep({ p }: { p: Property }) {
 /** A published object with a post (Stanislav 11-24): one «Редактировать пост» — the object's form, its «Обновить пост»
  * saves the changes and reposts (nothing changed: just reposts, «поднять пост»). No post: «Вернуть публикацию». */
 function Republish({ p, onEdit }: { p: Property; onEdit: () => void }) {
-  return p.post_url ? <div><Button variant="secondary" onClick={onEdit}><Pencil size={16} />{t('Редактировать пост')}</Button></div> : null;
+  const { toast, set } = useProp(p.id);
+  const left = p.reposts_left;
+  const again = useMutation({
+    mutationFn: () => api.properties.publish(p.id, { channel: 'tg', tg: true, site: !p.site_hidden }),
+    onSuccess: (r) => { set(r); toast(t('Пост выложен заново наверх канала, старый удалён')); },
+    onError: (e) => toast(errText(e), true),
+  });
+  if (!p.post_url) return null;
+  return (
+    <div className="row row-wrap gap-sm">
+      <Button variant="secondary" onClick={onEdit}><Pencil size={16} />{t('Редактировать пост')}</Button>
+      {/* David 11-24: «апдейт» — the same post up the channel; agents 3 a day (backend REPOST_LIMIT) */}
+      <Button variant="secondary" loading={again.isPending} disabled={left === 0} onClick={() => again.mutate()}
+        title={t('Пост выйдет заново наверху канала, старый удалится')}>
+        <RotateCcw size={16} />{t('Поднять пост наверх')}{left != null ? ` · ${t('осталось {n} из {m} сегодня', { n: left, m: p.reposts_limit ?? 3 })}` : ''}
+      </Button>
+    </div>
+  );
 }
 
 /** «Скидка»: the new price and ❗️#Discount in the post; the post is reposted by itself (backend apply_update → tg_repost). */
@@ -1387,20 +1404,42 @@ function PublishedActions({ p, onArchive }: { p: Property; onArchive: (reason: s
  * = only there (site / unpost), the status stays. Back: the places it is missing from (site on / publish tg). */
 function SiteButton({ p }: { p: Property }) {
   const [mode, setMode] = useState<'off' | 'on' | null>(null);
+  const [only, setOnly] = useState<'site' | 'tg' | null>(null);
   const onSite = !p.site_hidden, onTg = !!p.post_url;
   return <>
     {onSite && <a className="btn btn-secondary" href={`https://hge.ge/listing/o${p.id}`} target="_blank" rel="noreferrer"><Globe size={16} />{t('На сайте')}</a>}
-    {(onSite || onTg) && <Button variant="ghost" onClick={() => setMode('off')}>{t('Снять с публикации')}</Button>}
-    {(!onSite || !onTg) && <Button variant="ok" onClick={() => setMode('on')}><RotateCcw size={16} />{t('Вернуть публикацию')}</Button>}
-    {mode && <PlacesModal p={p} off={mode === 'off'} onClose={() => setMode(null)} />}
+    {(onSite || onTg) && <UnpublishMenu onSite={onSite} onTg={onTg} onPick={(k) => { setOnly(k); setMode('off'); }} />}
+    {(!onSite || !onTg) && <Button variant="ok" onClick={() => { setOnly(null); setMode('on'); }}><RotateCcw size={16} />{t('Вернуть публикацию')}</Button>}
+    {mode && <PlacesModal p={p} off={mode === 'off'} only={only} onClose={() => setMode(null)} />}
   </>;
 }
 
-function PlacesModal({ p, off, onClose }: { p: Property; off: boolean; onClose: () => void }) {
+/** «Снять с публикации ▾» (Stanislav 11-24: «боюсь нажимать»): a menu that says where from; each item asks to confirm. */
+function UnpublishMenu({ onSite, onTg, onPick }: { onSite: boolean; onTg: boolean; onPick: (k: 'site' | 'tg' | null) => void }) {
+  const ref = useRef<HTMLDetailsElement>(null);
+  const pick = (k: 'site' | 'tg' | null) => { if (ref.current) ref.current.open = false; onPick(k); };
+  const item = (k: 'site' | 'tg' | null, head: string, sub: string) => (
+    <button type="button" className="btn btn-ghost" style={{ justifyContent: 'flex-start', textAlign: 'left', height: 'auto', padding: '8px 12px' }} onClick={() => pick(k)}>
+      <span className="col"><b>{head}</b><span className="muted" style={{ fontSize: 12, fontWeight: 400 }}>{sub}</span></span>
+    </button>
+  );
+  return (
+    <details ref={ref} style={{ position: 'relative' }}>
+      <summary className="btn btn-ghost" style={{ listStyle: 'none' }}>{t('Снять с публикации')}<ChevronDown size={16} /></summary>
+      <div className="card col" style={{ position: 'absolute', zIndex: 20, top: '100%', left: 0, minWidth: 300, padding: 6, marginTop: 4, boxShadow: '0 8px 24px rgba(0,0,0,.12)' }}>
+        {onSite && onTg && item('site', t('Только с сайта hge.ge'), t('Пост в канале и статус останутся'))}
+        {onSite && onTg && item('tg', t('Только из Telegram-канала'), t('Сайт и статус останутся'))}
+        {item(null, onSite && onTg ? t('Отовсюду (снять объект)') : onSite ? t('С сайта (снять объект)') : t('Из канала (снять объект)'), t('В архив «Снят с публикации», можно вернуть'))}
+      </div>
+    </details>
+  );
+}
+
+function PlacesModal({ p, off, only, onClose }: { p: Property; off: boolean; only?: 'site' | 'tg' | null; onClose: () => void }) {
   const { toast, set } = useProp(p.id);
   const has = { site: !p.site_hidden, tg: !!p.post_url };
   const places = (['site', 'tg'] as const).filter((k) => has[k] === off);
-  const [pick, setPick] = useState<Record<string, boolean>>({ site: true, tg: true });
+  const [pick, setPick] = useState<Record<string, boolean>>(only ? { site: only === 'site', tg: only === 'tg' } : { site: true, tg: true });
   const chosen = places.filter((k) => pick[k]);
   const m = useMutation({
     mutationFn: async () => {
@@ -1429,7 +1468,7 @@ function PlacesModal({ p, off, onClose }: { p: Property; off: boolean; onClose: 
           ? t('Объект уйдёт отовсюду и из бота, в архив «Снят с публикации». Вернуть — «Опубликовать снова».')
           : chosen[0] === 'site' ? t('Объект пропадёт с сайта, пост в канале и статус останутся.') : t('Пост удалится из канала, на сайте и в статусе всё останется.')}</div>}
         {!off && chosen.includes('tg') && <div className="alert alert-info" style={{ fontSize: 13 }}>{t('В канал выйдет новый пост из параметров объекта.')}</div>}
-        <div className="modal-actions"><Button block disabled={!chosen.length} loading={m.isPending} onClick={() => m.mutate()}>{t('Подтвердить')}</Button></div>
+        <div className="modal-actions"><Button block disabled={!chosen.length} loading={m.isPending} onClick={() => m.mutate()}>{t('Подтвердить')}</Button><Button block variant="ghost" onClick={onClose}>{t('Отмена')}</Button></div>
       </div>
     </Modal>
   );
@@ -1561,13 +1600,16 @@ function EditModal({ p, open, onClose, repost }: { p: Property; open: boolean; o
     onSuccess: (r) => { set(r); toast(r.change_request ? REQUEST_SENT : t('Сохранено')); onClose(); setF({}); setReason(''); },
     onError: (e) => toast(errText(e), true),
   });
-  // «Обновить пост» (Stanislav 11-24): the changes (if any) and a fresh post; the manual publish drops the queued auto-repost
+  // «Сохранить и обновить пост» (staff): the changes and a fresh post. An agent's changes go to the operator (David 11-24),
+  // the post follows his approval by itself (backend properties.split_post)
+  const toOperator = !!p.post_moderated;
   const again = useMutation({
     mutationFn: async () => {
+      if (toOperator) return api.properties.update(p.id, { ...f, reason: reason || undefined });
       if (Object.keys(f).length) await api.properties.update(p.id, { ...f, reason: reason || undefined });
       return api.properties.publish(p.id, { channel: 'tg', tg: true, site: !p.site_hidden });
     },
-    onSuccess: (r) => { set(r); toast(Object.keys(f).length ? t('Сохранено · пост перевыложен, старый удалён') : t('Пост перевыложен, старый удалён')); onClose(); setF({}); setReason(''); },
+    onSuccess: (r) => { set(r); toast(toOperator ? (r.change_request ? t('Изменения ушли оператору · после подтверждения пост обновится сам') : t('Сохранено')) : t('Сохранено · пост перевыложен, старый удалён')); onClose(); setF({}); setReason(''); },
     onError: (e) => toast(errText(e), true),
   });
   // after the operator's verification these fields go to «Запросы» (backend properties.LOCKED_AFTER_VERIFY)
@@ -1578,7 +1620,7 @@ function EditModal({ p, open, onClose, repost }: { p: Property; open: boolean; o
   const found = where.data?.items || [];
   return (
     <Modal open={open} onClose={onClose} title={repost ? t('Редактировать пост') : t('Поля объекта')}>
-      {repost && <div className="alert alert-info" style={{ fontSize: 13, marginBottom: 12 }}>{t('Пост собирается из этих полей. «Обновить пост» внизу сохранит изменения и перевыложит пост (старый удалится, сайт обновится). Ничего не меняли — пост просто поднимется.')}</div>}
+      {repost && <div className="alert alert-info" style={{ fontSize: 13, marginBottom: 12 }}>{toOperator ? t('Пост собирается из этих полей. Изменения уйдут оператору на проверку, после подтверждения пост в канале обновится сам.') : t('Пост собирается из этих полей. «Сохранить и обновить пост» сохранит изменения и выложит пост заново (старый удалится, сайт обновится).')}</div>}
       <div className="form-grid">
         {(p.missing || []).length > 0 && <div className="alert alert-warn span2" style={{ fontSize: 13, display: 'block' }}>{t('Для отправки оператору не хватает:')} <b>{(p.missing || []).join(', ')}</b></div>}
         <Field label={t('Район')}><DistrictSelect value={v.district} onChange={(x) => upd('district', x)} /></Field>
@@ -1623,7 +1665,7 @@ function EditModal({ p, open, onClose, repost }: { p: Property; open: boolean; o
       )}
       <div className="modal-actions mt-lg">
         {repost
-          ? <><Button block loading={again.isPending} disabled={!!cadastralError(v.cadastral_code, p.cadastral_code)} onClick={() => again.mutate()}><RotateCcw size={16} />{t('Обновить пост')}</Button>
+          ? <><Button block loading={again.isPending} disabled={!!cadastralError(v.cadastral_code, p.cadastral_code) || (toOperator && !Object.keys(f).length)} onClick={() => again.mutate()}>{toOperator ? <><Send size={16} />{t('Отправить оператору')}</> : <><RotateCcw size={16} />{t('Сохранить и обновить пост')}</>}</Button>
             <Button block variant="ghost" onClick={onClose}>{t('Отмена')}</Button></>
           : <div className="row"><Button loading={save.isPending} disabled={!!cadastralError(v.cadastral_code, p.cadastral_code)} onClick={() => save.mutate()}>{t('Сохранить')}</Button><Button variant="ghost" onClick={onClose}>{t('Отмена')}</Button></div>}
       </div>

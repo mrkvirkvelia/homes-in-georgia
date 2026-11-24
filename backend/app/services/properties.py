@@ -665,6 +665,9 @@ def update(db: Session, pid: int, data: dict, actor: User, reason: str | None = 
     locked = {}
     if is_locked_for(p, actor):
         data, locked = split_locked(db, p, data)
+    if post_moderated(db, p, actor):
+        data, more = split_post(p, data)
+        locked.update(more)
     was = {k: _norm(k, _current(db, p, k)) for k in LOCKED_AFTER_VERIFY}
     apply_update(db, p, data, actor)
     p.change_request = None  # transient, read by the API
@@ -678,6 +681,39 @@ def update(db: Session, pid: int, data: dict, actor: User, reason: str | None = 
     if key:
         agent_did(p, actor, "✏️ <b>Агент изменил проверенные поля</b>", ", ".join(key))
     return p
+
+
+def post_moderated(db: Session, p: Property, actor: User) -> bool:
+    """David 11-24: an agent's edit of a live post reposts it, so it goes to the operator like a new post («Редактирование
+    = новый пост»); the operator's approval applies it and the post follows (apply_update → tg_repost)."""
+    return not at_least(actor, "operator") and p.status == "published" and has_post(db, p)
+
+
+def _pv(v):
+    """Comparable, JSON-safe value of a post field: numbers as floats ("45" = 45.0), text stripped, empty = None."""
+    if isinstance(v, (bool, list, dict)) or v is None:
+        return v if v not in ([], {}) else None
+    if isinstance(v, (int, float, Decimal)):
+        return float(v)
+    return str(v).strip() or None
+
+
+def split_post(p: Property, data: dict) -> tuple[dict, dict]:
+    """(what applies now, {field: {old, new}} for the operator) for the POST_KEYS; post_fields go key by key as «pf:key»
+    (deposit / sale_price by their own names, as split_locked). Unchanged fields are dropped."""
+    data, locked = dict(data), {}
+    if isinstance(data.get("post_fields"), dict):
+        new_pf, old_pf = clean_post_fields(data.pop("post_fields")), p.post_fields or {}
+        for k in sorted(set(new_pf) | set(old_pf)):
+            o, n = _pv(old_pf.get(k)), _pv(new_pf.get(k))
+            if o != n:
+                locked[k if k in POST_LOCKED else f"pf:{k}"] = {"old": o, "new": n}
+    for k in POST_KEYS:
+        if k in data and k != "post_fields":
+            o, n = _pv(getattr(p, k)), _pv(data.pop(k))
+            if o != n:
+                locked[k] = {"old": o, "new": n}
+    return data, locked
 
 
 def apply_update(db: Session, p: Property, data: dict, actor: User) -> None:
@@ -714,6 +750,27 @@ def has_post(db: Session, p: Property) -> bool:
     return bool(p.post_url) or bool(db.scalar(select(PropertyPublication.id).where(
         PropertyPublication.property_id == p.id, PropertyPublication.channel == "tg",
         PropertyPublication.status == "published").limit(1)))
+
+
+REPOST_LIMIT = 3  # David 11-24: «в день 3 апдейта на человека» (agents; operators moderate, no limit); per person:
+# users.plans["reposts"], set in the admin's user form (voice 287351: 2 for recruits, 4 for the best…)
+
+
+def reposts_left(db: Session, user: User) -> int | None:
+    """Reposts by hand the agent has left today (Tbilisi day); None for operators."""
+    if at_least(user, "operator"):
+        return None
+    day = now().astimezone(_tz()).replace(hour=0, minute=0, second=0, microsecond=0)
+    done = db.scalar(select(func.count()).select_from(Event).where(
+        Event.action == "reposted", Event.actor_id == user.id, Event.at >= day)) or 0
+    return max(0, repost_limit(user) - done)
+
+
+def repost_limit(user: User) -> int:
+    try:
+        return int((user.plans or {}).get("reposts", REPOST_LIMIT))
+    except (TypeError, ValueError):
+        return REPOST_LIMIT
 
 
 def schedule_repost(db: Session, p: Property) -> None:
@@ -2363,6 +2420,8 @@ def publish(db: Session, pid: int, actor: User, text: str | None = None, media_i
         if p.status != "published":
             raise forbidden("only operators publish")
         text = None  # the post is built from the fields
+        if tg and reposts_left(db, actor) == 0:
+            raise DomainError("repost_limit", f"Лимит: {repost_limit(actor)} в день. Завтра снова можно")
     if not (tg or site):
         raise DomainError("no_target", "Отметьте, куда публиковать: сайт или Telegram")
     if channel not in PUBLICATION_CHANNELS:
@@ -2427,6 +2486,9 @@ def publish(db: Session, pid: int, actor: User, text: str | None = None, media_i
         _notify("property_published", p)
         if not first:
             agent_did(p, actor, "🔄 <b>Агент перевыложил пост</b>")
+            if actor is not None and not at_least(actor, "operator"):
+                log_event(db, "property", p.id, "reposted", actor)
+                db.commit()
     if first and actor is not None:  # David 11-23: одобрено / опубликовано → и оператору (the agent: property_published)
         head = ("✅ <b>Одобрен и опубликован</b>" if approved else "📢 <b>Опубликован</b>") + \
             (" (канал + сайт)" if tg and site else " (канал)" if tg else " (сайт)")
@@ -2901,6 +2963,9 @@ def out(db: Session, p: Property, user: User, full: bool = False, cache: dict | 
     d["agent"] = ref(agent)
     d["locked"] = bool(p.agent_id) and p.agent_id != user.id and not at_least(user, "operator")
     d["locked_fields"] = list(LOCKED_AFTER_VERIFY) if is_locked_for(p, user) else []
+    if full and p.status == "published":
+        d["reposts_left"], d["post_moderated"] = reposts_left(db, user), not at_least(user, "operator")
+        d["reposts_limit"] = None if d["reposts_left"] is None else repost_limit(user)
     d["needs_check"] = needs_check(p)
     owner = get(Owner, p.owner_id)
     if owner:

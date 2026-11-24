@@ -31,7 +31,7 @@ FIELDS = {
     DrCleaning: ("apartment_id", "cleaner", "date", "started_at", "finished_at", "hours", "hourly_rate", "amount", "notes"),
     DrStaff: ("name", "role", "contact", "active"),
 }
-EXP_LABELS = {"cleaning": "Уборка", "telmico": "💧 Telmico", "gwp": "🔥 GWP", "energy": "⚡ Tbilisi Energy",
+EXP_LABELS = {"cleaning": "Уборка", "telmico": "⚡ Telmico", "gwp": "💧 GWP", "energy": "🔥 Tbilisi Energy",
               "internet": "🌐 Internet", "tbilisi_clean": "🗑 Tbilisi Clean", "supplies": "Расходники", "repair": "Ремонт",
               "other": "Прочее"}
 MONTHS = ["января", "февраля", "марта", "апреля", "мая", "июня", "июля", "августа", "сентября", "октября", "ноября", "декабря"]

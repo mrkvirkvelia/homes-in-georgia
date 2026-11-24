@@ -112,12 +112,12 @@ export const dr = {
 // ---------------------------------------------------------------- words and money, as ApartFlow shows them
 
 export const EXP_LABEL: Record<string, string> = {
-  cleaning: 'Уборка', supplies: 'Расходники', repair: 'Ремонт', other: 'Прочее', telmico: '💧 Telmico', gwp: '🔥 GWP',
-  energy: '⚡ Tbilisi Energy', internet: '🌐 Internet', tbilisi_clean: '🗑 Tbilisi Clean',
+  cleaning: 'Уборка', supplies: 'Расходники', repair: 'Ремонт', other: 'Прочее', telmico: '⚡ Telmico', gwp: '💧 GWP',
+  energy: '🔥 Tbilisi Energy', internet: '🌐 Internet', tbilisi_clean: '🗑 Tbilisi Clean',
 };
 export const PAY_LABEL: Record<PayStatus, string> = { received: '✓ Получено', pending: '⏳ Ожидается', partial: '◑ Частично' };
 export const STATUS_LABEL: Record<AptStatus, string> = { free: 'Свободно', busy: 'Занято', clean: 'Уборка', tech: 'Тех.' };
-export const UTIL = [['telmico', '💧 Telmico'], ['gwp', '🔥 GWP'], ['energy', '⚡ Tbilisi Energy'], ['tbilisi_clean', '🗑 Tbilisi Clean'], ['internet', '🌐 Internet']] as const;
+export const UTIL = [['gwp', '💧 GWP'], ['energy', '🔥 Tbilisi Energy'], ['telmico', '⚡ Telmico'], ['tbilisi_clean', '🗑 Tbilisi Clean'], ['internet', '🌐 Internet']] as const;
 export const HOUR_RATE = 16.7;
 
 /** ApartFlow's fN with the currency sign in front: $1 234,5 / ₾57,89 */

@@ -12,6 +12,7 @@ from app.models.nda import AgentNda
 from app.models.sign_doc import SignDoc, SignDocSigner
 from app.models.daily_rent import (DR_BLOCK_SOURCES, DR_CHANNELS, DR_EXPENSE_CATS, DR_PAYMENT, DR_PLATFORMS, DR_STATUS,
                                     DrApartment, DrBlock, DrBooking, DrChannel, DrCleaning, DrExpense, DrStaff)
+from app.models.tax import TaxDeclaration
 from app.models.offers import CAR_DEALS, OFFER_STATUSES, Car
 
 __all__ = [n for n in dir() if not n.startswith("_")]

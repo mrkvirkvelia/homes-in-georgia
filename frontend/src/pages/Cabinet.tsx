@@ -14,6 +14,7 @@ import { ContractList } from '../features/contracts/ContractCard';
 import { MyLeadsList } from '../features/leads/LeadBoard';
 import { PropertyList } from '../features/properties/lists';
 import { PROPERTY_STATUS, ROLE_LABEL, fmtDate, fmtSlot, money, monthLabel, phoneBlur, phoneFocus, phoneInput } from '../lib/format';
+import { MyTax, TeamTax } from '../features/tax/TaxDeclarations';
 import { CalendarView } from './Calendar';
 import { DealStatusBadge, DealView, DealsList } from './Deals';
 import { LevelProgress } from './Team';
@@ -205,10 +206,11 @@ export function CabinetView({ base = '', userId, tabbed }: { base?: string; user
   );
 }
 
-type Tab = 'overview' | 'objects' | 'deals' | 'contracts' | 'leads' | 'calendar' | 'stats';
+type Tab = 'overview' | 'objects' | 'deals' | 'contracts' | 'leads' | 'calendar' | 'stats' | 'tax';
 const TABS: { value: Tab; label: string }[] = [
   { value: 'overview', label: t('Обзор') }, { value: 'objects', label: t('Объекты') }, { value: 'deals', label: t('Сделки') }, { value: 'contracts', label: t('Договоры') },
   { value: 'leads', label: t('Заявки') }, { value: 'calendar', label: t('Календарь') }, { value: 'stats', label: t('Статистика') },
+  { value: 'tax', label: t('Декларации') },
 ];
 const DONE: PropertyStatus[] = ['published', 'rented', 'archived'];
 const GROUPS: Record<string, { label: string; status: string }> = {
@@ -304,6 +306,10 @@ export function CabinetPage() {
         : tab === 'contracts' ? <ContractList key={uid} base="/contracts" agentId={picked} label={t('По сделкам')} title={t('Мои договоры')} />
         : tab === 'leads' ? <MyLeadsList agentId={uid} />
         : tab === 'calendar' ? <CalendarView agentId={uid} />
+        : tab === 'tax' ? <div key={uid} className="col gap-lg">
+            {(picked || user?.field) && <MyTax userId={picked} />}
+            {isStaff && !picked && <TeamTax onOpen={(id) => set('user', String(id))} />}
+          </div>
         : <CabinetStats userId={picked} />}
     </>
   );

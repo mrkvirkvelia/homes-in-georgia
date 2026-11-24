@@ -9,7 +9,7 @@ import type { IntegrationKey, KeyCheck, Spend,
   AgentStat, AppConfig, AuthOut, Cabinet, Client, Contract, ContractCloseReason, ContractDraftIn, ContractIn, CounterRow, Dashboard, Deal, DealCalcIn, DealCalcOut,
   EventItem, Evaluation, Lead, LeadContract, LeadStatus, DealPrefill, Listing, NewsItem, Owner, Page, Property, RecommendedAgent, Report, ReportKind,
   Offer, OfferKind, OfferStatus, PhoneRow,
-  Settings, SiteReport, Source, SourceSchedule, TickerMessage, UserbotStatus, User, ListingsStats, Elsewhere, PostDraft, ChangeRequest, DealPick, Demand, GeoHit, SimilarItem,
+  Settings, SiteReport, TaxMine, TaxOverview, TaxDecl, Source, SourceSchedule, TickerMessage, UserbotStatus, User, ListingsStats, Elsewhere, PostDraft, ChangeRequest, DealPick, Demand, GeoHit, SimilarItem,
 } from './types';
 
 type L<T> = Page<T> | T[];
@@ -61,6 +61,12 @@ export const api = {
 
   /** staff: any agent's cabinet (user_id); the backend refuses another user's for everyone else */
   cabinet: (userId?: number) => then(http.get<Cabinet>('/me/cabinet', { user_id: userId }), normCabinet),
+  /** «Декларации RS.ge»: one's own (staff: anyone's, read-only), the save, the team's month */
+  tax: {
+    mine: (userId?: number) => http.get<TaxMine>('/me/tax', { user_id: userId }),
+    save: (period: string, b: { turnover: number; filed: boolean; note: string | null }) => http.put<TaxDecl>(`/me/tax/${period}`, b),
+    overview: (period?: string) => http.get<TaxOverview>('/tax/overview', { period }),
+  },
 
   listings: {
     new: (q?: ListingFilter, limit = 50) => then(http.get<L<Listing> & { known_total?: number }>('/listings/new', { ...q, limit }),

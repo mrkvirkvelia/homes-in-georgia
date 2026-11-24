@@ -752,6 +752,19 @@ export interface Dashboard {
   [key: string]: unknown;
 }
 
+/** «Декларации RS.ge» (backend services/tax.out): period «YYYY-MM» */
+export type TaxStatus = 'missing' | 'entered' | 'filed';
+export interface TaxDecl {
+  period: string; deadline: string; status: TaxStatus; overdue: boolean; days_left: number;
+  turnover: number | null; tax: number | null; filed_at: string | null; note: string | null; updated_at: string | null;
+}
+export interface TaxMine { has_ie: boolean; rate: number; rs_url: string; deadline_day: number; current: TaxDecl; history: TaxDecl[] }
+export interface TaxOverview {
+  period: string; deadline: string;
+  rows: (TaxDecl & { user: { id: number; name: string; photo_url?: string | null }; has_ie: boolean })[];
+  totals: { people: number; filed: number; entered: number; missing: number; no_ie: number };
+}
+
 export interface Cabinet {
   user?: User;
   month?: string;

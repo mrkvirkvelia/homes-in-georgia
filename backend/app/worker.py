@@ -11,7 +11,7 @@ from app.config import REPO_ROOT
 from app.config import settings as env
 from app.db import SessionLocal
 from app.models import Deal, Job, Lead, Property
-from app.services import birthdays, catalog, jobs, leads, settings
+from app.services import birthdays, catalog, jobs, leads, settings, tax
 from app.services.common import TZ, aware, log_event, now
 from app.telegram import client as tg
 from app.telegram import notify
@@ -202,6 +202,17 @@ def birthdays_job(db: Session, job: Job):
         notify.birthdays_today(today)
     if tomorrow := [x for x in birthdays.upcoming(db, day, 1) if x["days_left"] == 1]:
         notify.birthdays_tomorrow(tomorrow)
+
+
+@handler("tax_reminder")
+def tax_reminder(db: Session, job: Job):
+    """10:00 Tbilisi on the 1st, 10th and 14th: «подайте декларацию на rs.ge» to everyone with an ИП who hasn't marked
+    the previous month filed (services/tax.py)."""
+    day = date.fromisoformat(job.ref)
+    if day != now().astimezone(TZ).date():
+        return "stale"  # the worker was down that morning: the next reminder day will come
+    for u, decl in tax.to_remind(db, day):
+        notify.tax_reminder(u, decl)
 
 
 @handler("contract_esign_pdf")
@@ -458,6 +469,7 @@ def tick(limit: int = 50, kinds: tuple = (), skip: tuple = ()) -> dict:
     if not kinds:
         with SessionLocal() as db:
             birthdays.ensure_job(db)
+            tax.ensure_job(db)
     for _ in range(limit):
         with SessionLocal() as db:
             due = jobs.due(db, limit=1, kinds=kinds, skip=() if kinds else skip)

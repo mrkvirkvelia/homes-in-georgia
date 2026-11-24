@@ -1562,6 +1562,41 @@ def birthdays_tomorrow(people):
         tg.send(t, text)
 
 
+MONTHS_NOM = ("январь", "февраль", "март", "апрель", "май", "июнь", "июль", "август", "сентябрь", "октябрь", "ноябрь",
+              "декабрь")
+
+
+def _gel(v):
+    return f"{v:,.2f}".replace(",", " ").replace(".00", "") + " ₾"
+
+
+def tax_reminder_text(decl):
+    """decl = services/tax.out(...): period «YYYY-MM», deadline, days_left, status, turnover, tax."""
+    y, m = (int(x) for x in decl["period"].split("-"))
+    _, dm, dd = (int(x) for x in decl["deadline"].split("-"))
+    left = decl["days_left"]
+    when = "сегодня последний день" if left == 0 else f"осталось {left} дн." if left > 0 else "срок прошёл"
+    head = f"🧾 <b>Декларация RS.ge за {MONTHS_NOM[m - 1]} {y}</b>\nПодать до {dd} {MONTHS[dm - 1]} — {when}."
+    if decl["status"] == "entered":
+        body = (f"Сумма внесена: <b>{_gel(decl['turnover'])}</b>, налог 1%: <b>{_gel(decl['tax'])}</b>.\n"
+                "Осталось подать декларацию на rs.ge и отметить «Подал» в CRM.")
+    else:
+        body = ("Возьмите из банковской выписки сумму всех поступлений на счёт ИП за месяц (в лари), внесите её в CRM "
+                "и подайте декларацию на rs.ge. Если поступлений не было, подаётся нулевая.")
+    return f"{head}\n\n{body}"
+
+
+@safe
+def tax_reminder(user, decl):
+    """«Декларации RS.ge» (services/tax.py): the previous month's declaration is not marked filed → the agent, in private."""
+    tg_id = g(user, "tg_id")
+    if not tg_id:
+        return
+    rows = [[b] for b in (app_btn("🧾 Внести сумму", links.miniapp("me?tab=tax")),
+                          url_btn("🌐 Открыть rs.ge", "https://eservices.rs.ge")) if b]
+    tg.send(tg_id, tax_reminder_text(decl), kb(rows))
+
+
 @safe
 def daily_rent_conflicts(conflicts, names):
     """«Посуточная аренда»: the same nights sold twice (services/daily_rent_ical.new_conflicts) → superadmins, admins and

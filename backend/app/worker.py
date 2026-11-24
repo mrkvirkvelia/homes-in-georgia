@@ -504,7 +504,8 @@ def main():
     threading.Thread(target=slow_lane, daemon=True).start()
     last_ical = time.time() - env.DAILY_RENT_ICAL_MINUTES * 60 + 20  # first fetch 20 s after the start, as ApartFlow
     last_avatars = time.time() - 23 * 3600  # first pass an hour after the start, then daily
-    last_posts = time.time() - 3000  # «сверка с каналом» (services/post_sync.py): 10 min after the start, then hourly
+    last_posts = time.time() - 480  # «сверка с каналом» (services/post_sync.py): 2 min after the start, then every 10 min
+    # (David 11-24: a post deleted by hand in the channel → the CRM and the bot know within minutes, not an hour)
     importer = None
     last_import = time.time() - 25 * 60  # channel posts → objects (services/channel_import.py): 5 min after the start, every 30 min
     while True:
@@ -526,7 +527,7 @@ def main():
                 avatars.run(out=log.info)
             except Exception:  # noqa: BLE001
                 log.exception("avatar sync failed")
-        if time.time() - last_posts >= 3600:
+        if time.time() - last_posts >= 600:
             last_posts = time.time()
             try:
                 from app.services import post_sync

@@ -1,6 +1,6 @@
 """Test database for the bot: TEST_DATABASE_URL in its own schema (BOT_TEST_SCHEMA, default bot_test; under pytest-xdist
 bot_test_gwN per worker), so the backend's tests on the same database don't collide. The schema comes from
-backend/alembic (upgrade head); while that is missing, from test/schema_fallback.sql. A changed migration set rebuilds the
+backend/alembic (upgrade heads); while that is missing, from test/schema_fallback.sql. A changed migration set rebuilds the
 schema. reset() empties every table."""
 import hashlib
 import os
@@ -104,10 +104,10 @@ def _build(fp):
         c.execute(f'CREATE SCHEMA "{SCHEMA}"')
     if fp.startswith("alembic:"):
         env = {**os.environ, "DATABASE_URL": url(driver=True), "TEST_DATABASE_URL": url(driver=True)}
-        r = subprocess.run([sys.executable, "-m", "alembic", "upgrade", "head"], cwd=ROOT / "backend", env=env,
+        r = subprocess.run([sys.executable, "-m", "alembic", "upgrade", "heads"], cwd=ROOT / "backend", env=env,
                            capture_output=True, text=True)
         if r.returncode:
-            raise RuntimeError("alembic upgrade head failed:\n" + r.stdout + r.stderr)
+            raise RuntimeError("alembic upgrade heads failed:\n" + r.stdout + r.stderr)
     else:
         with psycopg.connect(url()) as c:
             c.execute(FALLBACK.read_text())

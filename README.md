@@ -80,7 +80,7 @@ docker compose -f deploy/docker-compose.yml exec api sh -c "cd backend && python
 
 ```bash
 scripts/dev-pg.sh                                   # PostgreSQL 16 в ~/.hig-pg (unix-socket), pgvector уже внутри
-cd backend && ../.venv/bin/alembic upgrade head && ../.venv/bin/python -m app.seed_demo   # в .env: APP_ENV=dev, DEV_CORS=true
+cd backend && ../.venv/bin/alembic upgrade heads && ../.venv/bin/python -m app.seed_demo   # в .env: APP_ENV=dev, DEV_CORS=true
 ../.venv/bin/uvicorn app.main:app --reload --port 8000     # CRM: http://localhost:8000 (вход nino / demo)
 ../.venv/bin/python -m app.worker                   # сроки и напоминания
 cd .. && .venv/bin/python -m bot.run                # бот (нужен BOT_TOKEN)

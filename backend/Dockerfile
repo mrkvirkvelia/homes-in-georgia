@@ -13,5 +13,5 @@ COPY backend backend
 RUN mkdir -p /app/data/media
 WORKDIR /app/backend
 EXPOSE 8000
-# api (default); worker: `python -m app.worker`; migrations: `alembic upgrade head`
-CMD ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --proxy-headers --forwarded-allow-ips='*'"]
+# api (default); worker: `python -m app.worker`; migrations: `alembic upgrade heads` (every branch: parallel features may add migrations after the same one)
+CMD ["sh", "-c", "alembic upgrade heads && uvicorn app.main:app --host 0.0.0.0 --port 8000 --proxy-headers --forwarded-allow-ips='*'"]

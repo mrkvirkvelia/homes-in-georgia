@@ -24,7 +24,7 @@
 - `admin.py` устарел (заменён React CRM) и не перенесён на PostgreSQL. Страницы `/map` (`webapp/index.html`, карта для
   клиентов) и `/journey` должен отдавать backend: бот ссылается на `PUBLIC_URL/map`.
 
-Запуск (из корня репозитория, общий `.venv`; схема: `cd backend && ../.venv/bin/alembic upgrade head`):
+Запуск (из корня репозитория, общий `.venv`; схема: `cd backend && ../.venv/bin/alembic upgrade heads`):
 
 ```
 .venv/bin/python -m bot.run --check     # проверка базы: досеять настройки/источники, статистика
@@ -34,7 +34,7 @@ bot/refresh_loop.sh                     # процесс refresh: тик раз 
 cd bot && ../.venv/bin/python -m pytest -q -n 4 --dist loadfile test   # тесты (TEST_DATABASE_URL, схема bot_test_gwN на воркер)
 ```
 
-Тесты идут в отдельной схеме `bot_test` базы `TEST_DATABASE_URL` (схему создаёт `alembic upgrade head`, при смене
+Тесты идут в отдельной схеме `bot_test` базы `TEST_DATABASE_URL` (схему создаёт `alembic upgrade heads`, при смене
 миграций пересоздаётся). `test/test_journey_e2e.py` прогоняет весь путь клиента через настоящий бот и сервисы backend
 против фейкового Bot API (`test/e2e/fake_tg.py`, `TG_API_BASE`); LLM и геокодинг подменены.
 

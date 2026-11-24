@@ -1,4 +1,4 @@
-"""Tests run against TEST_DATABASE_URL (schema built by `alembic upgrade head`, tables truncated between tests).
+"""Tests run against TEST_DATABASE_URL (schema built by `alembic upgrade heads`, tables truncated between tests).
 Under pytest-xdist (`-n 3`) worker gwN uses its own database <name>_gwN on the same server, created on first use."""
 import os
 import re
@@ -78,7 +78,7 @@ def schema():
         c.execute(text("DROP SCHEMA public CASCADE; CREATE SCHEMA public"))
     cfg = Config(str(BACKEND / "alembic.ini"))
     cfg.set_main_option("sqlalchemy.url", TEST_URL.replace("%", "%%"))
-    command.upgrade(cfg, "head")
+    command.upgrade(cfg, "heads")
     with engine.connect() as c:
         defaults = dict(c.execute(text("SELECT key, value FROM settings")).all())
     yield defaults

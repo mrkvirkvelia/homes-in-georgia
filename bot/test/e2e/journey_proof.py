@@ -2,7 +2,7 @@
 screenshots. `.venv/bin/python bot/test/e2e/journey_proof.py` from the repo root (rerunnable, ~3 min).
 
 Isolation: its own database `homes_e2e` on the local Postgres (~/.hig-pg/data; dropped and rebuilt every run:
-alembic upgrade head + app.seed_demo + journey fixtures), a fake Bot API (fake_tg.py) instead of api.telegram.org,
+alembic upgrade heads + app.seed_demo + journey fixtures), a fake Bot API (fake_tg.py) instead of api.telegram.org,
 a fake bot token, its own backend instance on 127.0.0.1:8010 serving frontend/dist, media under tmp/journey_e2e.
 Nothing from the repo .env is used: every key of it is overridden in the environment before anything is imported.
 The live DB `homes` and the live services (uvicorn :8000, worker, bot) are never touched.
@@ -103,10 +103,10 @@ def create_db():
     with psycopg.connect(f"postgresql://postgres@/postgres?host={PG_HOST}", autocommit=True) as c:
         c.execute(f'DROP DATABASE IF EXISTS "{DB_NAME}" WITH (FORCE)')
         c.execute(f'CREATE DATABASE "{DB_NAME}"')
-    r = subprocess.run([sys.executable, "-m", "alembic", "upgrade", "head"], cwd=ROOT / "backend", env=os.environ.copy(),
+    r = subprocess.run([sys.executable, "-m", "alembic", "upgrade", "heads"], cwd=ROOT / "backend", env=os.environ.copy(),
                        capture_output=True, text=True)
     if r.returncode:
-        raise RuntimeError("alembic upgrade head failed:\n" + r.stdout + r.stderr)
+        raise RuntimeError("alembic upgrade heads failed:\n" + r.stdout + r.stderr)
 
 
 # ============================================================ results

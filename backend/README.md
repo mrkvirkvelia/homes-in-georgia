@@ -4,7 +4,7 @@ Run everything from `backend/` with the shared venv (`../.venv/bin/python`); con
 
 ```
 cd backend
-../.venv/bin/alembic upgrade head                      # schema (+ default settings rows)
+../.venv/bin/alembic upgrade heads                      # schema (+ default settings rows)
 ../.venv/bin/uvicorn app.main:app --reload --port 8000 # API on /api, SPA from ../frontend/dist
 ../.venv/bin/python -m app.worker                      # scheduler loop (every 30 s); --once for a single pass
 ../.venv/bin/python -m app.importers.sheets_csv ../data/legacy-sheets   # Google Sheets CSV export → Postgres (idempotent)

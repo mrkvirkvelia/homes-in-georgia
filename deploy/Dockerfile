@@ -38,4 +38,4 @@ ENV APP_VERSION=$GIT_COMMIT
 RUN useradd --create-home --uid 1000 app && mkdir -p /app/data/media /app/bot/data /app/bot/raw && chown -R app:app /app
 USER app
 EXPOSE 8000
-CMD ["sh", "-c", "cd backend && alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --proxy-headers"]
+CMD ["sh", "-c", "cd backend && alembic upgrade heads && uvicorn app.main:app --host 0.0.0.0 --port 8000 --proxy-headers"]

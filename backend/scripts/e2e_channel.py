@@ -341,7 +341,7 @@ def fresh_db():
     with psycopg.connect(admin, autocommit=True) as c:
         c.execute(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)')
         c.execute(f'CREATE DATABASE "{name}"')
-    r = subprocess.run([sys.executable, "-m", "alembic", "upgrade", "head"], cwd=BACKEND, capture_output=True, text=True)
+    r = subprocess.run([sys.executable, "-m", "alembic", "upgrade", "heads"], cwd=BACKEND, capture_output=True, text=True)
     if r.returncode:
         sys.exit("alembic failed:\n" + r.stderr[-3000:])
 

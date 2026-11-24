@@ -752,8 +752,8 @@ def has_post(db: Session, p: Property) -> bool:
         PropertyPublication.status == "published").limit(1)))
 
 
-REPOST_LIMIT = 3  # David 11-24: «в день 3 апдейта на человека» (agents; operators moderate, no limit); per person:
-# users.plans["reposts"], set in the admin's user form (voice 287351: 2 for recruits, 4 for the best…)
+REPOST_PER = 5  # David / Irakli 11-24: 1 bump a day per 5 of the agent's published objects (15 → 3, 60 → 12), at least 1;
+# users.plans["reposts"] set in the admin's user form overrides it (voice 287351). Operators moderate: no limit.
 
 
 def reposts_left(db: Session, user: User) -> int | None:
@@ -763,14 +763,16 @@ def reposts_left(db: Session, user: User) -> int | None:
     day = now().astimezone(_tz()).replace(hour=0, minute=0, second=0, microsecond=0)
     done = db.scalar(select(func.count()).select_from(Event).where(
         Event.action == "reposted", Event.actor_id == user.id, Event.at >= day)) or 0
-    return max(0, repost_limit(user) - done)
+    return max(0, repost_limit(db, user) - done)
 
 
-def repost_limit(user: User) -> int:
-    try:
-        return int((user.plans or {}).get("reposts", REPOST_LIMIT))
-    except (TypeError, ValueError):
-        return REPOST_LIMIT
+def repost_limit(db: Session, user: User) -> int:
+    v = (user.plans or {}).get("reposts")
+    if isinstance(v, (int, float)) and v >= 0:
+        return int(v)
+    n = db.scalar(select(func.count()).select_from(Property).where(Property.agent_id == user.id,
+                                                                   Property.status == "published")) or 0
+    return max(1, n // REPOST_PER)
 
 
 def schedule_repost(db: Session, p: Property) -> None:
@@ -2421,7 +2423,7 @@ def publish(db: Session, pid: int, actor: User, text: str | None = None, media_i
             raise forbidden("only operators publish")
         text = None  # the post is built from the fields
         if tg and reposts_left(db, actor) == 0:
-            raise DomainError("repost_limit", f"Лимит: {repost_limit(actor)} в день. Завтра снова можно")
+            raise DomainError("repost_limit", f"Лимит: {repost_limit(db, actor)} в день (1 на каждые {REPOST_PER} ваших опубликованных объектов). Завтра снова можно")
     if not (tg or site):
         raise DomainError("no_target", "Отметьте, куда публиковать: сайт или Telegram")
     if channel not in PUBLICATION_CHANNELS:
@@ -2965,7 +2967,7 @@ def out(db: Session, p: Property, user: User, full: bool = False, cache: dict | 
     d["locked_fields"] = list(LOCKED_AFTER_VERIFY) if is_locked_for(p, user) else []
     if full and p.status == "published":
         d["reposts_left"], d["post_moderated"] = reposts_left(db, user), not at_least(user, "operator")
-        d["reposts_limit"] = None if d["reposts_left"] is None else repost_limit(user)
+        d["reposts_limit"] = None if d["reposts_left"] is None else repost_limit(db, user)
     d["needs_check"] = needs_check(p)
     owner = get(Owner, p.owner_id)
     if owner:

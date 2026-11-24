@@ -1,5 +1,6 @@
 """David 11-24: an agent's edit of a live post goes to the operator («Редактирование = новый пост»), approval applies
-it and the post follows; «Поднять пост наверх» by hand — 3 a day per agent, operators without a limit."""
+it and the post follows; «Поднять пост наверх» by hand — 1 a day per 5 published objects (at least 1), operators
+without a limit."""
 from app import worker
 from app.models import ChangeRequest, Job, Property
 from app.services import change_requests
@@ -28,8 +29,12 @@ def test_agents_post_edit_goes_to_the_operator(db, client, monkeypatch):
     assert len(_live(db, pid)) == 1 and _live(db, pid) == ["120"]
 
 
-def test_repost_limit_three_a_day_for_agents(db, client, monkeypatch):
+def test_repost_limit_one_per_five_objects(db, client, monkeypatch):
     calls, georgiy, nino, pid = _published(db, client, monkeypatch)
+    p = db.get(Property, pid)
+    for _ in range(14):  # 15 published objects → 3 a day
+        db.add(Property(agent_id=georgiy.id, status="published", source_type=p.source_type))
+    db.commit()
     pub = lambda u: client.post(f"/api/properties/{pid}/publish", json={"channel": "tg"}, headers=auth(u))  # noqa: E731
     assert client.get(f"/api/properties/{pid}", headers=auth(georgiy)).json()["reposts_left"] == 3
     for _ in range(3):

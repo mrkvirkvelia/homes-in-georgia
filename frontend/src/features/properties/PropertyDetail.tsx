@@ -1349,7 +1349,7 @@ function Republish({ p, onEdit }: { p: Property; onEdit: () => void }) {
       {/* David 11-24: «апдейт» — the same post up the channel; agents 3 a day (backend REPOST_LIMIT) */}
       <Button variant="secondary" loading={again.isPending} disabled={left === 0} onClick={() => again.mutate()}
         title={t('Пост выйдет заново наверху канала, старый удалится')}>
-        <RotateCcw size={16} />{t('Поднять пост наверх')}{left != null ? ` · ${t('осталось {n} из {m} сегодня', { n: left, m: p.reposts_limit ?? 3 })}` : ''}
+        <RotateCcw size={16} />{t('Поднять пост наверх')}{left != null ? ` · ${t('осталось {n} из {m} сегодня', { n: left, m: p.reposts_limit ?? 1 })}` : ''}
       </Button>
     </div>
   );

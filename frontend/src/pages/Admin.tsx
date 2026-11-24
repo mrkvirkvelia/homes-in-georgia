@@ -81,8 +81,8 @@ function UserForm({ user, all, onDone }: { user?: User; all: User[]; onDone: () 
         </div>
       )}
       {f.role && (!atLeast({ role: f.role }, 'operator') || f.works_as_agent) && (
-        <Field label={t('Поднять пост: раз в день')} hint={t('Сколько раз в день агент может поднять свой пост в канале (по умолчанию 3)')}>
-          <Input type="number" min={0} value={plans.reposts ?? 3} onChange={(e) => set('plans', { ...plans, reposts: Number(e.target.value) })} style={{ maxWidth: 120 }} />
+        <Field label={t('Поднять пост: раз в день')} hint={t('Пусто — авто: 1 на каждые 5 опубликованных объектов агента (минимум 1)')}>
+          <Input type="number" min={0} value={plans.reposts ?? ''} placeholder={t('авто')} onChange={(e) => set('plans', { ...plans, reposts: e.target.value === '' ? undefined : Number(e.target.value) })} style={{ maxWidth: 120 }} />
         </Field>
       )}
       {f.role && atLeast({ role: f.role }, 'operator') && (

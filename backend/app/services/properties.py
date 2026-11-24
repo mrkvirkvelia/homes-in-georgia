@@ -2448,7 +2448,8 @@ def publish(db: Session, pid: int, actor: User, text: str | None = None, media_i
         p.progress_key = f"publish:{p.id}"  # the card polls GET /properties/{id}/publish/progress
         _legacy_pub(db, p)  # before post_url turns into the new post's link
         ref = _notify("publish_post", p)
-        dry_run = ref is None and not env.BOT_TOKEN and env.APP_ENV == "dev"
+        # dev without a bot, and the test server (Telegram cut off): published in the CRM only, no channel post
+        dry_run = ref is None and ((not env.BOT_TOKEN and env.APP_ENV == "dev") or env.TEST_MODE)
         if ref is None and not dry_run:
             raise DomainError("publish_failed", "Telegram did not accept the post", 502)
         if ref:

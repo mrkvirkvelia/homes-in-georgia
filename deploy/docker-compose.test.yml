@@ -1,0 +1,38 @@
+# The TEST server (docs/TEST-SERVER.md): a separate copy of the CRM next to the working one, with demo data.
+#   docker compose -p hig-test -f deploy/docker-compose.test.yml --env-file .env.test up -d --build
+# Own project name → own containers, network and volumes (hig-test_*); the working CRM (project «deploy») is untouched.
+# Only db + api + worker: no client bot, no listing refresh, no operator userbot; Telegram is cut off (TG_API_BASE).
+x-app: &app
+  build: { context: .., dockerfile: deploy/Dockerfile, args: { WITH_EMBED: "1" } }
+  env_file: ../.env.test
+  environment:
+    SECRET_KEY: ${SECRET_KEY:?set SECRET_KEY}
+    DATABASE_URL: postgresql+psycopg://homes:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@db:5432/homes
+    TEST_MODE: "1"
+    PASSWORD_LOGIN: "1"
+    MEDIA_STORAGE: local
+    TG_API_BASE: http://127.0.0.1:9   # nothing ever reaches Telegram from here
+    CHROME_BIN: chromium
+  depends_on: { db: { condition: service_healthy } }
+  restart: unless-stopped
+  volumes: [media:/app/data]
+
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    environment: { POSTGRES_USER: homes, POSTGRES_PASSWORD: "${POSTGRES_PASSWORD}", POSTGRES_DB: homes }
+    volumes: [pg:/var/lib/postgresql/data]
+    healthcheck: { test: ["CMD-SHELL", "pg_isready -U homes"], interval: 5s, retries: 20 }
+    restart: unless-stopped
+
+  api:
+    <<: *app
+    ports: ["127.0.0.1:8100:8000"]   # Caddy: hig-test.91-99-162-108.sslip.io → here
+    healthcheck: { test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=4)"], interval: 30s }
+
+  worker:
+    <<: *app
+    command: ["sh", "-c", "cd backend && python -m app.worker"]
+    depends_on: { api: { condition: service_started } }
+
+volumes: { pg: {}, media: {} }

@@ -92,6 +92,7 @@ class Settings(BaseSettings):
     S3_REGION: str = "us-east-1"        # R2/MinIO/AWS accept us-east-1; Hetzner: fsn1/nbg1/hel1
     S3_PUBLIC_URL: str = ""             # optional public base URL of the bucket (CDN/R2 domain); else presigned URLs
     DEV_CORS: bool = False
+    TEST_MODE: bool = False  # the test server (deploy/test-push.sh): «ТЕСТ» banner, password sign-in, demo data, no Telegram
     APP_ENV: str = "prod"  # dev: allows a weak SECRET_KEY
 
     @property

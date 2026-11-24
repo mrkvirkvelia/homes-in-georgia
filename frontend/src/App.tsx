@@ -10,6 +10,7 @@ import { AppLayout } from './layout/AppLayout';
 import { AdminPage } from './pages/Admin';
 import { AnalyticsPage } from './pages/Analytics';
 import { CabinetPage } from './pages/Cabinet';
+import { TestBanner } from './components/TestBanner';
 import { CalcPage } from './pages/Calc';
 import { CalendarPage } from './pages/Calendar';
 import { ContractsPage } from './pages/Contracts';
@@ -77,6 +78,8 @@ const STAFF = STAFF_ROLES;
 
 export function App() {
   return (
+    <>
+    <TestBanner />
     <Routes>
       <Route path="/login" element={<LoginPage />} />
       <Route path="/sign/:token" element={<ExclusiveSignPage />} />
@@ -118,5 +121,6 @@ export function App() {
         <Route path="*" element={<NotFound />} />
       </Route>
     </Routes>
+    </>
   );
 }
